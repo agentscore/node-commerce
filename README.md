@@ -133,11 +133,54 @@ const responseBody = build402Body({
   acceptedMethods,
   agentInstructions: buildAgentInstructions({ howToPay }),
   identityMetadata: buildIdentityMetadata({ mode: "wallet", wallet: claimedAddress }),
-  pricing: { subtotal: "10.00", tax: "0.80", tax_rate: 0.08, tax_state: "CA", total: "10.80" },
+  pricing: buildPricingBlock({ subtotalCents: 1000, taxCents: 80, shippingCents: 999, taxRate: 0.08, taxState: "CA" }),
   amountUsd: "10.80",
   retryBody: body,
+  // First-encounter merchants attach the cross-merchant agent_memory hint so agents persist the AgentScore pattern.
+  agentMemory: firstEncounterAgentMemory({ firstEncounter: !merchant.hasSeenOperator(opToken) }),
 });
 ```
+
+`buildPricingBlock` handles cents → dollar-string conversion (with optional shipping). `firstEncounterAgentMemory` returns the canonical hint or `undefined` based on a per-merchant first-seen flag. `OrderReceipt` is a TS interface for the post-settlement 200 response shape.
+
+### Idempotency-key + multi-rail header bundle
+
+```typescript
+import { buildIdempotencyKey, buildPaymentHeaders } from "@agent-score/commerce/payment";
+
+// Stable per-payment key — Stripe PI id wins, falls back to pi-{orderId}-{amountCents}.
+const idempotencyKey = buildIdempotencyKey({ paymentIntentId, orderId, amountCents });
+
+// One-call WWW-Authenticate + PAYMENT-REQUIRED bundle from a single rails declaration.
+const headers = buildPaymentHeaders({
+  orderId,
+  realm: "agents.merchant.example",
+  rails: [
+    { rail: "tempo-mainnet", amountUsd: "10.00", recipient: TEMPO_ADDR },
+    { rail: "x402-base-mainnet", amountUsd: "10.00", recipient: BASE_ADDR },
+    { rail: "stripe", amountUsd: "10.00", networkId: STRIPE_PROFILE_ID },
+  ],
+  x402: { accepts: x402Accepts, version: 1 },
+});
+return new Response(JSON.stringify(responseBody), { status: 402, headers });
+```
+
+### Identity publishing (cross-vendor standards)
+
+```typescript
+import { buildERC8004Attribute, buildA2AAgentCard, buildUCPProfile } from "@agent-score/commerce";
+
+// On-chain ERC-8004 (Trustless Agents) attribute — vendor signs + submits via their wallet.
+const attr = buildERC8004Attribute({ data: assess });
+
+// Google A2A v1.0 Signed Agent Card — publish at /.well-known/agent-card.json
+const card = buildA2AAgentCard({ name, url, capabilities, data: assess });
+
+// Google Universal Commerce Protocol — publish at /.well-known/ucp
+const profile = buildUCPProfile({ name, services, payment_handlers, signing_keys, data: assess });
+```
+
+ACP (Stripe + OpenAI Agentic Commerce Protocol) is a transactional checkout protocol with no identity-publishing surface — ACP merchants integrate via the existing `build402Body` + `buildPaymentHeaders` + Stripe SPT rail.
 
 ### Stripe multichain (peer dep on `stripe`)
 
