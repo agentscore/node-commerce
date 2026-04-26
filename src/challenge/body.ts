@@ -1,14 +1,11 @@
 import type { AcceptedMethodEntry } from './accepted_methods';
 import type { AgentInstructions } from './agent_instructions';
 import type { IdentityMetadataBlock } from './identity';
+import type { PricingBlock as _PricingBlock } from './pricing';
 
-export interface PricingBlock {
-  subtotal: string;
-  tax: string;
-  tax_rate: number;
-  tax_state: string;
-  total: string;
-}
+// PricingBlock has moved to ./pricing — re-exported here for backwards compat.
+// Future code should import from `@agent-score/commerce/challenge` (or `./pricing`).
+export type { PricingBlock } from './pricing';
 
 export interface Build402BodyInput {
   /** From buildAcceptedMethods — list of MPP method entries. */
@@ -20,7 +17,7 @@ export interface Build402BodyInput {
   /** Cross-merchant agent_memory hint (from gate). */
   agentMemory?: unknown;
   /** Pricing breakdown. */
-  pricing?: PricingBlock;
+  pricing?: _PricingBlock;
   /** Total amount in USD as a string (e.g., '250.00'). */
   amountUsd?: string;
   /** Currency code. Default 'USD'. */

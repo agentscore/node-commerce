@@ -2,4 +2,7 @@ export * from './accepted_methods';
 export * from './identity';
 export * from './how_to_pay';
 export * from './agent_instructions';
+export * from './agent_memory';
 export * from './body';
+export * from './pricing';
+export * from './order_receipt';

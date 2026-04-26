@@ -7,5 +7,7 @@ export * from './x402_server';
 export * from './mppx_server';
 export * from './dispatch';
 export * from './wwwauthenticate';
+export * from './headers';
+export * from './idempotency';
 export * from './signer';
 export * from './settlement_override';
