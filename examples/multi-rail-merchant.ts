@@ -112,14 +112,10 @@ app.post('/purchase', async (c) => {
     ...(isWalletAuth ? {} : { stripe: { profileId: process.env.STRIPE_PROFILE_ID! } }),
   });
 
-  // linked_wallets is exposed via the SDK's AssessResponse but not surfaced on
-  // AgentScoreData yet; merchants needing the full set should call
-  // `new AgentScore(...).assess(...)` directly. Here we leave it empty for the
-  // common 402 path.
   const identityMetadata = buildIdentityMetadata({
     mode: isWalletAuth ? 'wallet' : 'operator_token',
     wallet: claimedWallet ?? undefined,
-    linkedWallets: [],
+    linkedWallets: assess?.linked_wallets ?? [],
   });
 
   const howToPay = buildHowToPay({

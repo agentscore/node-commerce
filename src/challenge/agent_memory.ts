@@ -31,12 +31,6 @@ export interface FirstEncounterAgentMemoryInput {
    * cleanly without wrapping the call in an `if`.
    */
   firstEncounter: boolean;
-  /**
-   * AgentScore base URL — passed through but currently ignored by `buildAgentMemoryHint`
-   * (which hard-codes the canonical paths to prevent merchant-mediated phishing of the
-   * verify URL). Kept on the input shape for forward compatibility.
-   */
-  baseUrl?: string;
 }
 
 /**
@@ -59,5 +53,5 @@ export function firstEncounterAgentMemory(
   input: FirstEncounterAgentMemoryInput,
 ): AgentMemoryHint | undefined {
   if (!input.firstEncounter) return undefined;
-  return buildAgentMemoryHint(input.baseUrl);
+  return buildAgentMemoryHint();
 }

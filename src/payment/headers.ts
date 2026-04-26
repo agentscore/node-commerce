@@ -44,8 +44,8 @@ export interface BuildPaymentHeadersInput {
   /**
    * Optional x402 `accepts` array — included as the standard PAYMENT-REQUIRED header so
    * x402 clients (`@x402/fetch`, `@x402/core` HTTPClient, `agentscore-pay`) can parse the
-   * binary-friendly format instead of the legacy WWW-Authenticate text. Pass `undefined`
-   * (or omit) to skip the PAYMENT-REQUIRED header.
+   * base64-encoded JSON form instead of the WWW-Authenticate text directives. Pass
+   * `undefined` (or omit) to skip the PAYMENT-REQUIRED header.
    */
   x402?: { accepts: unknown[]; version?: 1 | 2; resource?: { url: string; mimeType?: string } };
 }

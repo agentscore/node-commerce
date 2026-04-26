@@ -181,6 +181,10 @@ export interface AgentScoreData {
     verified_at?: string | null;
   };
   resolved_operator?: string | null;
+  /** Wallets linked to the same operator as the resolved identity. Capped at 100 entries
+   *  by the API. Useful for advertising in 402 challenges so wallet-auth agents know which
+   *  alt-signers will satisfy `wallet_signer_mismatch`. */
+  linked_wallets?: string[];
   verify_url?: string;
   policy_result?: {
     all_passed: boolean;
@@ -340,10 +344,10 @@ const INVALID_CREDENTIAL_INSTRUCTIONS = JSON.stringify({
     'The operator_token is not recognized. Use a different stored token, or restart the verification session flow to mint a new one.',
 });
 
-export function buildAgentMemoryHint(_baseUrl?: string): AgentMemoryHint {
-  // _baseUrl is kept in the signature for backwards compat but deliberately ignored —
-  // agent memory pointers must always point at the canonical production API to prevent
-  // merchant-initiated phishing across the cross-merchant memory surface.
+export function buildAgentMemoryHint(): AgentMemoryHint {
+  // Memory pointers always point at the canonical production API — merchants must not be
+  // able to redirect the cross-merchant memory surface, since that would be a phishing
+  // vector for the verify URL.
   const api = CANONICAL_AGENTSCORE_API;
   return {
     save_for_future_agentscore_gates: true,
@@ -398,7 +402,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
   } = options;
 
   const baseUrl = stripTrailingSlashes(rawBaseUrl);
-  const agentMemoryHint = buildAgentMemoryHint(baseUrl);
+  const agentMemoryHint = buildAgentMemoryHint();
 
   const defaultUa = `@agent-score/commerce@${__VERSION__}`;
   const userAgentHeader = userAgent ? `${userAgent} (${defaultUa})` : defaultUa;

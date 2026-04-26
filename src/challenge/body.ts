@@ -3,8 +3,6 @@ import type { AgentInstructions } from './agent_instructions';
 import type { IdentityMetadataBlock } from './identity';
 import type { PricingBlock as _PricingBlock } from './pricing';
 
-// PricingBlock has moved to ./pricing — re-exported here for backwards compat.
-// Future code should import from `@agent-score/commerce/challenge` (or `./pricing`).
 export type { PricingBlock } from './pricing';
 
 export interface Build402BodyInput {

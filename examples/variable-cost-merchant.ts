@@ -1,12 +1,3 @@
-/* eslint-disable @typescript-eslint/ban-ts-comment */
-// @ts-nocheck — TODO(commerce@1.1): rewrite for current builder API. The pattern shown
-// (x402 upto + tempo session) is still valid; the call shapes drifted across:
-//   - PricingBlock no longer takes `max_usd` / `billing` (use buildPricingBlock with cents)
-//   - buildAgentInstructions now takes `howToPay` (built first), not `rails: []`
-//   - buildHowToPay rails is an object `{ tempo, x402_base, x402_solana, stripe }`, not an array
-//   - mppx/server/tempo/session import path changed; current is `mppx/tempo/session`
-// Other examples in this folder are typechecked and current; refer to api-provider.ts
-// for the rail-helper conventions and multi-rail-merchant.ts for the full 402 builder flow.
 /**
  * Example: variable-cost merchant supporting BOTH x402 upto AND MPP tempo session
  *
@@ -41,6 +32,7 @@
  *   bun add @agent-score/commerce hono mppx @x402/core @x402/evm
  *
  * Env vars:
+ *   APP_URL               — public URL of your service (for 402 commands)
  *   MPP_SECRET_KEY        — random base64
  *   TEMPO_RECIPIENT       — your Tempo wallet
  *   TEMPO_ESCROW_CONTRACT — your deployed escrow contract for channel deposits
@@ -49,10 +41,11 @@
  * Run: bun run examples/variable-cost-merchant.ts
  */
 import {
+  build402Body,
   buildAcceptedMethods,
   buildAgentInstructions,
   buildHowToPay,
-  build402Body,
+  buildPricingBlock,
 } from '@agent-score/commerce/challenge';
 import {
   createMppxServer,
@@ -62,10 +55,18 @@ import {
   wwwAuthenticateHeader,
 } from '@agent-score/commerce/payment';
 import { Hono } from 'hono';
-import { ChannelStore, Sse } from 'mppx/server/tempo/session';
+import { Store } from 'mppx';
+import { Session } from 'mppx/tempo';
+
+const APP_URL = process.env.APP_URL!;
+const TEMPO_RECIPIENT = process.env.TEMPO_RECIPIENT!;
+const TEMPO_ESCROW_CONTRACT = process.env.TEMPO_ESCROW_CONTRACT!;
+const X402_BASE_RECIPIENT = process.env.X402_BASE_RECIPIENT!;
 
 // ── Boot both rails ─────────────────────────────────────────────────────────
-const channelStore: ChannelStore.ChannelStore = ChannelStore.memory();
+// In production, swap Store.memory() for a durable backend (Postgres, D1,
+// Durable Objects). The in-memory store is fine for examples and dev.
+const channelStore = Session.ChannelStore.fromStore(Store.memory());
 
 await createX402Server({
   facilitator: 'http',
@@ -75,8 +76,8 @@ await createX402Server({
 const mppx = await createMppxServer({
   rails: {
     tempo_session: {
-      recipient: process.env.TEMPO_RECIPIENT!,
-      escrowContract: process.env.TEMPO_ESCROW_CONTRACT!,
+      recipient: TEMPO_RECIPIENT,
+      escrowContract: TEMPO_ESCROW_CONTRACT,
       store: channelStore,
     },
   },
@@ -84,8 +85,9 @@ const mppx = await createMppxServer({
 });
 
 const app = new Hono();
-const REALM = 'llm.example.com';
+const REALM = new URL(APP_URL).host;
 const MAX_USDC = 0.5; // upper bound vendor advertises; actual bill ≤ this
+const MAX_USDC_CENTS = Math.round(MAX_USDC * 100);
 
 // ── 402 challenge advertising both options ──────────────────────────────────
 function buildChallenge(url: string) {
@@ -105,31 +107,43 @@ function buildChallenge(url: string) {
       request: '',
     }),
   ];
+
+  const acceptedMethods = buildAcceptedMethods({
+    x402_base: { recipient: X402_BASE_RECIPIENT },
+    tempo: { recipient: TEMPO_RECIPIENT },
+  });
+
+  const howToPay = buildHowToPay({
+    url,
+    retryBodyJson: JSON.stringify({ prompt: '<your prompt>' }),
+    totalUsd: MAX_USDC,
+    rails: {
+      x402_base: { recipient: X402_BASE_RECIPIENT },
+      tempo: { recipient: TEMPO_RECIPIENT },
+    },
+    maxSpend: MAX_USDC,
+  });
+
+  // For variable-cost work, advertise the upper bound as `subtotal` and let the
+  // vendor charge ≤ that. The actual amount lands via Settlement-Overrides
+  // (x402 upto) or the highest voucher signed mid-stream (tempo session).
   const body = build402Body({
-    productName: 'LLM completion',
-    instructions: buildAgentInstructions({
-      rails: ['x402-base-mainnet-upto', 'tempo-mainnet'],
+    product: { id: 'llm-completion', name: 'LLM completion' },
+    acceptedMethods,
+    pricing: buildPricingBlock({ subtotalCents: MAX_USDC_CENTS, currency: 'USD' }),
+    agentInstructions: buildAgentInstructions({
+      howToPay,
       warnings: [
         'Cost is variable — final amount depends on output length.',
         'For one-shot completions use x402 upto. For long streams use tempo session.',
       ],
     }),
-    pricing: { max_usd: MAX_USDC, billing: 'pay-per-token' },
-    accepted_methods: buildAcceptedMethods({
-      x402_base: { recipient: process.env.X402_BASE_RECIPIENT, scheme: 'upto' },
-      tempo: {
-        recipient: process.env.TEMPO_RECIPIENT,
-        intent: 'session',
-        escrowContract: process.env.TEMPO_ESCROW_CONTRACT,
-      },
-    }),
-    how_to_pay: buildHowToPay({
-      rails: ['x402-base-mainnet-upto', 'tempo-mainnet'],
-      urlBase: url,
-      retryBody: { prompt: '<your prompt>' },
-      maxSpend: MAX_USDC,
-    }),
+    amountUsd: MAX_USDC.toFixed(2),
+    currency: 'USD',
+    orderId: null,
+    retryBody: { prompt: '<your prompt>' },
   });
+
   return new Response(JSON.stringify(body), {
     status: 402,
     headers: {
@@ -163,20 +177,17 @@ app.post('/llm/complete', async (c) => {
 
 // ── /llm/stream: MPP tempo session path (SSE with mid-stream vouchers) ──────
 app.post('/llm/stream', async (c) => {
-  const ctx = Sse.fromRequest(c.req.raw);
+  const ctx = Session.Sse.fromRequest(c.req.raw);
   if (!ctx) return buildChallenge(c.req.url);
 
-  // Per-token price in atomic units (e.g., 0.000002 USDC = 2 with 6 decimals)
-  const tickCost = 2n;
-
-  const stream = Sse.serve({
+  const stream = Session.Sse.serve({
     store: channelStore,
     channelId: ctx.channelId,
     challengeId: ctx.challengeId,
-    tickCost,
+    tickCost: ctx.tickCost,
     generate: yourLlmTokenStream(),
   });
-  return Sse.toResponse(stream);
+  return Session.Sse.toResponse(stream);
 });
 
 async function runYourLlm(_prompt: string): Promise<{ text: string; tokensUsed: number }> {
