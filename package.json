@@ -1,0 +1,162 @@
+{
+  "name": "@agent-score/commerce",
+  "version": "1.0.0",
+  "description": "Agent commerce SDK — identity middleware (Hono, Express, Fastify, Next.js, Web Fetch) + payment helpers + 402 builders + discovery + Stripe multichain. The full merchant-side toolkit for AgentScore-powered agent commerce.",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.mjs",
+      "require": "./dist/core.js"
+    },
+    "./identity/express": {
+      "types": "./dist/identity/express.d.ts",
+      "import": "./dist/identity/express.mjs",
+      "require": "./dist/identity/express.js"
+    },
+    "./identity/hono": {
+      "types": "./dist/identity/hono.d.ts",
+      "import": "./dist/identity/hono.mjs",
+      "require": "./dist/identity/hono.js"
+    },
+    "./identity/web": {
+      "types": "./dist/identity/web.d.ts",
+      "import": "./dist/identity/web.mjs",
+      "require": "./dist/identity/web.js"
+    },
+    "./identity/nextjs": {
+      "types": "./dist/identity/nextjs.d.ts",
+      "import": "./dist/identity/nextjs.mjs",
+      "require": "./dist/identity/nextjs.js"
+    },
+    "./identity/fastify": {
+      "types": "./dist/identity/fastify.d.ts",
+      "import": "./dist/identity/fastify.mjs",
+      "require": "./dist/identity/fastify.js"
+    },
+    "./payment": {
+      "types": "./dist/payment/index.d.ts",
+      "import": "./dist/payment/index.mjs",
+      "require": "./dist/payment/index.js"
+    },
+    "./discovery": {
+      "types": "./dist/discovery/index.d.ts",
+      "import": "./dist/discovery/index.mjs",
+      "require": "./dist/discovery/index.js"
+    },
+    "./challenge": {
+      "types": "./dist/challenge/index.d.ts",
+      "import": "./dist/challenge/index.mjs",
+      "require": "./dist/challenge/index.js"
+    },
+    "./stripe-multichain": {
+      "types": "./dist/stripe-multichain/index.d.ts",
+      "import": "./dist/stripe-multichain/index.mjs",
+      "require": "./dist/stripe-multichain/index.js"
+    },
+    "./api": {
+      "types": "./dist/api/index.d.ts",
+      "import": "./dist/api/index.mjs",
+      "require": "./dist/api/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": [
+    "agentscore",
+    "agent-commerce",
+    "agentic-payments",
+    "402",
+    "x402",
+    "mpp",
+    "machine-payments-protocol",
+    "express",
+    "hono",
+    "nextjs",
+    "fastify",
+    "middleware",
+    "trust",
+    "reputation",
+    "kyc",
+    "identity",
+    "stripe",
+    "tempo",
+    "solana",
+    "base",
+    "ai-agent"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agentscore/node-commerce"
+  },
+  "homepage": "https://agentscore.sh",
+  "bugs": {
+    "url": "https://github.com/agentscore/node-commerce/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@agent-score/sdk": "link:@agent-score/sdk"
+  },
+  "peerDependencies": {
+    "express": ">=4.0.0",
+    "fastify": ">=4.0.0",
+    "hono": ">=4.0.0",
+    "stripe": ">=17.0.0"
+  },
+  "peerDependenciesMeta": {
+    "express": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    },
+    "stripe": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@coinbase/x402": "^2.1.0",
+    "@eslint/js": "^9.39.4",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.6.0",
+    "@vitest/coverage-v8": "^4.1.5",
+    "@x402/core": "^2.10.0",
+    "@x402/evm": "^2.10.0",
+    "@x402/extensions": "^2.10.0",
+    "@x402/svm": "^2.10.0",
+    "dotenv": "^17.4.2",
+    "eslint": "^9.39.4",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-unused-imports": "^4.4.1",
+    "express": "^5.2.1",
+    "fastify": "^5.8.5",
+    "hono": "^4.12.15",
+    "mppx": "^0.6.5",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.0",
+    "vitest": "^4.1.5"
+  }
+}
