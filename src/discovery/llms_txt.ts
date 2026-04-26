@@ -76,19 +76,27 @@ export function llmsTxtPaymentSection(input: LlmsTxtPaymentSectionInput): string
   return input.verbose ? llmsTxtPaymentSectionVerbose(input) : llmsTxtPaymentSectionCompact(input);
 }
 
+function hasRailFamily(rails: string[], prefix: string): boolean {
+  return rails.some(r => r.startsWith(prefix));
+}
+
+function isTestnetRail(rails: string[], prefix: string): boolean {
+  return rails.some(r => r.startsWith(prefix) && /(sepolia|devnet|moderato|testnet)/.test(r));
+}
+
 function llmsTxtPaymentSectionCompact(input: LlmsTxtPaymentSectionInput): string {
   const lines: string[] = ['## Payment', ''];
-  const railSet = new Set(input.rails);
-  if (railSet.has('tempo-mainnet') || railSet.has('tempo-testnet')) {
-    lines.push('- **Tempo USDC via MPP** (recommended for crypto-native agents) — `tempo request -X POST -H "X-Operator-Token: opc_..." --json \'{...}\' --max-spend N ' + input.appUrl + '`');
+  const rails = input.rails;
+  if (hasRailFamily(rails, 'tempo-')) {
+    lines.push('- **Tempo USDC via MPP** — `tempo request -X POST -H "X-Operator-Token: opc_..." --json \'{...}\' --max-spend N ' + input.appUrl + '`');
   }
-  if (railSet.has('x402-base-mainnet') || railSet.has('x402-base-sepolia')) {
+  if (hasRailFamily(rails, 'x402-base-')) {
     lines.push('- **x402 USDC on Base** (EIP-3009) — `agentscore-pay pay POST ' + input.appUrl + ' --chain base -H "X-Operator-Token: opc_..." -d \'{...}\'`');
   }
-  if (railSet.has('x402-solana-mainnet') || railSet.has('x402-solana-devnet')) {
+  if (hasRailFamily(rails, 'x402-solana-')) {
     lines.push('- **x402 USDC on Solana** (SPL Token) — `agentscore-pay pay POST ' + input.appUrl + ' --chain solana -H "X-Operator-Token: opc_..." -d \'{...}\'`');
   }
-  if (railSet.has('stripe-spt')) {
+  if (rails.includes('stripe-spt')) {
     lines.push('- **Stripe Shared Payment Token** — agent mints SPT (own Stripe account scoped to networkId, OR `link-cli spend-request create --credential-type shared_payment_token --network-id <profileId> ...`)');
   }
   lines.push('');
@@ -98,27 +106,29 @@ function llmsTxtPaymentSectionCompact(input: LlmsTxtPaymentSectionInput): string
 }
 
 function llmsTxtPaymentSectionVerbose(input: LlmsTxtPaymentSectionInput): string {
-  const railSet = new Set(input.rails);
+  const rails = input.rails;
   const tempoNetwork = input.tempoNetworkName ?? 'tempo-mainnet';
   const tempoChain = input.tempoChainId ?? 4217;
-  const hasTempo = railSet.has('tempo-mainnet') || railSet.has('tempo-testnet');
-  const hasBase = railSet.has('x402-base-mainnet') || railSet.has('x402-base-sepolia');
-  const hasSolana = railSet.has('x402-solana-mainnet') || railSet.has('x402-solana-devnet');
-  const hasStripe = railSet.has('stripe-spt');
+  const hasTempo = hasRailFamily(rails, 'tempo-');
+  const hasBase = hasRailFamily(rails, 'x402-base-');
+  const hasSolana = hasRailFamily(rails, 'x402-solana-');
+  const hasStripe = rails.includes('stripe-spt');
+  const baseNetworkName = isTestnetRail(rails, 'x402-base-') ? 'Base Sepolia' : 'Base';
+  const solanaNetworkName = isTestnetRail(rails, 'x402-solana-') ? 'Solana devnet' : 'Solana';
 
   const lines: string[] = ['## Payment', ''];
   lines.push('This is an agent-first API. All payments are initiated and completed by agents. The 402 challenge advertises:');
   lines.push('');
-  if (hasTempo) lines.push('- **Tempo USDC via MPP** (on-chain stablecoin) — RECOMMENDED');
+  if (hasTempo) lines.push('- **Tempo USDC via MPP** (on-chain stablecoin)');
   if (hasBase || hasSolana) {
-    const chains = [hasBase && 'Base (EIP-3009)', hasSolana && 'Solana (SPL Token)'].filter(Boolean).join(' and ');
+    const chains = [hasBase && `${baseNetworkName} (EIP-3009)`, hasSolana && `${solanaNetworkName} (SPL Token)`].filter(Boolean).join(' and ');
     lines.push(`- **x402 USDC** on ${chains}, via the Coinbase facilitator`);
   }
   if (hasStripe) lines.push('- **Stripe Shared Payment Token** (agent mints SPT on their Stripe account scoped to our networkId in the challenge, submits it in the credential)');
   lines.push('');
 
   if (hasTempo) {
-    lines.push('### How to pay with Tempo (recommended)');
+    lines.push('### How to pay with Tempo');
     lines.push('');
     lines.push('1. Install the Tempo CLI: curl -fsSL https://tempo.xyz/install | bash');
     lines.push('2. Log in to your Tempo Wallet: tempo wallet login (passkey auth in browser)');
@@ -139,13 +149,13 @@ function llmsTxtPaymentSectionVerbose(input: LlmsTxtPaymentSectionInput): string
   }
 
   if (hasBase || hasSolana) {
-    const chains = [hasBase && 'Base', hasSolana && 'Solana'].filter(Boolean).join(' or ');
+    const chainsLabel = [hasBase && baseNetworkName, hasSolana && solanaNetworkName].filter(Boolean).join(' or ');
     const flags = [hasBase && '`--chain base`', hasSolana && '`--chain solana`'].filter(Boolean).join(' or ');
-    lines.push(`### How to pay with x402 (${chains})`);
+    lines.push(`### How to pay with x402 (${chainsLabel})`);
     lines.push('');
     lines.push('1. Install the agentscore-pay CLI: npm install -g @agent-score/pay  (or: brew install agentscore/tap/agentscore-pay)');
     lines.push(`2. Create a wallet on your chain of choice: agentscore-pay wallet create ${flags}`);
-    lines.push(`3. Fund the printed address with USDC on ${chains} mainnet`);
+    lines.push(`3. Fund the printed address with USDC on ${chainsLabel}`);
     lines.push(`4. Confirm balance: agentscore-pay balance ${flags}`);
     lines.push('');
     lines.push('Then submit the paid purchase:');
