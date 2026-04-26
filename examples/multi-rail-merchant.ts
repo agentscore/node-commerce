@@ -25,14 +25,16 @@ import {
   buildAgentInstructions,
   buildHowToPay,
   buildIdentityMetadata,
+  buildPricingBlock,
+  firstEncounterAgentMemory,
 } from '@agent-score/commerce/challenge';
 import { agentscoreGate, getAgentScoreData } from '@agent-score/commerce/identity/hono';
 import {
+  buildPaymentHeaders,
   createMppxServer,
   createX402Server,
   networks,
-  paymentDirective,
-  wwwAuthenticateHeader,
+  type PaymentHeadersRail,
 } from '@agent-score/commerce/payment';
 import {
   createMultichainPaymentIntent,
@@ -130,37 +132,54 @@ app.post('/purchase', async (c) => {
     acceptedMethods,
     agentInstructions: buildAgentInstructions({ howToPay }),
     identityMetadata,
+    pricing: buildPricingBlock({
+      subtotalCents: amountCents,
+      // Demo merchant: no tax / shipping. Real merchants pass tax_cents,
+      // shipping_cents, tax_rate, tax_state per their jurisdiction.
+      currency: 'USD',
+    }),
     amountUsd: totalUsd,
     currency: 'USD',
     orderId: body.order_id ?? null,
     retryBody: body,
+    // First-encounter merchants attach the cross-merchant agent_memory hint so
+    // agents persist the AgentScore pattern. Production merchants track
+    // first-seen state in their own DB; for demo purposes we always emit it.
+    agentMemory: firstEncounterAgentMemory({ firstEncounter: true }),
   });
 
-  // ── WWW-Authenticate Payment directives (link-cli decode-compatible) ─────
-  const directives: string[] = [
-    paymentDirective({
+  // ── One-call header bundle: WWW-Authenticate + PAYMENT-REQUIRED ──────────
+  // buildPaymentHeaders composes both transport headers from a single rails
+  // declaration. Replaces the previous ~20 lines of inline directive
+  // construction.
+  const headerRails: PaymentHeadersRail[] = [
+    {
       rail: 'tempo-mainnet',
-      id: `${paymentIntentId}_tempo`,
-      realm: REALM,
-      request: '', // build via buildPaymentRequestBlob if you want a real blob
-    }),
+      amountUsd: totalUsd,
+      recipient: depositAddresses.tempo,
+      method: 'tempo',
+    },
   ];
   if (process.env.STRIPE_PROFILE_ID) {
-    directives.push(
-      paymentDirective({
-        rail: 'stripe-spt',
-        id: `${paymentIntentId}_stripe`,
-        realm: REALM,
-        request: '',
-      }),
-    );
+    headerRails.push({
+      rail: 'stripe',
+      amountUsd: totalUsd,
+      networkId: process.env.STRIPE_PROFILE_ID,
+      method: 'stripe',
+    });
   }
+  const composed = buildPaymentHeaders({
+    orderId: paymentIntentId,
+    realm: REALM,
+    rails: headerRails,
+  });
 
   return new Response(JSON.stringify(richBody), {
     status: 402,
     headers: {
       'content-type': 'application/json',
-      'www-authenticate': wwwAuthenticateHeader(directives),
+      'www-authenticate': composed['www-authenticate'],
+      ...(composed['PAYMENT-REQUIRED'] ? { 'PAYMENT-REQUIRED': composed['PAYMENT-REQUIRED'] } : {}),
     },
   });
 });

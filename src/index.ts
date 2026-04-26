@@ -36,3 +36,13 @@ export {
   type A2AAgentCardIdentity,
   type BuildA2AAgentCardInput,
 } from './identity/a2a';
+export {
+  AGENTSCORE_UCP_CAPABILITY,
+  buildUCPProfile,
+  type BuildUCPProfileInput,
+  type UCPCapability,
+  type UCPPaymentHandler,
+  type UCPProfile,
+  type UCPService,
+  type UCPSigningKey,
+} from './identity/ucp';
