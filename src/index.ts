@@ -23,3 +23,16 @@ export {
   verificationAgentInstructions,
 } from './_denial';
 export { denialReasonToBody } from './_response';
+export {
+  AGENTSCORE_ERC8004_SCHEMA,
+  buildERC8004Attribute,
+  type AgentScoreERC8004Attribute,
+  type BuildERC8004AttributeInput,
+} from './identity/erc8004';
+export {
+  buildA2AAgentCard,
+  type A2AAgentCard,
+  type A2AAgentCardCapabilities,
+  type A2AAgentCardIdentity,
+  type BuildA2AAgentCardInput,
+} from './identity/a2a';

@@ -171,6 +171,15 @@ export interface AgentScoreData {
     operator_type: string | null;
     verified_at: string | null;
   };
+  /** Account-level KYC facts that apply to every operator under the same account.
+   *  Populated when the API returns account_verification (post-KYC operator). */
+  account_verification?: {
+    kyc_level?: string;
+    sanctions_clear?: boolean;
+    age_bracket?: string;
+    jurisdiction?: string;
+    verified_at?: string | null;
+  };
   resolved_operator?: string | null;
   verify_url?: string;
   policy_result?: {
