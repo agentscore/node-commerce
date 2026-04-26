@@ -40,6 +40,7 @@ import {
   createMultichainPaymentIntent,
 } from '@agent-score/commerce/stripe-multichain';
 import { Hono } from 'hono';
+// @ts-expect-error - stripe is an optional peer dep installed by the example user
 import Stripe from 'stripe';
 
 const APP_URL = process.env.APP_URL!;
@@ -102,7 +103,8 @@ app.post('/purchase', async (c) => {
   void x402Server; // also processes incoming x402 payloads
 
   // ── If no credential yet, build a 402 challenge with all rails ────────────
-  const isWalletAuth = Boolean(assess?.identity?.address && !assess?.identity?.operator_token);
+  const claimedWallet = c.req.header('X-Wallet-Address');
+  const isWalletAuth = assess?.identity_method === 'wallet';
   const acceptedMethods = buildAcceptedMethods({
     tempo: { recipient: depositAddresses.tempo, network: 'tempo-mainnet', chainId: 4217 },
     x402_base: { recipient: depositAddresses.base, network: networks.base.mainnet.caip2 },
@@ -110,10 +112,14 @@ app.post('/purchase', async (c) => {
     ...(isWalletAuth ? {} : { stripe: { profileId: process.env.STRIPE_PROFILE_ID! } }),
   });
 
+  // linked_wallets is exposed via the SDK's AssessResponse but not surfaced on
+  // AgentScoreData yet; merchants needing the full set should call
+  // `new AgentScore(...).assess(...)` directly. Here we leave it empty for the
+  // common 402 path.
   const identityMetadata = buildIdentityMetadata({
     mode: isWalletAuth ? 'wallet' : 'operator_token',
-    wallet: assess?.identity?.address ?? undefined,
-    linkedWallets: assess?.linked_wallets ?? [],
+    wallet: claimedWallet ?? undefined,
+    linkedWallets: [],
   });
 
   const howToPay = buildHowToPay({

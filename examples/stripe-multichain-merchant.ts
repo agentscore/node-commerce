@@ -24,6 +24,7 @@ import {
   simulateCryptoDeposit,
 } from '@agent-score/commerce/stripe-multichain';
 import { Hono } from 'hono';
+// @ts-expect-error - stripe is an optional peer dep installed by the example user
 import Stripe from 'stripe';
 
 const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-11-20.acacia' as never });

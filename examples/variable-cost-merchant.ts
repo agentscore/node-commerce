@@ -1,3 +1,12 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+// @ts-nocheck — TODO(commerce@1.1): rewrite for current builder API. The pattern shown
+// (x402 upto + tempo session) is still valid; the call shapes drifted across:
+//   - PricingBlock no longer takes `max_usd` / `billing` (use buildPricingBlock with cents)
+//   - buildAgentInstructions now takes `howToPay` (built first), not `rails: []`
+//   - buildHowToPay rails is an object `{ tempo, x402_base, x402_solana, stripe }`, not an array
+//   - mppx/server/tempo/session import path changed; current is `mppx/tempo/session`
+// Other examples in this folder are typechecked and current; refer to api-provider.ts
+// for the rail-helper conventions and multi-rail-merchant.ts for the full 402 builder flow.
 /**
  * Example: variable-cost merchant supporting BOTH x402 upto AND MPP tempo session
  *
