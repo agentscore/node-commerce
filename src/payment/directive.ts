@@ -32,7 +32,7 @@ export function buildPaymentRequestBlob(input: PaymentRequestInput): string {
 
   const amountNum = typeof input.amountUsd === 'string' ? Number(input.amountUsd) : input.amountUsd;
   const amountRaw = BigInt(Math.round(amountNum * 10 ** decimals)).toString();
-  const blob: Record<string, unknown> = { amount: amountRaw, currency };
+  const blob: Record<string, unknown> = { amount: amountRaw, currency, decimals };
   if (input.recipient) blob.recipient = input.recipient;
   const methodDetails: Record<string, unknown> = {};
   if (chainId !== undefined) methodDetails.chainId = chainId;

@@ -127,10 +127,11 @@ app.post('/search', async (c) => {
   }
 
   // Payment present — validate via the right server based on which header arrived:
-  //   Authorization: Payment ... → MPP (tempo)
-  //   payment-signature / x-payment → x402 (base or solana)
-  // Both servers expose processPaymentRequest / settlePayment for verify + settle. See
-  // dispatchSettlementByNetwork for routing x402 payloads to the right scheme handler.
+  //   Authorization: Payment ... → MPP (tempo) — call mppx.compose() to verify + settle
+  //   payment-signature / x-payment → x402 (base or solana) — call verifyX402Request
+  //     then processX402Settle from `@agent-score/commerce/payment` for a single-call
+  //     verify + settle (returns base64 paymentResponseHeader for the success response).
+  // See multi-rail-merchant.ts for the full drop-in pattern.
 
   const body = await c.req.json();
   const results = await runYourSearch(body.query);

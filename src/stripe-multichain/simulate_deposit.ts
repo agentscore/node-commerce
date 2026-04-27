@@ -1,3 +1,21 @@
+/**
+ * Stripe's documented magic test_helpers transaction hash that resolves the
+ * PaymentIntent to `succeeded` within 15 seconds. Same value across all networks —
+ * Stripe normalizes the format internally. Anything else (including network-shaped
+ * placeholder bytes) is rejected with "not a valid testmode transaction hash".
+ *
+ * See: https://docs.stripe.com/payments/deposit-mode-stablecoin-payments
+ */
+export const STRIPE_TEST_TX_HASH_SUCCESS =
+  '0x00000000000000000000000000000000000000000000000000000testsuccess';
+
+/**
+ * Stripe's documented magic test_helpers transaction hash that fails the charge
+ * (PaymentIntent returns to `requires_payment_method` within 15 seconds).
+ */
+export const STRIPE_TEST_TX_HASH_FAILED =
+  '0x000000000000000000000000000000000000000000000000000000testfailed';
+
 export interface SimulateCryptoDepositInput {
   /** Stripe PaymentIntent id to simulate a deposit on. */
   paymentIntentId: string;
@@ -51,5 +69,66 @@ export async function simulateCryptoDeposit(input: SimulateCryptoDepositInput): 
   const res = await fetch(url, { method: 'POST', headers, body: params.toString() });
   if (!res.ok) {
     throw new Error(`Stripe simulate_crypto_deposit failed: ${res.status} ${await res.text()}`);
+  }
+}
+
+export interface SimulateDepositIfTestModeInput {
+  /** Stripe PaymentIntent id resolver — given a deposit address, return the PI id (or undefined
+   *  if the cache TTL expired between 402 emit and settlement). Typically `cache.getPaymentIntentId`. */
+  getPaymentIntentId: (depositAddress: string) => string | undefined;
+  /** The deposit address that was paid to (recipient). */
+  depositAddress: string;
+  /** Network the simulated deposit lands on. */
+  network: 'tempo' | 'base' | 'solana';
+  /** Optional simulated buyer wallet (defaults per network in `simulateCryptoDeposit`). */
+  buyerWallet?: string;
+  /** Token currency to pass through to Stripe (typically `'usdc'`). */
+  tokenCurrency?: string;
+  /** Stripe secret key. The wrapper checks this starts with `sk_test_` and skips otherwise. */
+  stripeSecretKey: string;
+  /** Stripe API version (e.g. `'2026-03-04.preview'` for the deposit-mode preview). */
+  stripeVersion?: string;
+}
+
+/**
+ * Higher-level wrapper around {@link simulateCryptoDeposit} for the testnet/dev path.
+ * Bundles the three steps every Stripe-multichain merchant repeats:
+ *
+ *   1. Gate on `sk_test_` key prefix — production keys reject the test_helpers endpoint
+ *      with 400; live deposits reach Stripe's real crypto-deposit watcher instead.
+ *   2. Resolve the PaymentIntent id from the deposit address (cache lookup).
+ *   3. Call `simulate_crypto_deposit` with Stripe's documented success magic hash.
+ *
+ * Logs `[stripe] ✓ Simulated <network> deposit for PI <id>` on success and
+ * `[stripe] ✗ Failed to simulate <network> deposit for PI <id>: <err>` on failure.
+ * Errors are caught + logged (never thrown) so a sim hiccup doesn't fail the order.
+ *
+ * Use case is exclusively dev/testnet end-to-end — production servers (sk_live_) no-op.
+ */
+export async function simulateDepositIfTestMode(input: SimulateDepositIfTestModeInput): Promise<void> {
+  if (!input.stripeSecretKey.startsWith('sk_test_')) return;
+  const piId = input.getPaymentIntentId(input.depositAddress);
+  if (!piId) {
+    console.warn(
+      `[stripe] Skipping deposit simulation — no PI cached for deposit address ${input.depositAddress.slice(0, 10)}… (network=${input.network}). The PI cache TTL may have expired between 402 emission and settlement.`,
+    );
+    return;
+  }
+  try {
+    await simulateCryptoDeposit({
+      paymentIntentId: piId,
+      network: input.network,
+      ...(input.buyerWallet !== undefined && { buyerWallet: input.buyerWallet }),
+      tokenCurrency: input.tokenCurrency ?? 'usdc',
+      transactionHash: STRIPE_TEST_TX_HASH_SUCCESS,
+      stripeSecretKey: input.stripeSecretKey,
+      ...(input.stripeVersion !== undefined && { stripeVersion: input.stripeVersion }),
+    });
+    console.warn(`[stripe] ✓ Simulated ${input.network} deposit for PI ${piId}`);
+  } catch (err) {
+    console.error(
+      `[stripe] ✗ Failed to simulate ${input.network} deposit for PI ${piId}:`,
+      err instanceof Error ? err.message : err,
+    );
   }
 }

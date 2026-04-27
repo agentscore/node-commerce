@@ -24,10 +24,10 @@ npm install hono mppx @x402/core @x402/evm @x402/svm stripe   # whatever your st
 | Subpath | What it provides |
 |---|---|
 | `/identity/{hono,express,fastify,nextjs,web}` | Trust gate middleware: KYC, sanctions, age, jurisdiction. `agentscoreGate(...)`, `getAgentScoreData(c)`, `captureWallet(...)`, `verifyWalletSignerMatch(...)`. Plus shared denial helpers: `denialReasonStatus`, `denialReasonToBody`, `buildSignerMismatchBody`, `buildContactSupportNextSteps`, `verificationAgentInstructions`, `isFixableDenial`, `FIXABLE_DENIAL_REASONS`. |
-| `/payment` | `networks`, `USDC`, `rails` registries; `paymentDirective`, `buildPaymentDirective`, `wwwAuthenticateHeader`, `paymentRequiredHeader`, `settlementOverrideHeader`, `dispatchSettlementByNetwork`, `extractPaymentSigner` (returns `{address, network}`); `createX402Server`, `createMppxServer`. |
+| `/payment` | `networks`, `USDC`, `rails` registries; `paymentDirective`, `buildPaymentDirective`, `wwwAuthenticateHeader`, `paymentRequiredHeader`, `settlementOverrideHeader`, `dispatchSettlementByNetwork`, `extractPaymentSigner` (returns `{address, network}`); `createX402Server`, `createMppxServer`; drop-in x402 helpers: `validateX402NetworkConfig` (boot-time guard), `verifyX402Request` (parse + validate inbound X-Payment), `processX402Settle` (verify-then-settle with one call). |
 | `/discovery` | `isDiscoveryProbeRequest`, `buildDiscoveryProbeResponse`, `buildWellKnownMpp`, `buildLlmsTxt` + `llmsTxtIdentitySection` + `llmsTxtPaymentSection` (compact + verbose modes), `agentscoreOpenApiSnippets`, `createBazaarDiscovery`. |
-| `/challenge` | `build402Body`, `buildAcceptedMethods`, `buildIdentityMetadata`, `buildHowToPay`, `buildAgentInstructions`. |
-| `/stripe-multichain` | `createMultichainPaymentIntent`, `getDepositAddress`, `simulateCryptoDeposit`, `createMppxStripe`. Peer dep on `stripe`. |
+| `/challenge` | `build402Body`, `buildAcceptedMethods`, `buildIdentityMetadata`, `buildHowToPay`, `buildAgentInstructions`, `buildPricingBlock`, `firstEncounterAgentMemory`, `OrderReceipt`; `respond402` — drop-in 402 emit that preserves mppx's `WWW-Authenticate` and layers x402's `PAYMENT-REQUIRED`. |
+| `/stripe-multichain` | `createMultichainPaymentIntent`, `getDepositAddress`, `simulateCryptoDeposit`, `createMppxStripe`; `createPiCache` (TTL'd PI / deposit-address cache, Redis-backed when `redisUrl` set, in-memory otherwise), `simulateDepositIfTestMode` (gates on `sk_test_` and looks up the PI for you), `STRIPE_TEST_TX_HASH_SUCCESS` / `STRIPE_TEST_TX_HASH_FAILED` constants. Peer dep on `stripe`. |
 | `/api` | `AgentScore` + `AgentScoreError` re-exported from `@agent-score/sdk`. |
 
 ## Quick start
@@ -187,8 +187,10 @@ ACP (Stripe + OpenAI Agentic Commerce Protocol) is a transactional checkout prot
 ```typescript
 import {
   createMultichainPaymentIntent,
+  createPiCache,
   getDepositAddress,
   simulateCryptoDeposit,
+  simulateDepositIfTestMode,
 } from "@agent-score/commerce/stripe-multichain";
 
 const result = await createMultichainPaymentIntent({
@@ -201,14 +203,68 @@ const result = await createMultichainPaymentIntent({
 const baseAddress = getDepositAddress(result, "base");
 const solanaAddress = getDepositAddress(result, "solana");
 
-// Testnet helper — simulates a deposit landing on the PI for end-to-end exercises
-if (process.env.STRIPE_SECRET_KEY!.startsWith("sk_test_")) {
-  await simulateCryptoDeposit({
-    paymentIntentId: result.paymentIntentId,
-    network: "base",
-    stripeSecretKey: process.env.STRIPE_SECRET_KEY!,
-  });
+// PI / deposit-address cache. Redis-backed when REDIS_URL is set, in-memory otherwise —
+// multi-task deployments need Redis so a deposit lands on whichever task settles it.
+const piCache = createPiCache({ redisUrl: process.env.REDIS_URL });
+for (const addr of Object.values(result.depositAddresses)) {
+  await piCache.cacheAddress(addr);
+  piCache.cachePaymentIntent(addr, result.paymentIntentId);
 }
+piCache.cacheNetworkAddresses(result.paymentIntentId, result.depositAddresses);
+
+// Testnet helper — gates on sk_test_ and looks up the PI for you. No-op on live keys.
+await simulateDepositIfTestMode({
+  getPaymentIntentId: piCache.getPaymentIntentId,
+  depositAddress: baseAddress!,
+  network: "base",
+  stripeSecretKey: process.env.STRIPE_SECRET_KEY!,
+});
+```
+
+### Drop-in 402 + settle (x402)
+
+```typescript
+import {
+  processX402Settle,
+  validateX402NetworkConfig,
+  verifyX402Request,
+} from "@agent-score/commerce/payment";
+import { respond402 } from "@agent-score/commerce/challenge";
+
+// Boot-time guard — raises if a configured network isn't supported.
+validateX402NetworkConfig({ baseNetwork: X402_BASE, svmNetwork: X402_SVM });
+
+app.post("/purchase", async (c) => {
+  // Path A — agent presented an x402 X-Payment header
+  if (c.req.header("payment-signature") || c.req.header("x-payment")) {
+    const verified = await verifyX402Request({
+      request: c.req.raw,
+      isCachedAddress: piCache.hasAddress,
+      acceptedNetworks: { base: X402_BASE, svm: X402_SVM },
+    });
+    if (!verified.ok) return c.json(verified.body, verified.status);
+
+    const settle = await processX402Settle({
+      x402Server,
+      payload: verified.payload,
+      resourceConfig: { scheme: "exact", network: verified.signedNetwork, price: `$${total}`, payTo: verified.signedPayTo, maxTimeoutSeconds: 300 },
+      resourceMeta: { url: c.req.url, mimeType: "application/json" },
+    });
+    if (!settle.success) return c.json({ error: { code: "payment_proof_invalid", phase: settle.phase } }, 400);
+
+    const headers: Record<string, string> = {};
+    if (settle.paymentResponseHeader) headers["payment-response"] = settle.paymentResponseHeader;
+    return c.json({ ok: true }, { headers });
+  }
+
+  // Path B — cold call (or Authorization: Payment for mppx). After mppx.compose() returns 402,
+  // respond402 PRESERVES mppx's WWW-Authenticate and ADDS x402's PAYMENT-REQUIRED.
+  return respond402({
+    mppxChallenge: mppxResult.challenge as Response,
+    body: { acceptedMethods, agentInstructions, pricing, amountUsd: total, retryBody: body },
+    x402: { x402Version: 2, accepts: x402Accepts, resource: { url: c.req.url, mimeType: "application/json" } },
+  });
+});
 ```
 
 ## Examples

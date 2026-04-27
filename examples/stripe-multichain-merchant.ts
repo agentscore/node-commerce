@@ -19,6 +19,7 @@
  * Run: bun run examples/stripe-multichain-merchant.ts
  */
 import {
+  STRIPE_TEST_TX_HASH_SUCCESS,
   createMultichainPaymentIntent,
   getDepositAddress,
   simulateCryptoDeposit,
@@ -73,7 +74,7 @@ app.post('/testnet/simulate-deposit', async (c) => {
     stripeSecretKey: process.env.STRIPE_SECRET_KEY!,
     stripeVersion: '2026-03-04.preview', // if you're on a preview API
     tokenCurrency: 'usdc',
-    transactionHash: '0x00000000000000000000000000000000000000000000000000000testsuccess',
+    transactionHash: STRIPE_TEST_TX_HASH_SUCCESS,
   });
   return c.json({ ok: true, simulated: true });
 });

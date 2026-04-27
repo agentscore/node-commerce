@@ -158,8 +158,9 @@ app.post('/llm/complete', async (c) => {
   const auth = c.req.header('authorization');
   if (!auth?.startsWith('Payment ')) return buildChallenge(c.req.url);
 
-  // Validate the x402 payment via your x402Server.processPaymentRequest here.
-  // (Omitted for brevity — see api-provider.ts for the validate-then-settle pattern.)
+  // Validate the x402 payment via processX402Settle from `@agent-score/commerce/payment`
+  // (single-call verify + settle). Omitted for brevity — see multi-rail-merchant.ts for
+  // the full drop-in pattern.
 
   const body = await c.req.json();
   const { text, tokensUsed } = await runYourLlm(body.prompt);

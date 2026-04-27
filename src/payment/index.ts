@@ -4,6 +4,8 @@ export * from './usdc';
 export * from './rails';
 export * from './x402';
 export * from './x402_server';
+export * from './x402_settle';
+export * from './x402_validation';
 export * from './mppx_server';
 export * from './dispatch';
 export * from './wwwauthenticate';
