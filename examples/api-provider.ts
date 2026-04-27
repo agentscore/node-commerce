@@ -99,7 +99,7 @@ app.post('/search', async (c) => {
       {
         scheme: 'exact',
         network: networks.base.mainnet.caip2,
-        maxAmountRequired: String(PRICE_USDC * 1_000_000),
+        amount: String(PRICE_USDC * 1_000_000),
         asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
         payTo: process.env.X402_BASE_RECIPIENT,
         extra: { decimals: 6 },
@@ -107,14 +107,14 @@ app.post('/search', async (c) => {
       {
         scheme: 'exact',
         network: networks.solana.mainnet.caip2,
-        maxAmountRequired: String(PRICE_USDC * 1_000_000),
+        amount: String(PRICE_USDC * 1_000_000),
         asset: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
         payTo: process.env.X402_SOLANA_RECIPIENT,
         extra: { decimals: 6 },
       },
     ];
     return new Response(
-      JSON.stringify({ payment_required: true, x402Version: 1, accepts }),
+      JSON.stringify({ payment_required: true, x402Version: 2, accepts }),
       {
         status: 402,
         headers: {
