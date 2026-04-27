@@ -168,10 +168,7 @@ return new Response(JSON.stringify(responseBody), { status: 402, headers });
 ### Identity publishing (cross-vendor standards)
 
 ```typescript
-import { buildERC8004Attribute, buildA2AAgentCard, buildUCPProfile } from "@agent-score/commerce";
-
-// On-chain ERC-8004 (Trustless Agents) attribute — vendor signs + submits via their wallet.
-const attr = buildERC8004Attribute({ data: assess });
+import { buildA2AAgentCard, buildUCPProfile } from "@agent-score/commerce";
 
 // Google A2A v1.0 Signed Agent Card — publish at /.well-known/agent-card.json
 const card = buildA2AAgentCard({ name, url, capabilities, data: assess });
