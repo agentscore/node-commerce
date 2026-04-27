@@ -160,7 +160,7 @@ const headers = buildPaymentHeaders({
     { rail: "x402-base-mainnet", amountUsd: "10.00", recipient: BASE_ADDR },
     { rail: "stripe", amountUsd: "10.00", networkId: STRIPE_PROFILE_ID },
   ],
-  x402: { accepts: x402Accepts, version: 1 },
+  x402: { accepts: x402Accepts, version: 2 },
 });
 return new Response(JSON.stringify(responseBody), { status: 402, headers });
 ```
