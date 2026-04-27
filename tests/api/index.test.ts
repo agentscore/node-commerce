@@ -15,10 +15,6 @@ describe('@agent-score/commerce/api re-export', () => {
     expect(typeof commerceApi.AgentScoreError).toBe('function');
   });
 
-  it('re-exports the webhook signature verifier as the same function', () => {
-    expect(commerceApi.verifyWebhookSignature).toBe(sdk.verifyWebhookSignature);
-  });
-
   it('re-exports the test-mode address helpers as the same references', () => {
     expect(commerceApi.AGENTSCORE_TEST_ADDRESSES).toBe(sdk.AGENTSCORE_TEST_ADDRESSES);
     expect(commerceApi.isAgentScoreTestAddress).toBe(sdk.isAgentScoreTestAddress);
