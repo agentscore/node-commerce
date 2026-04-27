@@ -3,9 +3,9 @@
 // `address_lower`-style columns work. Solana addresses are base58 and are
 // case-sensitive — we MUST preserve the input verbatim, never lowercase.
 //
-// This helper mirrors `core/api/src/lib/address.ts` so the gate, API, and
-// merchants normalize identically. If the two ever drift, captured wallets
-// won't resolve and signer-match silently breaks.
+// Must produce identical output to the API normalizer (`core/api/src/lib/address.ts`)
+// so the gate, API, and merchants normalize the same way. If the two ever drift,
+// captured wallets won't resolve and signer-match silently breaks.
 
 const SOLANA_BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const EVM_RE = /^0x[0-9a-fA-F]{40}$/;
