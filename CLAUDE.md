@@ -74,7 +74,7 @@ bun run build
 
 ## Dev: linked sdk
 
-Until `@agent-score/sdk@1.9.0` publishes (Phase 0 cascade), the sdk dep is `link:@agent-score/sdk`. Run `bun link` in `agentscore/node-sdk` and `bun link @agent-score/sdk` here. The publish workflow swaps to a real version range at tag time.
+During local development the sdk dep is `link:@agent-score/sdk`. Run `bun link` in `agentscore/node-sdk` and `bun link @agent-score/sdk` here.
 
 ## Workflow
 
