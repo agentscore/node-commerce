@@ -28,7 +28,7 @@ npm install hono mppx @x402/core @x402/evm @x402/svm stripe   # whatever your st
 | `/discovery` | `isDiscoveryProbeRequest`, `buildDiscoveryProbeResponse`, `buildWellKnownMpp`, `buildLlmsTxt` + `llmsTxtIdentitySection` + `llmsTxtPaymentSection` (compact + verbose modes), `agentscoreOpenApiSnippets`, `createBazaarDiscovery`. |
 | `/challenge` | `build402Body`, `buildAcceptedMethods`, `buildIdentityMetadata`, `buildHowToPay`, `buildAgentInstructions`, `buildPricingBlock`, `firstEncounterAgentMemory`, `OrderReceipt`; `respond402` — drop-in 402 emit that preserves mppx's `WWW-Authenticate` and layers x402's `PAYMENT-REQUIRED`. |
 | `/stripe-multichain` | `createMultichainPaymentIntent`, `getDepositAddress`, `simulateCryptoDeposit`, `createMppxStripe`; `createPiCache` (TTL'd PI / deposit-address cache, Redis-backed when `redisUrl` set, in-memory otherwise), `simulateDepositIfTestMode` (gates on `sk_test_` and looks up the PI for you), `STRIPE_TEST_TX_HASH_SUCCESS` / `STRIPE_TEST_TX_HASH_FAILED` constants. Peer dep on `stripe`. |
-| `/api` | `AgentScore` + `AgentScoreError` re-exported from `@agent-score/sdk`. |
+| `/api` | Everything from `@agent-score/sdk` re-exported in one place: `AgentScore` + `AgentScoreError`, `verifyWebhookSignature` (+ `VerifyWebhookSignatureInput` / `VerifyWebhookSignatureResult` types), `AGENTSCORE_TEST_ADDRESSES` + `isAgentScoreTestAddress`. **Don't add `@agent-score/sdk` as a separate dep** — the two can drift versions and cause subtle type mismatches. |
 
 ## Quick start
 

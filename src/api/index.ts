@@ -1,9 +1,18 @@
 /**
- * AgentScore API client — re-exported from `@agent-score/sdk` so vendors only need to
- * install `@agent-score/commerce` and get the API client at `/api`.
+ * AgentScore SDK re-export — vendors install only `@agent-score/commerce` and reach
+ * everything from the underlying `@agent-score/sdk` here. Don't add `@agent-score/sdk`
+ * as a separate dep; the two can drift versions and cause subtle type mismatches.
  *
- * Use this when you need to programmatically interact with the AgentScore API (mint
- * sessions in custom denial flows, fetch reputation, etc). For the common case where
- * the gate handles session minting via `createSessionOnMissing`, you don't need this.
+ * Use this for: programmatic API calls (sessions, credentials, reputation), webhook
+ * signature verification on inbound AgentScore webhooks, and the test-mode address
+ * fixtures for integration tests.
  */
-export { AgentScore, AgentScoreError } from '@agent-score/sdk';
+export {
+  AGENTSCORE_TEST_ADDRESSES,
+  AgentScore,
+  AgentScoreError,
+  isAgentScoreTestAddress,
+  verifyWebhookSignature,
+  type VerifyWebhookSignatureInput,
+  type VerifyWebhookSignatureResult,
+} from '@agent-score/sdk';
