@@ -55,7 +55,7 @@ export function build402Body(input: Build402BodyInput): Record<string, unknown> 
   };
 
   if (input.x402) {
-    body.x402Version = input.x402.version ?? 1;
+    body.x402Version = input.x402.version ?? 2;
     body.accepts = input.x402.accepts;
   }
 

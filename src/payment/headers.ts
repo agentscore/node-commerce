@@ -100,7 +100,7 @@ export function buildPaymentHeaders(input: BuildPaymentHeadersInput): PaymentHea
 
   if (input.x402) {
     result['PAYMENT-REQUIRED'] = paymentRequiredHeader({
-      x402Version: input.x402.version ?? 1,
+      x402Version: input.x402.version ?? 2,
       accepts: input.x402.accepts,
       ...(input.x402.resource ? { resource: input.x402.resource } : {}),
     });

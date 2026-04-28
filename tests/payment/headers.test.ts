@@ -55,7 +55,7 @@ describe('buildPaymentHeaders', () => {
     expect(decoded.accepts).toEqual([{ scheme: 'exact', network: 'eip155:8453' }]);
   });
 
-  it('defaults x402 version to 1 when not specified', () => {
+  it('defaults x402 version to 2 when not specified', () => {
     const result = buildPaymentHeaders({
       orderId: 'ord_5',
       realm: 'a.example',
@@ -63,7 +63,7 @@ describe('buildPaymentHeaders', () => {
       x402: { accepts: [] },
     });
     const decoded = JSON.parse(Buffer.from(result['PAYMENT-REQUIRED']!, 'base64').toString());
-    expect(decoded.x402Version).toBe(1);
+    expect(decoded.x402Version).toBe(2);
   });
 
   it('passes through stripe networkId (instead of recipient) for stripe rail', () => {
