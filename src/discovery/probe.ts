@@ -1,4 +1,5 @@
 import { buildPaymentRequestBlob, paymentDirective } from '../payment/directive';
+import { paymentRequiredHeader } from '../payment/wwwauthenticate';
 
 export interface DiscoveryProbeOptions {
   /** Realm — typically the host of your merchant URL (e.g., "agents.merchant.example"). */
@@ -17,6 +18,21 @@ export interface DiscoveryProbeOptions {
   docsUrl?: string;
   /** Optional human-readable message in the body. */
   message?: string;
+  /** Optional sample x402 accepts entries. When provided, the probe response also
+   *  carries the standard x402 `payment-required` header (base64 PaymentRequired) AND
+   *  an `accepts` array in the body — so x402 crawlers (e.g. Coinbase awal's
+   *  `x402 details`/`x402 pay`) can discover the endpoint's x402 support without
+   *  needing to send a fully-formed business request. Each entry is run through
+   *  `aliasAmountFields` so v1-only parsers can read `maxAmountRequired` too. */
+  x402Sample?: {
+    /** Spec version to declare. Defaults to 2. */
+    version?: 1 | 2;
+    /** Sample accepts entries. Use placeholder payTo / asset when real ones aren't
+     *  available — discovery only needs the schema-shape to be valid. */
+    accepts: unknown[];
+    /** Resource URL the probe is responding for. Used in the PAYMENT-REQUIRED header. */
+    resourceUrl?: string;
+  };
 }
 
 export interface DiscoveryProbeResponse {
@@ -52,22 +68,43 @@ export function buildDiscoveryProbeResponse(opts: DiscoveryProbeOptions): Discov
     request,
   });
 
-  const body = JSON.stringify({
+  const bodyObj: Record<string, unknown> = {
     error: {
       code: 'payment_required',
       message: opts.message ?? 'This endpoint requires payment. Send a valid request body to receive a full challenge.',
     },
     discovery: true,
     ...(opts.docsUrl ? { docs: opts.docsUrl } : {}),
-  });
+  };
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    'www-authenticate': directive,
+  };
+
+  if (opts.x402Sample) {
+    const x402Version = opts.x402Sample.version ?? 2;
+    // paymentRequiredHeader applies aliasAmountFields internally; do the same for
+    // the body's `accepts` so v1-only parsers (Coinbase awal at payments-mcp.coinbase.com)
+    // and v2-strict parsers can both read either field name.
+    headers['payment-required'] = paymentRequiredHeader({
+      x402Version,
+      accepts: opts.x402Sample.accepts,
+      ...(opts.x402Sample.resourceUrl
+        ? { resource: { url: opts.x402Sample.resourceUrl, mimeType: 'application/json' } }
+        : {}),
+    });
+    // Also embed in body for clients that read body-level accepts (e.g. awal x402 details
+    // falls back from header → body when the header isn't present).
+    bodyObj.x402Version = x402Version;
+    // Reuse the header's already-aliased accepts so the body matches.
+    const headerJson = JSON.parse(Buffer.from(headers['payment-required'], 'base64').toString('utf-8'));
+    bodyObj.accepts = headerJson.accepts;
+  }
 
   return {
     status: 402,
-    headers: {
-      'content-type': 'application/json',
-      'www-authenticate': directive,
-    },
-    body,
+    headers,
+    body: JSON.stringify(bodyObj),
   };
 }
 

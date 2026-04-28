@@ -13,10 +13,34 @@ export interface PaymentRequiredHeaderInput {
 }
 
 /**
+ * Add the v1↔v2 amount-field alias to each accepts entry. Idempotent. Used by both
+ * `paymentRequiredHeader` (header emit) and `build402Body` (body emit) so every
+ * x402 entry on the wire carries BOTH `amount` (v2 spec) AND `maxAmountRequired`
+ * (v1 spec) — strict v1-only parsers (e.g. Coinbase awal at `payments-mcp.coinbase.com`,
+ * which is hardcoded to read `maxAmountRequired`) work alongside strict v2 parsers,
+ * which ignore the alias.
+ */
+export function aliasAmountFields(accepts: unknown[]): unknown[] {
+  return accepts.map((entry) => {
+    if (entry === null || typeof entry !== 'object') return entry;
+    const e = entry as Record<string, unknown>;
+    const hasAmount = e.amount !== undefined;
+    const hasMaxAmount = e.maxAmountRequired !== undefined;
+    if (hasAmount && !hasMaxAmount) return { ...e, maxAmountRequired: e.amount };
+    if (hasMaxAmount && !hasAmount) return { ...e, amount: e.maxAmountRequired };
+    return e;
+  });
+}
+
+/**
  * Encode the standard x402 PAYMENT-REQUIRED header (base64-encoded JSON of the
  * PaymentRequired object). Clients that recognize the header (`@x402/fetch`,
  * `@x402/core` HTTPClient, `agentscore-pay`) prefer it over body fields.
+ *
+ * Each accepts entry is post-processed via `aliasAmountFields` so v1-only
+ * clients (e.g. awal) and v2-strict clients can both read it.
  */
 export function paymentRequiredHeader(input: PaymentRequiredHeaderInput): string {
-  return Buffer.from(JSON.stringify(input)).toString('base64');
+  const aliased = { ...input, accepts: aliasAmountFields(input.accepts) };
+  return Buffer.from(JSON.stringify(aliased)).toString('base64');
 }

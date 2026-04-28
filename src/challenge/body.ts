@@ -1,3 +1,4 @@
+import { aliasAmountFields } from '../payment/wwwauthenticate';
 import type { AcceptedMethodEntry } from './accepted_methods';
 import type { AgentInstructions } from './agent_instructions';
 import type { IdentityMetadataBlock } from './identity';
@@ -56,7 +57,7 @@ export function build402Body(input: Build402BodyInput): Record<string, unknown> 
 
   if (input.x402) {
     body.x402Version = input.x402.version ?? 2;
-    body.accepts = input.x402.accepts;
+    body.accepts = aliasAmountFields(input.x402.accepts);
   }
 
   if (input.amountUsd !== undefined) body.amount_usd = input.amountUsd;

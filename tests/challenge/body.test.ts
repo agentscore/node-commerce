@@ -47,6 +47,20 @@ describe('build402Body', () => {
     expect(body.accepts).toEqual([{ scheme: 'exact' }]);
   });
 
+  it('emits both amount (v2) and maxAmountRequired (v1) on each accepts entry', () => {
+    const body = build402Body({
+      acceptedMethods: [],
+      x402: { accepts: [{ scheme: 'exact', network: 'eip155:84532', amount: '110000' }], version: 2 },
+    });
+    expect(body.x402Version).toBe(2);
+    expect((body.accepts as Array<Record<string, unknown>>)[0]).toEqual({
+      scheme: 'exact',
+      network: 'eip155:84532',
+      amount: '110000',
+      maxAmountRequired: '110000',
+    });
+  });
+
   it('merges agent_memory + agent_instructions + extra', () => {
     const body = build402Body({
       acceptedMethods: [],
