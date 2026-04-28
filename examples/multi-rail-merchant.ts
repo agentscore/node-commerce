@@ -47,6 +47,7 @@ import {
   createX402Server,
   networks,
   processX402Settle,
+  USDC,
   validateX402NetworkConfig,
   verifyX402Request,
 } from '@agent-score/commerce/payment';
@@ -224,8 +225,22 @@ app.post('/purchase', async (c) => {
       x402: {
         x402Version: 2,
         accepts: [
-          { scheme: 'exact', network: X402_BASE_NETWORK, payTo: depositAddresses.base },
-          { scheme: 'exact', network: X402_SVM_NETWORK, payTo: depositAddresses.solana },
+          {
+            scheme: 'exact',
+            network: X402_BASE_NETWORK,
+            amount: String(Math.round(Number(totalUsd) * 1_000_000)),
+            asset: USDC.base.mainnet.address,
+            payTo: depositAddresses.base,
+            maxTimeoutSeconds: 300,
+          },
+          {
+            scheme: 'exact',
+            network: X402_SVM_NETWORK,
+            amount: String(Math.round(Number(totalUsd) * 1_000_000)),
+            asset: USDC.solana.mainnet.mint,
+            payTo: depositAddresses.solana,
+            maxTimeoutSeconds: 300,
+          },
         ],
         resource: { url: c.req.url, mimeType: 'application/json' },
       },
