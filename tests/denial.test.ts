@@ -154,4 +154,24 @@ describe('verificationAgentInstructions', () => {
     expect(inst.order_ttl).toContain('1 hour');
     expect(inst.vendor_field).toBe('value');
   });
+
+  it('retryStep replaces the canonical retry step (no duplicate retry instruction)', () => {
+    const customRetry = 'Retry POST /purchase with X-Operator-Token AND include order_id from this response.';
+    const inst = verificationAgentInstructions({ retryStep: customRetry });
+    // Step at index 4 (5th step) is the retry step.
+    expect(inst.steps[4]).toBe(customRetry);
+    // The default phrase must NOT appear anywhere in steps.
+    expect(inst.steps.some((s) => s === 'Retry the original merchant request with header X-Operator-Token set to the operator_token value.')).toBe(false);
+  });
+
+  it('retryStep + extraSteps compose: retry replaces step 5, extras append after', () => {
+    const inst = verificationAgentInstructions({
+      retryStep: 'Custom retry instruction.',
+      extraSteps: ['Then do X.', 'Then do Y.'],
+    });
+    expect(inst.steps).toHaveLength(7);
+    expect(inst.steps[4]).toBe('Custom retry instruction.');
+    expect(inst.steps[5]).toBe('Then do X.');
+    expect(inst.steps[6]).toBe('Then do Y.');
+  });
 });

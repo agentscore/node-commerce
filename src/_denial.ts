@@ -153,7 +153,14 @@ export function buildContactSupportNextSteps(
 export interface VerificationAgentInstructionsInput {
   /** Override the user-facing message. */
   userAction?: string;
-  /** Append additional steps after the default ones. */
+  /** Replace the generic "Retry the original merchant request..." step with a merchant-specific
+   *  one (e.g. "Retry POST /purchase with X-Operator-Token AND include order_id..."). When set,
+   *  this REPLACES baseSteps[4] rather than appending — use it instead of `extraSteps[0]` when
+   *  your retry instruction is a refinement of the canonical retry, not an additional step. */
+  retryStep?: string;
+  /** Append additional steps after the retry step. Use this for genuinely additional steps
+   *  (e.g. "After payment the same call returns 200 with the order"), not for re-stating the
+   *  retry — use `retryStep` for that. */
   extraSteps?: string[];
   /** Override the poll cadence. Default 5 seconds. */
   pollIntervalSeconds?: number;
@@ -187,7 +194,7 @@ export function verificationAgentInstructions(input: VerificationAgentInstructio
     `Immediately begin polling poll_url every ${input.pollIntervalSeconds ?? 5} seconds with header X-Poll-Secret set to poll_secret. The user will complete verification in their browser while you poll in the background.`,
     'The user visits the URL, signs in, completes identity verification (photo ID + selfie via Stripe Identity), and closes the tab. They do NOT need to copy or paste anything back to you.',
     'When your poll returns status "verified", extract operator_token from the response. This is a one-time value — save it immediately. Subsequent polls return status "consumed" without the token.',
-    'Retry the original merchant request with header X-Operator-Token set to the operator_token value.',
+    input.retryStep ?? 'Retry the original merchant request with header X-Operator-Token set to the operator_token value.',
   ];
 
   return {
