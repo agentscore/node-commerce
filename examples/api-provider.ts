@@ -61,6 +61,13 @@ app.use('/search', async (c, next) => {
       sampleRail: 'tempo-mainnet',
       sampleAmountUsd: PRICE_USDC,
       sampleRecipient: process.env.TEMPO_RECIPIENT!,
+      // Advertise x402 support so crawlers (`awal x402 details`, etc.) can find
+      // it on an empty-body POST. Commerce synthesizes USDC sample accepts from
+      // the registry per CAIP-2 network passed.
+      x402Sample: {
+        networks: [networks.base.mainnet.caip2, networks.solana.mainnet.caip2],
+        resourceUrl: `${REALM}/search`,
+      },
     });
     return new Response(probe.body, { status: probe.status, headers: probe.headers });
   }
