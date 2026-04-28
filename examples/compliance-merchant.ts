@@ -46,11 +46,14 @@ const app = new Hono();
 const SUPPORT_EMAIL = 'support@example.com';
 
 // Vendor-specific extension of the canonical agent_instructions block. The commerce default
-// covers steps 1-5 (present verify_url, poll, extract token, retry). We append steps 6-7
-// describing how to RESUME a pending order with order_id + complete the eventual 402 payment.
+// covers steps 1-4 (present verify_url, poll, user verifies, extract token) plus a generic
+// "retry the original merchant request" at step 5. `retryStep` REPLACES that generic step 5
+// with our merchant-specific retry (include order_id to resume the pending order). `extraSteps`
+// adds the genuinely-additional 402-payment step that comes AFTER retry.
 const VERIFICATION_INSTRUCTIONS = verificationAgentInstructions({
-  extraSteps: [
+  retryStep:
     'Retry the request with header X-Operator-Token set to the operator_token value AND include the order_id from this 403 in the body to resume the pending order.',
+  extraSteps: [
     'The retry returns 402 Payment Required with a payment challenge. Pay via tempo request or agentscore-pay pay.',
   ],
   orderTtl: 'Pending orders expire after 1 hour. If the order expires, start a new request.',
