@@ -11,6 +11,30 @@ describe('buildAgentInstructions', () => {
     expect(instructions.warnings[0]).toContain('tempo wallet transfer');
   });
 
+  it('warnings + tools default to ONLY the rails actually present in howToPay', () => {
+    // x402-only merchant: no tempo warning/tool
+    const x402Only = buildAgentInstructions({
+      howToPay: { x402_base: { command: 'x', what_it_does: 'y' } },
+    });
+    expect(x402Only.warnings.some((w) => w.includes('tempo wallet transfer'))).toBe(false);
+    expect(x402Only.warnings.some((w) => w.includes('x402 deposit addresses'))).toBe(true);
+    expect(x402Only.recommended_tools.some((t) => t.includes('tempo request'))).toBe(false);
+    expect(x402Only.recommended_tools.some((t) => t.includes('agentscore-pay'))).toBe(true);
+
+    // tempo-only merchant: no x402 warning
+    const tempoOnly = buildAgentInstructions({
+      howToPay: { tempo: { command: 'x', what_it_does: 'y' } },
+    });
+    expect(tempoOnly.warnings.some((w) => w.includes('x402 deposit addresses'))).toBe(false);
+
+    // stripe-only merchant: no rail-specific warnings/tools
+    const stripeOnly = buildAgentInstructions({
+      howToPay: { stripe: { prerequisite: 'x', instructions: 'y' } },
+    });
+    expect(stripeOnly.warnings).toEqual([]);
+    expect(stripeOnly.recommended_tools).toEqual([]);
+  });
+
   it('overrides defaults when vendor passes them', () => {
     const instructions = buildAgentInstructions({
       howToPay: {},
