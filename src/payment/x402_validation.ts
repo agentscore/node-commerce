@@ -98,11 +98,35 @@ export type VerifyX402RequestResult =
     }
   | {
       ok: false;
-      /** Suitable as a JSON body for the merchant's denial response. */
-      body: { error: { code: string; message: string } };
+      /** Suitable as a JSON body for the merchant's denial response. Includes
+       *  `next_steps` with `regenerate_payment_credential` action + a per-condition
+       *  `user_message` and a footgun `warning` so agents can recover deterministically
+       *  from the response alone. */
+      body: {
+        error: { code: string; message: string };
+        next_steps: {
+          action: 'regenerate_payment_credential';
+          user_message: string;
+          warning: string;
+        };
+      };
       /** HTTP status to use for the denial response. */
       status: 400;
     };
+
+const REGENERATE_WARNING =
+  "If you're trying to pay with Tempo USDC, use `tempo request` (sends Authorization: Payment), not a manual X-Payment header. Do NOT use `tempo wallet transfer` — that sends USDC on-chain but will not complete the MPP handshake. For x402 on Base/Solana, use `agentscore-pay pay` so the X-Payment credential is signed and submitted; bare wallet transfers do not complete the handshake.";
+
+function regenerateBody(message: string, userMessage: string) {
+  return {
+    error: { code: 'payment_proof_invalid' as const, message },
+    next_steps: {
+      action: 'regenerate_payment_credential' as const,
+      user_message: userMessage,
+      warning: REGENERATE_WARNING,
+    },
+  };
+}
 
 /**
  * Per-request: parse the x402 X-Payment header, validate the network + payTo, and
@@ -126,7 +150,10 @@ export async function verifyX402Request(input: VerifyX402RequestInput): Promise<
     return {
       ok: false,
       status: 400,
-      body: { error: { code: 'payment_proof_invalid', message: 'X-Payment header missing' } },
+      body: regenerateBody(
+        'X-Payment header missing',
+        'No X-Payment header was sent. Generate the credential from the 402 challenge and resubmit on the same endpoint.',
+      ),
     };
   }
 
@@ -137,7 +164,10 @@ export async function verifyX402Request(input: VerifyX402RequestInput): Promise<
     return {
       ok: false,
       status: 400,
-      body: { error: { code: 'payment_proof_invalid', message: 'X-Payment header is not valid base64 JSON' } },
+      body: regenerateBody(
+        'X-Payment header is not valid base64 JSON',
+        'The payment credential could not be decoded. Reconstruct the credential from the 402 challenge and retry.',
+      ),
     };
   }
 
@@ -148,12 +178,10 @@ export async function verifyX402Request(input: VerifyX402RequestInput): Promise<
     return {
       ok: false,
       status: 400,
-      body: {
-        error: {
-          code: 'payment_proof_invalid',
-          message: `Unsupported x402 network ${signedNetwork ?? '<missing>'}; this server accepts ${input.acceptedNetworks.base} (Base) and ${input.acceptedNetworks.svm} (Solana)`,
-        },
-      },
+      body: regenerateBody(
+        `Unsupported x402 network ${signedNetwork ?? '<missing>'}; this server accepts ${input.acceptedNetworks.base} (Base) and ${input.acceptedNetworks.svm} (Solana)`,
+        'The credential signed for an unsupported network. Pick one of the accepted networks from the 402 challenge and re-sign.',
+      ),
     };
   }
 
@@ -166,12 +194,10 @@ export async function verifyX402Request(input: VerifyX402RequestInput): Promise<
     return {
       ok: false,
       status: 400,
-      body: {
-        error: {
-          code: 'payment_proof_invalid',
-          message: `Payment payload missing or malformed accepted.payTo address for network ${signedNetwork}`,
-        },
-      },
+      body: regenerateBody(
+        `Payment payload missing or malformed accepted.payTo address for network ${signedNetwork}`,
+        'The credential payload is missing or malformed payTo for the signed network. Reconstruct the credential from the 402 challenge.',
+      ),
     };
   }
 
@@ -179,12 +205,10 @@ export async function verifyX402Request(input: VerifyX402RequestInput): Promise<
     return {
       ok: false,
       status: 400,
-      body: {
-        error: {
-          code: 'payment_proof_invalid',
-          message: 'payTo address not found in cache or expired. Request a fresh 402 challenge and retry.',
-        },
-      },
+      body: regenerateBody(
+        'payTo address not found in cache or expired. Request a fresh 402 challenge and retry.',
+        'The deposit address is unknown or expired on this server. Request a fresh 402 challenge and re-sign against the new payTo.',
+      ),
     };
   }
 
