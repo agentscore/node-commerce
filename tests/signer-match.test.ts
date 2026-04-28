@@ -45,7 +45,7 @@ describe('buildAgentMemoryHint', () => {
     const body = await res.json() as Record<string, unknown>;
 
     expect(res.status).toBe(403);
-    expect(body.error).toBe('identity_verification_required');
+    expect(body.error.code).toBe('identity_verification_required');
     expect(body.agent_memory).toBeDefined();
     const memory = body.agent_memory as Record<string, unknown>;
     expect(memory.save_for_future_agentscore_gates).toBe(true);
@@ -64,7 +64,7 @@ describe('buildAgentMemoryHint', () => {
     const res = await app.request('/test');
     const body = await res.json() as Record<string, unknown>;
 
-    expect(body.error).toBe('missing_identity');
+    expect(body.error.code).toBe('missing_identity');
     expect(body.agent_memory).toBeDefined();
   });
 });

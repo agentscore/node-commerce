@@ -128,6 +128,8 @@ export interface AgentMemoryHint {
 
 export interface DenialReason {
   code: DenialCode;
+  /** Human-readable explanation. When omitted, `denialReasonToBody` substitutes a per-code default. */
+  message?: string;
   decision?: string;
   reasons?: string[];
   verify_url?: string;

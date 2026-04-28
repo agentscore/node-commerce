@@ -65,7 +65,7 @@ describe('Next.js adapter — withAgentScoreGate (route handler wrapper)', () =>
     expect(res.status).toBe(403);
     expect(handler).not.toHaveBeenCalled();
     const body = await res.json();
-    expect(body).toMatchObject({ error: 'wallet_not_trusted' });
+    expect(body).toMatchObject({ error: { code: 'wallet_not_trusted' } });
   });
 
   it('uses a custom onDenied handler when provided', async () => {
@@ -202,7 +202,7 @@ describe('Next.js adapter — withAgentScoreGate (route handler wrapper)', () =>
 
     expect(res.status).toBe(403);
     expect(body).toMatchObject({
-      error: 'identity_verification_required',
+      error: expect.objectContaining({ code: 'identity_verification_required' }),
       session_id: 'sess_nx1',
       poll_secret: 'ps_nx',
     });
@@ -356,7 +356,7 @@ describe('Next.js adapter — agentscoreMiddleware', () => {
 
     expect(result?.status).toBe(403);
     const body = await result?.json();
-    expect(body).toMatchObject({ error: 'missing_identity' });
+    expect(body).toMatchObject({ error: { code: 'missing_identity' } });
   });
 });
 
@@ -373,7 +373,7 @@ describe('Next.js adapter — error paths + chain', () => {
     const res = await POST(req);
     expect(res.status).toBe(403);
     const body = await res.json() as { error: string };
-    expect(body.error).toBe('payment_required');
+    expect(body.error.code).toBe('payment_required');
   });
 
   it('returns 503 api_error on 500', async () => {
@@ -386,7 +386,7 @@ describe('Next.js adapter — error paths + chain', () => {
     const res = await POST(req);
     expect(res.status).toBe(503);
     const body = await res.json() as { error: string };
-    expect(body.error).toBe('api_error');
+    expect(body.error.code).toBe('api_error');
   });
 
   it('forwards constructor chain to /v1/assess body', async () => {

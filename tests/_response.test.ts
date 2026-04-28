@@ -10,8 +10,12 @@ const reason = (fields: Partial<DenialReason> = {}): DenialReason => ({
 }) as DenialReason;
 
 describe('denialReasonToBody', () => {
-  it('includes only error for a bare denial', () => {
-    expect(denialReasonToBody(reason())).toEqual({ error: 'missing_identity' });
+  it('emits {error: {code, message}} with default per-code message for a bare denial', () => {
+    const body = denialReasonToBody(reason());
+    expect(body.error).toEqual({
+      code: 'missing_identity',
+      message: expect.stringContaining('No identity'),
+    });
   });
 
   it('propagates decision/reasons/verify_url when present', () => {
@@ -21,12 +25,15 @@ describe('denialReasonToBody', () => {
       reasons: ['kyc_required', 'age_insufficient'],
       verify_url: 'https://agentscore.sh/verify?x=1',
     }));
-    expect(body).toEqual({
-      error: 'wallet_not_trusted',
-      decision: 'deny',
-      reasons: ['kyc_required', 'age_insufficient'],
-      verify_url: 'https://agentscore.sh/verify?x=1',
-    });
+    expect((body.error as { code: string }).code).toBe('wallet_not_trusted');
+    expect(body.decision).toBe('deny');
+    expect(body.reasons).toEqual(['kyc_required', 'age_insufficient']);
+    expect(body.verify_url).toBe('https://agentscore.sh/verify?x=1');
+  });
+
+  it('uses an explicit reason.message when provided, not the per-code default', () => {
+    const body = denialReasonToBody(reason({ code: 'api_error', message: 'Custom downstream context' }));
+    expect(body.error).toEqual({ code: 'api_error', message: 'Custom downstream context' });
   });
 
   it('propagates session_id / poll_secret / poll_url when present', () => {

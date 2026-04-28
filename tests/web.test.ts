@@ -69,7 +69,7 @@ describe('Web Fetch adapter — createAgentScoreGate', () => {
       expect(result.response.status).toBe(403);
       const body = await result.response.json();
       expect(body).toMatchObject({
-        error: 'wallet_not_trusted',
+        error: expect.objectContaining({ code: 'wallet_not_trusted' }),
         verify_url: 'https://agentscore.sh/verify/xyz',
       });
     }
@@ -84,7 +84,7 @@ describe('Web Fetch adapter — createAgentScoreGate', () => {
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
       expect(result.response.status).toBe(403);
-      expect(await result.response.json()).toMatchObject({ error: 'missing_identity' });
+      expect(await result.response.json()).toMatchObject({ error: { code: 'missing_identity' } });
     }
   });
 
@@ -99,7 +99,7 @@ describe('Web Fetch adapter — createAgentScoreGate', () => {
 
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
-      expect(await result.response.json()).toMatchObject({ error: 'missing_identity' });
+      expect(await result.response.json()).toMatchObject({ error: { code: 'missing_identity' } });
     }
     expect(global.fetch).not.toHaveBeenCalled();
   });
@@ -118,7 +118,7 @@ describe('Web Fetch adapter — createAgentScoreGate', () => {
     if (!result.allowed) {
       const body = await result.response.json();
       expect(body).toMatchObject({
-        error: 'identity_verification_required',
+        error: expect.objectContaining({ code: 'identity_verification_required' }),
         session_id: 'sess_123',
         poll_secret: 'ps_secret',
       });
@@ -337,7 +337,7 @@ describe('Web Fetch adapter — error paths + chain', () => {
     if (!result.allowed) {
       expect(result.response.status).toBe(403);
       const body = await result.response.json() as { error: string };
-      expect(body.error).toBe('payment_required');
+      expect(body.error.code).toBe('payment_required');
     }
   });
 
@@ -350,7 +350,7 @@ describe('Web Fetch adapter — error paths + chain', () => {
     if (!result.allowed) {
       expect(result.response.status).toBe(503);
       const body = await result.response.json() as { error: string };
-      expect(body.error).toBe('api_error');
+      expect(body.error.code).toBe('api_error');
     }
   });
 

@@ -90,7 +90,7 @@ describe('agentscoreGate middleware — missing wallet address', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(403);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'missing_identity' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'missing_identity' }) }));
   });
 
   it('calls next() when no wallet address and failOpen is true', async () => {
@@ -147,7 +147,7 @@ describe('agentscoreGate middleware — denied assessment', () => {
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
-      error: 'wallet_not_trusted',
+      error: expect.objectContaining({ code: 'wallet_not_trusted' }),
       decision: 'deny',
       reasons: ['low_score'],
     }));
@@ -170,7 +170,7 @@ describe('agentscoreGate middleware — API error', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(503);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'api_error' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
   });
 
   it('calls next() on fetch rejection when failOpen is true', async () => {
@@ -208,7 +208,7 @@ describe('agentscoreGate middleware — API error', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(503);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'api_error' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
   });
 });
 
@@ -228,7 +228,7 @@ describe('agentscoreGate middleware — 402 payment required', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(403);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'payment_required' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'payment_required' }) }));
   });
 
   it('calls next() when API returns 402 and failOpen is true', async () => {
@@ -469,7 +469,7 @@ describe('agentscoreGate middleware — edge cases', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(403);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'missing_identity' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'missing_identity' }) }));
   });
 
 
@@ -721,7 +721,7 @@ describe('agentscoreGate middleware — verify_url and operator_verification in 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
-      error: 'identity_verification_required',
+      error: expect.objectContaining({ code: 'identity_verification_required' }),
       session_id: 'sess_ex1',
       poll_secret: 'ps_ex',
     }));
@@ -828,7 +828,7 @@ describe('agentscoreGate middleware — verify_url and operator_verification in 
       onDenied: (_req, res, reason) => {
         capturedReason = reason as unknown as Record<string, unknown>;
         (res as unknown as ReturnType<typeof makeRes>['res']).status(403).json({
-          error: reason.code,
+          error: { code: reason.code },
           verify_url: COMPLIANCE_DENY_RESPONSE.verify_url,
         });
       },
@@ -846,7 +846,7 @@ describe('agentscoreGate middleware — verify_url and operator_verification in 
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith(
       expect.objectContaining({
-        error: 'wallet_not_trusted',
+        error: expect.objectContaining({ code: 'wallet_not_trusted' }),
         verify_url: 'https://agentscore.sh/verify/abc123',
       }),
     );
@@ -943,7 +943,7 @@ describe('agentscoreGate — identity model', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(403);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'missing_identity' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'missing_identity' }) }));
   });
 
   it('calls next() on missing identity when failOpen is true', async () => {
@@ -1043,7 +1043,7 @@ describe('agentscoreGate middleware — createSessionOnMissing', () => {
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
-      error: 'identity_verification_required',
+      error: expect.objectContaining({ code: 'identity_verification_required' }),
       verify_url: 'https://agentscore.sh/verify/sess_abc123',
       session_id: 'sess_abc123',
       poll_secret: 'ps_secret_456',
@@ -1148,7 +1148,7 @@ describe('agentscoreGate middleware — createSessionOnMissing', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(403);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'missing_identity' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'missing_identity' }) }));
   });
 
   it('falls back to missing_identity when session creation throws', async () => {
@@ -1166,7 +1166,7 @@ describe('agentscoreGate middleware — createSessionOnMissing', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(403);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'missing_identity' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'missing_identity' }) }));
   });
 
   it('does not create session when identity is present', async () => {

@@ -102,7 +102,7 @@ describe('Hono adapter — identity extraction', () => {
     const res = await app.request('/test');
 
     expect(res.status).toBe(403);
-    expect(await res.json()).toMatchObject({ error: 'missing_identity' });
+    expect(await res.json()).toMatchObject({ error: { code: 'missing_identity' } });
   });
 
   it('uses custom extractIdentity when provided', async () => {
@@ -176,7 +176,7 @@ describe('Hono adapter — deny behavior', () => {
 
     expect(res.status).toBe(403);
     expect(body).toMatchObject({
-      error: 'wallet_not_trusted',
+      error: expect.objectContaining({ code: 'wallet_not_trusted' }),
       decision: 'deny',
       reasons: ['kyc_required'],
       verify_url: 'https://agentscore.sh/verify/xyz',
@@ -254,7 +254,7 @@ describe('Hono adapter — createSessionOnMissing', () => {
 
     expect(res.status).toBe(403);
     expect(body).toMatchObject({
-      error: 'identity_verification_required',
+      error: expect.objectContaining({ code: 'identity_verification_required' }),
       session_id: 'sess_123',
       poll_secret: 'ps_secret',
       verify_url: 'https://agentscore.sh/verify/new',
@@ -479,7 +479,7 @@ describe('Hono adapter — fail-open', () => {
 
     const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
     expect(res.status).toBe(403);
-    expect(await res.json()).toMatchObject({ error: 'payment_required' });
+    expect(await res.json()).toMatchObject({ error: { code: 'payment_required' } });
   });
 });
 
@@ -531,7 +531,7 @@ describe('Hono adapter — error paths', () => {
     const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
     expect(res.status).toBe(403);
     const body = await res.json() as { error: string };
-    expect(body.error).toBe('payment_required');
+    expect(body.error.code).toBe('payment_required');
   });
 
   it('returns 503 api_error on 500 assess response', async () => {
@@ -543,7 +543,7 @@ describe('Hono adapter — error paths', () => {
     const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
     expect(res.status).toBe(503);
     const body = await res.json() as { error: string };
-    expect(body.error).toBe('api_error');
+    expect(body.error.code).toBe('api_error');
   });
 
   it('fail_open allows through on 402', async () => {

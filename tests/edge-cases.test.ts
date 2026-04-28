@@ -147,7 +147,7 @@ describe('error response edge cases', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(503);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'api_error' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
   });
 
   it('calls next() on HTTP 503 when failOpen is true', async () => {
@@ -173,7 +173,7 @@ describe('error response edge cases', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(503);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'api_error' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
   });
 
   it('handles timeout-like errors with failOpen true', async () => {
@@ -199,7 +199,7 @@ describe('error response edge cases', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(503);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'api_error' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
   });
 });
 
@@ -233,7 +233,7 @@ describe('invalid wallet header edge cases', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(403);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'missing_identity' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'missing_identity' }) }));
   });
 
   it('missing_identity body carries probe_identity_then_session instructions', async () => {
@@ -246,7 +246,7 @@ describe('invalid wallet header edge cases', () => {
     await mw(req, res, makeNext());
 
     const body = json.mock.calls[0]![0] as Record<string, unknown>;
-    expect(body.error).toBe('missing_identity');
+    expect(body.error.code).toBe('missing_identity');
     expect(body.agent_instructions).toBeDefined();
     const instructions = JSON.parse(body.agent_instructions as string) as Record<string, unknown>;
     expect(instructions.action).toBe('probe_identity_then_session');
@@ -285,7 +285,7 @@ describe('empty and minimal response handling', () => {
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
-      error: 'wallet_not_trusted',
+      error: expect.objectContaining({ code: 'wallet_not_trusted' }),
       reasons: [],
     }));
   });
@@ -449,7 +449,7 @@ describe('fail-open behavior on various errors', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(503);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'api_error' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
   });
 
   it('fails open on missing_identity when failOpen is true', async () => {
@@ -489,7 +489,7 @@ describe('verify_url in DenialReason', () => {
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
-      error: 'wallet_not_trusted',
+      error: expect.objectContaining({ code: 'wallet_not_trusted' }),
       verify_url: 'https://agentscore.sh/verify/test123',
     }));
   });
@@ -674,7 +674,7 @@ describe('evaluate() — 401 passthrough edge cases', () => {
 
     expect(status).toHaveBeenCalledWith(401);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
-      error: 'token_expired',
+      error: expect.objectContaining({ code: 'token_expired' }),
       session_id: 'sess_auto',
       poll_secret: 'poll_auto',
       verify_url: 'https://agentscore.sh/verify?session=sess_auto',
@@ -697,7 +697,7 @@ describe('evaluate() — 401 passthrough edge cases', () => {
 
     expect(status).toHaveBeenCalledWith(401);
     const body = json.mock.calls[0]![0] as Record<string, unknown>;
-    expect(body.error).toBe('token_expired');
+    expect(body.error.code).toBe('token_expired');
     expect(body).not.toHaveProperty('agent_instructions');
   });
 
@@ -715,7 +715,7 @@ describe('evaluate() — 401 passthrough edge cases', () => {
     await mw(req, res, makeNext());
 
     expect(status).toHaveBeenCalledWith(503);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'api_error' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
     // Used to be silent — schema drift would mask itself for hours. Now logs the
     // unknown code so ops notice without crashing the request.
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('something_unknown'));
@@ -741,7 +741,7 @@ describe('evaluate() — 401 passthrough edge cases', () => {
 
     expect(status).toHaveBeenCalledWith(401);
     const body = json.mock.calls[0]![0] as Record<string, unknown>;
-    expect(body.error).toBe('invalid_credential');
+    expect(body.error.code).toBe('invalid_credential');
     // No session fields — API didn't mint one for this case. Agent gets actionable copy.
     expect(body).not.toHaveProperty('verify_url');
     expect(body).not.toHaveProperty('session_id');
@@ -766,6 +766,6 @@ describe('evaluate() — 401 passthrough edge cases', () => {
     await mw(req, res, makeNext());
 
     expect(status).toHaveBeenCalledWith(503);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: 'api_error' }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
   });
 });

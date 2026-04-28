@@ -63,7 +63,7 @@ describe('Fastify adapter — identity extraction', () => {
     const res = await app.inject({ method: 'GET', url: '/test' });
 
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toMatchObject({ error: 'missing_identity' });
+    expect(res.json()).toMatchObject({ error: { code: 'missing_identity' } });
   });
 
   it('uses custom extractIdentity when provided', async () => {
@@ -97,7 +97,7 @@ describe('Fastify adapter — deny behavior', () => {
 
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({
-      error: 'wallet_not_trusted',
+      error: expect.objectContaining({ code: 'wallet_not_trusted' }),
       reasons: ['kyc_required'],
       verify_url: 'https://agentscore.sh/verify/xyz',
     });
@@ -212,7 +212,7 @@ describe('Fastify adapter — fail-open + session creation paths', () => {
 
     expect(res.statusCode).toBe(403);
     expect(body).toMatchObject({
-      error: 'identity_verification_required',
+      error: expect.objectContaining({ code: 'identity_verification_required' }),
       session_id: 'sess_fy1',
       poll_secret: 'ps_fy',
     });
@@ -230,7 +230,7 @@ describe('Fastify adapter — error paths', () => {
 
     const res = await app.inject({ method: 'GET', url: '/test', headers: { 'x-wallet-address': WALLET } });
     expect(res.statusCode).toBe(403);
-    expect(res.json().error).toBe('payment_required');
+    expect(res.json().error.code).toBe('payment_required');
   });
 
   it('returns 503 api_error on 500 assess response', async () => {
@@ -241,7 +241,7 @@ describe('Fastify adapter — error paths', () => {
 
     const res = await app.inject({ method: 'GET', url: '/test', headers: { 'x-wallet-address': WALLET } });
     expect(res.statusCode).toBe(503);
-    expect(res.json().error).toBe('api_error');
+    expect(res.json().error.code).toBe('api_error');
   });
 
   it('fail_open allows through on 402', async () => {
