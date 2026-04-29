@@ -85,15 +85,28 @@ const x402Server = await createX402Server({
 
 const app = new Hono();
 
-// ── Identity gate ───────────────────────────────────────────────────────────
-app.use(
-  '/purchase',
-  agentscoreGate({
-    apiKey: process.env.AGENTSCORE_API_KEY!,
-    requireKyc: true,
-    createSessionOnMissing: { apiKey: process.env.AGENTSCORE_API_KEY!, context: 'purchase' },
-  }),
-);
+// ── Identity gate (conditional) ─────────────────────────────────────────────
+// Gate fires only when a payment credential is already attached. Anonymous browsers
+// (no payment header) fall through to the handler unauthenticated and receive a clean
+// 402 with all rails advertised — so any spec-compliant x402 wallet (Coinbase awal,
+// Phantom, Solflare, etc.) can discover prices before AgentScore identity exists.
+// Identity is verified at settle time on the retry leg (when X-Payment / Authorization:
+// Payment arrives), and `createSessionOnMissing` then auto-mints a verification session
+// so agents can bootstrap KYC and replay the same payment authorization.
+const _gate = agentscoreGate({
+  apiKey: process.env.AGENTSCORE_API_KEY!,
+  requireKyc: true,
+  createSessionOnMissing: { apiKey: process.env.AGENTSCORE_API_KEY!, context: 'purchase' },
+});
+app.use('/purchase', async (c, next) => {
+  const hasPaymentHeader = Boolean(
+    c.req.header('payment-signature') ||
+    c.req.header('x-payment') ||
+    c.req.header('authorization')?.startsWith('Payment '),
+  );
+  if (!hasPaymentHeader) { await next(); return; }
+  return _gate(c, next);
+});
 
 app.post('/purchase', async (c) => {
   const assess = getAgentScoreData(c);

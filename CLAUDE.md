@@ -56,6 +56,25 @@ Denial reason codes: `missing_identity`, `identity_verification_required`, `toke
 
 Captured wallets: `captureWallet(ctx, { walletAddress, network, idempotencyKey })` is fire-and-forget — reads `operator_token` stashed during gating and POSTs to `/v1/credentials/wallets`. No-ops for wallet-authenticated requests.
 
+### Mount posture: gate-first vs gate-conditional
+
+`agentscoreGate(...)` returns a vanilla framework middleware. Mount it directly when the route is AgentScore-only (`app.use('/purchase', gate)` in Hono / Express, `dependencies=[Depends(gate)]` in FastAPI, etc.) — every request runs identity + policy. To support **anonymous discovery by any spec-compliant x402 wallet** (Coinbase awal, Phantom, Solflare, …), wrap the gate so it fires only when a payment credential is attached:
+
+```ts
+const _gate = agentscoreGate({ /* opts */ });
+app.use('/purchase', async (c, next) => {
+  const hasPaymentHeader = Boolean(
+    c.req.header('payment-signature') ||
+    c.req.header('x-payment') ||
+    c.req.header('authorization')?.startsWith('Payment '),
+  );
+  if (!hasPaymentHeader) { await next(); return; }
+  return _gate(c, next);
+});
+```
+
+Anonymous POST flows through to the handler unauthenticated and gets a 402 with all rails + per-order pricing. Identity is verified at settle time on the retry leg (when the agent submits `X-Payment` / `Authorization: Payment`); `createSessionOnMissing` still auto-mints a verification session there. The same wrap pattern works identically across all 5 framework adapters (hono, express, fastify, nextjs, web). martin-estate runs this pattern in production. See `examples/multi-rail-merchant.ts` and `examples/compliance-merchant.ts`.
+
 ## Tooling
 
 - **Bun** — package manager.

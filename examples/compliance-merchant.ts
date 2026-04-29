@@ -59,30 +59,35 @@ const VERIFICATION_INSTRUCTIONS = verificationAgentInstructions({
   orderTtl: 'Pending orders expire after 1 hour. If the order expires, start a new request.',
 });
 
-app.post(
-  '/buy',
-  agentscoreGate({
+// Gate runs CONDITIONALLY — only when a payment credential is already attached.
+// Anonymous discovery (no payment header) is allowed through to the handler so the
+// agent gets a real 402 challenge with rails + pricing without an account. The full
+// compliance check (KYC + sanctions + age + jurisdiction) fires on the retry leg when
+// the agent submits X-Payment / Authorization: Payment. createSessionOnMissing still
+// auto-mints a verification session if identity is absent at settle time so the agent
+// can bootstrap KYC and replay the same payment authorization within its TTL window.
+const _complianceGate = agentscoreGate({
+  apiKey: process.env.AGENTSCORE_API_KEY!,
+  requireKyc: true,
+  requireSanctionsClear: true,
+  minAge: 21,
+  allowedJurisdictions: ['US'],
+  createSessionOnMissing: {
     apiKey: process.env.AGENTSCORE_API_KEY!,
-    requireKyc: true,
-    requireSanctionsClear: true,
-    minAge: 21,
-    allowedJurisdictions: ['US'],
-    createSessionOnMissing: {
-      apiKey: process.env.AGENTSCORE_API_KEY!,
-      context: 'regulated_purchase',
-      // Per-request session context — tells the verify page WHAT product the agent was buying.
-      getSessionOptions: async (c) => {
-        const body = await c.req.json().catch(() => ({}));
-        return { productName: body.product_name ?? 'a regulated good' };
-      },
-      // Pre-create a pending order so the agent can resume after KYC by sending {operator_token, order_id}.
-      onBeforeSession: async (c) => {
-        const body = await c.req.json().catch(() => ({}));
-        const orderId = await yourDb.insertPendingOrder({ product_id: body.product_id });
-        return { order_id: orderId };  // appears in the 403 body
-      },
+    context: 'regulated_purchase',
+    // Per-request session context — tells the verify page WHAT product the agent was buying.
+    getSessionOptions: async (c) => {
+      const body = await c.req.json().catch(() => ({}));
+      return { productName: body.product_name ?? 'a regulated good' };
     },
-    onDenied: (c, reason) => {
+    // Pre-create a pending order so the agent can resume after KYC by sending {operator_token, order_id}.
+    onBeforeSession: async (c) => {
+      const body = await c.req.json().catch(() => ({}));
+      const orderId = await yourDb.insertPendingOrder({ product_id: body.product_id });
+      return { order_id: orderId };  // appears in the 403 body
+    },
+  },
+  onDenied: (c, reason) => {
       // missing_identity → bare 403 (no auto-session created — agent must bootstrap).
       if (reason.code === 'missing_identity') {
         return c.json({
@@ -124,7 +129,23 @@ app.post(
       // from commerce. Vendors get the right shape for free.
       return c.json(denialReasonToBody(reason), denialReasonStatus(reason));
     },
-  }),
+});
+
+// Conditional wrapper — fires the gate only when a payment header is present so anonymous
+// discovery can return a 402 challenge without an account.
+const complianceGateOnSettle: import('hono').MiddlewareHandler = async (c, next) => {
+  const hasPaymentHeader = Boolean(
+    c.req.header('payment-signature') ||
+    c.req.header('x-payment') ||
+    c.req.header('authorization')?.startsWith('Payment '),
+  );
+  if (!hasPaymentHeader) { await next(); return; }
+  return _complianceGate(c, next);
+};
+
+app.post(
+  '/buy',
+  complianceGateOnSettle,
   async (c) => {
     const data = getAgentScoreData(c);
 

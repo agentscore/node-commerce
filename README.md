@@ -45,13 +45,27 @@ import {
 
 const app = new Hono();
 
-app.use("/purchase", agentscoreGate({
+const _gate = agentscoreGate({
   apiKey: process.env.AGENTSCORE_API_KEY!,
   requireKyc: true,
   minAge: 21,
   allowedJurisdictions: ["US"],
   createSessionOnMissing: { apiKey: process.env.AGENTSCORE_API_KEY!, context: "wine-purchase" },
-}));
+});
+
+// Run the gate CONDITIONALLY — only when a payment credential is already attached.
+// Anonymous discovery (no payment header) flows through to the handler so any spec-
+// compliant x402 wallet can read the 402 challenge with rails + pricing without first
+// proving identity. Identity is verified at settle time on the retry leg.
+app.use("/purchase", async (c, next) => {
+  const hasPaymentHeader = Boolean(
+    c.req.header("payment-signature") ||
+    c.req.header("x-payment") ||
+    c.req.header("authorization")?.startsWith("Payment "),
+  );
+  if (!hasPaymentHeader) { await next(); return; }
+  return _gate(c, next);
+});
 
 app.post("/purchase", async (c) => {
   const data = getAgentScoreData(c);
