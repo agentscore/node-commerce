@@ -41,6 +41,11 @@
       "import": "./dist/identity/fastify.mjs",
       "require": "./dist/identity/fastify.js"
     },
+    "./identity/policy": {
+      "types": "./dist/identity/policy.d.ts",
+      "import": "./dist/identity/policy.mjs",
+      "require": "./dist/identity/policy.js"
+    },
     "./payment": {
       "types": "./dist/payment/index.d.ts",
       "import": "./dist/payment/index.mjs",

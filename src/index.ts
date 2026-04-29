@@ -40,3 +40,13 @@ export {
   type UCPService,
   type UCPSigningKey,
 } from './identity/ucp';
+export {
+  type EnforcementMode,
+  type GateResult,
+  type IdentityStatus,
+  type PolicyBlock,
+  policyToGateOptions,
+  runGateWithEnforcement,
+  shippingCountryAllowed,
+  shippingStateAllowed,
+} from './identity/policy';

@@ -9,6 +9,7 @@ Every helper lifts directly from working production code (`agentscore/martin-est
 | Subpath | What it is |
 |---|---|
 | `@agent-score/commerce/identity/{hono,express,fastify,nextjs,web}` | Trust gate middleware (KYC, age, sanctions, jurisdiction) |
+| `@agent-score/commerce/identity/policy` | Framework-agnostic per-product / per-tier compliance policy helpers — `PolicyBlock`, `policyToGateOptions`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed` |
 | `@agent-score/commerce/payment` | Networks/USDC/rails registries, paymentauth.org directive builders, x402 server factory + scheme dual-register, MPP server factory, dispatch-by-network, signer extraction, WWW-Authenticate header, Settlement-Overrides header |
 | `@agent-score/commerce/discovery` | Discovery probe middleware, Bazaar wrapper, `/.well-known/mpp.json` builder, `llms.txt` builder, OpenAPI snippets, `noindexNonDiscoveryPaths` Hono middleware |
 | `@agent-score/commerce/challenge` | 402-body builders: accepted_methods, identity metadata, how_to_pay, agent_instructions, build402Body, `buildValidationError` (4xx body builder) |
@@ -45,6 +46,7 @@ Peer-dep pattern: payment/x402/mppx/stripe modules `dynamic import` at runtime �
 | `stripe-multichain-merchant.ts` | Stripe-anchored multichain (PaymentIntent → tempo/base/solana deposit addresses) |
 | `variable-cost-merchant.ts` | Pay-per-actual-usage on **two protocols**: x402 upto (Permit2 + Settlement-Overrides) AND MPP tempo session (channel + SSE + mid-stream vouchers) |
 | `compliance-merchant.ts` | Regulated-goods merchant — full compliance gate + custom `onDenied` composing the denial helpers (`verificationAgentInstructions`, `isFixableDenial`, `buildSignerMismatchBody`, `buildContactSupportNextSteps`, `denialReasonToBody`/`denialReasonStatus`) |
+| `per-product-policy-merchant.ts` | Multi-product merchant where each product carries its own compliance policy — wine has hard gate (KYC + 21 + state allowlist), tee has none (anonymous), limited print uses `enforcement: 'soft'` (request KYC, accept anonymous, stamp `identity_status: 'unverified'`). Demonstrates `PolicyBlock`, `policyToGateOptions`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed`. |
 
 ## Identity model
 

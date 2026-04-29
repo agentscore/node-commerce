@@ -12,6 +12,7 @@ export default defineConfig({
     'src/identity/web.ts',
     'src/identity/nextjs.ts',
     'src/identity/fastify.ts',
+    'src/identity/policy.ts',
     'src/payment/index.ts',
     'src/discovery/index.ts',
     'src/challenge/index.ts',
