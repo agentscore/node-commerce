@@ -25,7 +25,11 @@
  *
  * Run: bun run examples/api-provider.ts
  */
-import { buildDiscoveryProbeResponse, isDiscoveryProbeRequest } from '@agent-score/commerce/discovery';
+import {
+  buildDiscoveryProbeResponse,
+  isDiscoveryProbeRequest,
+  noindexNonDiscoveryPaths,
+} from '@agent-score/commerce/discovery';
 import {
   createMppxServer,
   createX402Server,
@@ -52,6 +56,12 @@ await createX402Server({
 });
 
 const app = new Hono();
+
+// noindex non-discovery paths so /search doesn't end up in human-shaped SERPs.
+// Defaults cover /openapi.json, /llms.txt, /.well-known/{mpp.json,agent-card.json,ucp},
+// /favicon.{png,ico} — pass `customPaths: ['/sitemap.xml']` to extend or
+// `replacePaths: true` to swap the set entirely.
+app.use('*', noindexNonDiscoveryPaths());
 
 // ── Discovery (optional but recommended for crawler indexing) ────────────────
 app.use('/search', async (c, next) => {

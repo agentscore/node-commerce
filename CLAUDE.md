@@ -10,8 +10,8 @@ Every helper lifts directly from working production code (`agentscore/martin-est
 |---|---|
 | `@agent-score/commerce/identity/{hono,express,fastify,nextjs,web}` | Trust gate middleware (KYC, age, sanctions, jurisdiction) |
 | `@agent-score/commerce/payment` | Networks/USDC/rails registries, paymentauth.org directive builders, x402 server factory + scheme dual-register, MPP server factory, dispatch-by-network, signer extraction, WWW-Authenticate header, Settlement-Overrides header |
-| `@agent-score/commerce/discovery` | Discovery probe middleware, Bazaar wrapper, `/.well-known/mpp.json` builder, `llms.txt` builder, OpenAPI snippets |
-| `@agent-score/commerce/challenge` | 402-body builders: accepted_methods, identity metadata, how_to_pay, agent_instructions, build402Body |
+| `@agent-score/commerce/discovery` | Discovery probe middleware, Bazaar wrapper, `/.well-known/mpp.json` builder, `llms.txt` builder, OpenAPI snippets, `noindexNonDiscoveryPaths` Hono middleware |
+| `@agent-score/commerce/challenge` | 402-body builders: accepted_methods, identity metadata, how_to_pay, agent_instructions, build402Body, `buildValidationError` (4xx body builder) |
 | `@agent-score/commerce/stripe-multichain` | Multichain PaymentIntent helper, deposit-address lookup, testnet simulator, mppx Stripe wrapper |
 | `@agent-score/commerce/api` | Re-exports `AgentScore` + `AgentScoreError` from `@agent-score/sdk` |
 

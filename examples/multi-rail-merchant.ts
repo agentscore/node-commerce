@@ -38,6 +38,7 @@ import {
   buildHowToPay,
   buildIdentityMetadata,
   buildPricingBlock,
+  buildValidationError,
   firstEncounterAgentMemory,
   respond402,
 } from '@agent-score/commerce/challenge';
@@ -141,7 +142,14 @@ app.post('/purchase', async (c) => {
         mimeType: 'application/json',
       },
     });
-    if (!settle.success) return c.json({ error: { code: 'payment_proof_invalid', phase: settle.phase } }, 400);
+    if (!settle.success) {
+      return c.json(buildValidationError({
+        code: 'payment_proof_invalid',
+        message: `Payment failed during settlement (phase: ${settle.phase ?? 'unknown'}).`,
+        nextSteps: { action: 'regenerate_payment_credential' },
+        extra: { phase: settle.phase },
+      }), 400);
+    }
 
     // Fire Stripe testnet sim — no-ops on live keys.
     await simulateDepositIfTestMode({
