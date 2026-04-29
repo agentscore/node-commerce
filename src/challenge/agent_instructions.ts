@@ -1,5 +1,11 @@
 import type { HowToPayBlock } from './how_to_pay';
 
+/** Map of rail key (e.g. 'x402_base', 'tempo_mpp', 'stripe') → list of client identifiers
+ *  that have been smoke-verified by the merchant against the protocol shape they emit.
+ *  Strings are display labels, not install commands — agents already get install commands
+ *  via `how_to_pay.<rail>.setup`. Use these as a "what's known to work" hint. */
+export type CompatibleClients = Record<string, string[]>;
+
 export interface BuildAgentInstructionsInput {
   /** Per-rail commands. Build with `buildHowToPay`. */
   howToPay: HowToPayBlock;
@@ -13,6 +19,10 @@ export interface BuildAgentInstructionsInput {
   warnings?: string[];
   /** Recommended rail (e.g., 'tempo', 'x402_base'). Surfaced for agents to default to. */
   recommended?: string;
+  /** Per-rail list of client names the merchant has verified work end-to-end. Vendors set
+   *  this from their own smoke matrix — defaults to none (avoids vouching for clients the
+   *  merchant has not tested). When omitted, the field is not emitted. */
+  compatibleClients?: CompatibleClients;
   /** Arbitrary additional fields the vendor wants merged into the agent_instructions object. */
   extra?: Record<string, unknown>;
 }
@@ -24,6 +34,7 @@ export interface AgentInstructions {
   timeout_seconds: number;
   warnings: string[];
   recommended?: string;
+  compatible_clients?: CompatibleClients;
   [key: string]: unknown;
 }
 
@@ -55,6 +66,26 @@ function defaultWarnings(howToPay: HowToPayBlock): string[] {
 }
 
 /**
+ * Default `compatible_clients` derived from the rails declared in `howToPay`. Lists
+ * clients the AgentScore team has smoke-verified end-to-end against an `@agent-score/commerce`
+ * merchant; entries appear only for rails the vendor actually offers. Vendors override
+ * this in `buildAgentInstructions({compatibleClients: {...}})` to add their own tested
+ * clients or remove entries that don't fit their endpoint.
+ *
+ * Verified state as of the SDK release. The same data is also published as a docs page
+ * for humans (rationale, per-rail commands, why some clients don't fully work, last
+ * verified date) — this default keeps the merchant-side surface in sync.
+ */
+function defaultCompatibleClients(howToPay: HowToPayBlock): CompatibleClients | undefined {
+  const out: CompatibleClients = {};
+  if (howToPay.tempo) out.tempo_mpp = ['agentscore-pay', 'tempo request', 'x402-proxy'];
+  if (howToPay.x402_base) out.x402_base = ['agentscore-pay', 'x402-proxy', 'purl (omit --network flag)'];
+  if (howToPay.x402_solana) out.x402_solana = ['agentscore-pay'];
+  if (howToPay.stripe) out.stripe = ['link-cli'];
+  return Object.keys(out).length === 0 ? undefined : out;
+}
+
+/**
  * Build the agent_instructions object for the 402 body. Combines how_to_pay with
  * recommended tools, warnings, wallet-compatibility note, and timeout.
  *
@@ -64,6 +95,7 @@ function defaultWarnings(howToPay: HowToPayBlock): string[] {
  * `warnings`/`recommendedTools` for full control.
  */
 export function buildAgentInstructions(input: BuildAgentInstructionsInput): AgentInstructions {
+  const compatibleClients = input.compatibleClients ?? defaultCompatibleClients(input.howToPay);
   return {
     how_to_pay: input.howToPay,
     recommended_tools: input.recommendedTools ?? defaultRecommendedTools(input.howToPay),
@@ -71,6 +103,7 @@ export function buildAgentInstructions(input: BuildAgentInstructionsInput): Agen
     timeout_seconds: input.timeoutSeconds ?? 300,
     warnings: input.warnings ?? defaultWarnings(input.howToPay),
     ...(input.recommended ? { recommended: input.recommended } : {}),
+    ...(compatibleClients ? { compatible_clients: compatibleClients } : {}),
     ...(input.extra ?? {}),
   };
 }

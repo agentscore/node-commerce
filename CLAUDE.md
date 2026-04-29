@@ -75,6 +75,10 @@ app.use('/purchase', async (c, next) => {
 
 Anonymous POST flows through to the handler unauthenticated and gets a 402 with all rails + per-order pricing. Identity is verified at settle time on the retry leg (when the agent submits `X-Payment` / `Authorization: Payment`); `createSessionOnMissing` still auto-mints a verification session there. The same wrap pattern works identically across all 5 framework adapters (hono, express, fastify, nextjs, web). martin-estate runs this pattern in production. See `examples/multi-rail-merchant.ts` and `examples/compliance-merchant.ts`.
 
+### `compatible_clients` field on emitted 402s
+
+`buildAgentInstructions` emits a `compatible_clients` field in the 402 body, derived automatically from `howToPay` — per-rail list of CLIs the AgentScore team has smoke-verified end-to-end. Vendors override with `buildAgentInstructions({ howToPay, compatibleClients: {...} })` to add their own tested clients. Set to an empty object `{}` to suppress the default. Same data is published as `core/docs/integrations/x402-clients.mdx` for human-side rationale + per-rail commands.
+
 ## Tooling
 
 - **Bun** — package manager.
