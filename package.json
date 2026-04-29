@@ -122,6 +122,9 @@
   "dependencies": {
     "@agent-score/sdk": "^2.0.0"
   },
+  "overrides": {
+    "axios": "^1.15.0"
+  },
   "peerDependencies": {
     "express": ">=4.0.0",
     "fastify": ">=4.0.0",
