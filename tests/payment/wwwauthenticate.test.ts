@@ -26,14 +26,19 @@ describe('paymentRequiredHeader', () => {
     expect(decoded.resource.url).toBe('https://merchant.example/api');
   });
 
-  it('emits both amount (v2) and maxAmountRequired (v1) so v1-only clients can read', () => {
+  it('emits accepts entries verbatim (no amount-field aliasing) so deepEqual matchers pass', () => {
+    // @x402/core's findMatchingRequirements deep-equals the agent's signed `accepted`
+    // payload against the merchant's accepts array — any extra alias field on the wire
+    // breaks the match silently. paymentRequiredHeader emits exactly what the merchant
+    // supplied. Vendors targeting v1-only clients can call aliasAmountFields explicitly
+    // and pass the result through, accepting the matcher trade-off.
     const header = paymentRequiredHeader({
       x402Version: 2,
       accepts: [{ scheme: 'exact', network: 'eip155:84532', amount: '110000' }],
     });
     const decoded = JSON.parse(Buffer.from(header, 'base64').toString('utf-8'));
     expect(decoded.accepts[0].amount).toBe('110000');
-    expect(decoded.accepts[0].maxAmountRequired).toBe('110000');
+    expect(decoded.accepts[0].maxAmountRequired).toBeUndefined();
   });
 });
 

@@ -47,7 +47,12 @@ describe('build402Body', () => {
     expect(body.accepts).toEqual([{ scheme: 'exact' }]);
   });
 
-  it('emits both amount (v2) and maxAmountRequired (v1) on each accepts entry', () => {
+  it('emits accepts entries verbatim (no amount-field aliasing) so settle-time matcher passes', () => {
+    // build402Body intentionally does not apply aliasAmountFields. @x402/core's
+    // findMatchingRequirements deep-equals the agent's signed accepted payload against
+    // the merchant's published accepts; any extra field on either side fails the match.
+    // Vendors targeting v1-only parsers can still alias explicitly via aliasAmountFields
+    // before passing the array in.
     const body = build402Body({
       acceptedMethods: [],
       x402: { accepts: [{ scheme: 'exact', network: 'eip155:84532', amount: '110000' }], version: 2 },
@@ -57,7 +62,6 @@ describe('build402Body', () => {
       scheme: 'exact',
       network: 'eip155:84532',
       amount: '110000',
-      maxAmountRequired: '110000',
     });
   });
 

@@ -37,10 +37,13 @@ export function aliasAmountFields(accepts: unknown[]): unknown[] {
  * PaymentRequired object). Clients that recognize the header (`@x402/fetch`,
  * `@x402/core` HTTPClient, `agentscore-pay`) prefer it over body fields.
  *
- * Each accepts entry is post-processed via `aliasAmountFields` so v1-only
- * clients (e.g. awal) and v2-strict clients can both read it.
+ * Note: do NOT add a v1↔v2 amount-field alias here. `@x402/core`'s
+ * `findMatchingRequirements` uses `deepEqual` against the agent's signed
+ * `accepted` payload — any field present on one side and missing on the other
+ * (e.g. `maxAmountRequired` on the wire body but not in `buildPaymentRequirements`'s
+ * output) makes the match silently fail at settle time. Keep `accepts` shape
+ * identical to whatever `buildPaymentRequirements` produces server-side.
  */
 export function paymentRequiredHeader(input: PaymentRequiredHeaderInput): string {
-  const aliased = { ...input, accepts: aliasAmountFields(input.accepts) };
-  return Buffer.from(JSON.stringify(aliased)).toString('base64');
+  return Buffer.from(JSON.stringify(input)).toString('base64');
 }
