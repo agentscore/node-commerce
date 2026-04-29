@@ -120,7 +120,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@agent-score/sdk": "link:@agent-score/sdk"
+    "@agent-score/sdk": "^2.0.0"
   },
   "peerDependencies": {
     "express": ">=4.0.0",
