@@ -115,4 +115,43 @@ describe('denialReasonToBody', () => {
     expect(body.order_id).toBe('ord_123');
     expect(body.merchant_context).toBe('wine-purchase');
   });
+
+  it('injects canonical wallet_not_trusted agent_instructions when reason has none', () => {
+    // wallet_not_trusted reaches the agent ONLY for unfixable reasons (sanctions / age /
+    // jurisdiction_restricted). Fixable reasons (kyc_required, etc.) are rerouted to
+    // identity_verification_required by the gate before they ever reach the marshaller.
+    const body = denialReasonToBody(reason({
+      code: 'wallet_not_trusted',
+      reasons: ['sanctions_flagged'],
+      verify_url: 'https://agentscore.sh/dashboard/verify?address=0xabc&chain=base',
+    }));
+    const instructions = JSON.parse(body.agent_instructions as string);
+    expect(instructions.action).toBe('contact_support');
+    expect(instructions.steps).toBeInstanceOf(Array);
+    expect(typeof instructions.user_message).toBe('string');
+  });
+
+  it('injects canonical payment_required agent_instructions when reason has none', () => {
+    const body = denialReasonToBody(reason({ code: 'payment_required' }));
+    const instructions = JSON.parse(body.agent_instructions as string);
+    expect(instructions.action).toBe('contact_merchant');
+  });
+
+  it('injects fallback identity_verification_required instructions when reason has none', () => {
+    const body = denialReasonToBody(reason({
+      code: 'identity_verification_required',
+      verify_url: 'https://agentscore.sh/verify?session=sess_abc',
+    }));
+    const instructions = JSON.parse(body.agent_instructions as string);
+    expect(instructions.action).toBe('deliver_verify_url_and_poll');
+  });
+
+  it('explicit reason.agent_instructions takes precedence over the default map', () => {
+    const custom = JSON.stringify({ action: 'custom_action', steps: ['custom'] });
+    const body = denialReasonToBody(reason({
+      code: 'wallet_not_trusted',
+      agent_instructions: custom,
+    }));
+    expect(body.agent_instructions).toBe(custom);
+  });
 });

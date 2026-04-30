@@ -269,6 +269,68 @@ describe('Hono adapter — createSessionOnMissing', () => {
     expect(postBody.context).toBe('wine-purchase');
   });
 
+  it('fixable wallet denial (kyc_required) bootstraps a session like missing_identity', async () => {
+    // First fetch: /v1/assess returns deny with a fixable reason.
+    // Second fetch: /v1/sessions mints a session.
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValueOnce(DENY_RESPONSE),  // decision_reasons: ['kyc_required']
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValueOnce(SESSION_RESPONSE),
+      } as unknown as Response);
+
+    const app = new Hono();
+    app.use('*', agentscoreGate({
+      apiKey: API_KEY,
+      requireKyc: true,
+      createSessionOnMissing: { apiKey: API_KEY, context: 'wine-purchase' },
+    }));
+    app.get('/test', (c) => c.text('reached'));
+
+    const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
+    const body = await res.json();
+
+    // Bootstrapped: identity_verification_required with poll fields, NOT bare wallet_not_trusted.
+    expect(res.status).toBe(403);
+    expect(body).toMatchObject({
+      error: expect.objectContaining({ code: 'identity_verification_required' }),
+      session_id: 'sess_123',
+      poll_secret: 'ps_secret',
+      verify_url: 'https://agentscore.sh/verify/new',
+    });
+    // Confirm the second fetch went to /v1/sessions.
+    expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls[1][0]).toContain('/v1/sessions');
+  });
+
+  it('unfixable wallet denial (sanctions_flagged) does NOT bootstrap a session', async () => {
+    const SANCTIONS_DENY = { ...DENY_RESPONSE, decision_reasons: ['sanctions_flagged'] };
+    mockFetchOk(SANCTIONS_DENY);
+
+    const app = new Hono();
+    app.use('*', agentscoreGate({
+      apiKey: API_KEY,
+      requireKyc: true,
+      createSessionOnMissing: { apiKey: API_KEY, context: 'wine-purchase' },
+    }));
+    app.get('/test', (c) => c.text('reached'));
+
+    const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body).toMatchObject({
+      error: expect.objectContaining({ code: 'wallet_not_trusted' }),
+      reasons: ['sanctions_flagged'],
+    });
+    // Only one fetch (assess); no /v1/sessions call.
+    expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+  });
+
   // -----------------------------------------------------------------------
   // getSessionOptions hook
   // -----------------------------------------------------------------------
