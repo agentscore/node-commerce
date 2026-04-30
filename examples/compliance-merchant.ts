@@ -11,7 +11,7 @@
  *     per-product session context + pre-create-pending-order recovery flow
  *   - Custom `onDenied` that composes commerce helpers:
  *     • `verificationAgentInstructions` for the canonical poll-and-retry instructions
- *     • `isFixableDenial` to branch fixable (KYC re-do) vs unfixable (sanctions/age) compliance fails
+ *     • `isFixableDenial` defensive fallback for fixable (KYC re-do) vs unfixable (sanctions/age/jurisdiction_restricted) compliance fails. Gate normally re-routes fixable reasons to identity_verification_required upstream — this branch only fires if the /v1/sessions mint blipped.
  *     • `buildContactSupportNextSteps` for the unfixable branch
  *     • `denialReasonToBody` + `denialReasonStatus` for the standard fall-through (token_expired,
  *       invalid_credential, api_error get the right status + body for free)
@@ -105,13 +105,17 @@ const _complianceGate = agentscoreGate({
         }, 403);
       }
 
-      // wallet_not_trusted = compliance fail. Branch on fixable vs not — fixable (KYC pending/
-      // failed/required, jurisdiction) gets a fresh session; unfixable (sanctions, age) gets
-      // contact-support.
+      // wallet_not_trusted = UNFIXABLE compliance fail (sanctions / age / jurisdiction_restricted).
+      // The gate auto-routes fixable reasons (kyc_required / kyc_pending / kyc_failed) to
+      // identity_verification_required upstream — by the time onDenied sees wallet_not_trusted,
+      // the reasons should be unfixable. The isFixableDenial branch below is a defensive
+      // fallback in case the gate's /v1/sessions mint blipped and fell back to bare denial.
       if (reason.code === 'wallet_not_trusted') {
         const reasons = reason.reasons ?? [];
         if (isFixableDenial(reasons)) {
-          // In a real merchant: mint a new session for retry. Skipped here for brevity.
+          // Defensive: gate normally bootstraps these into identity_verification_required.
+          // If we hit this branch, the gate's /v1/sessions mint failed — surface verify_url
+          // so the agent can recover via the manual session flow.
           return c.json({
             error: { code: 'compliance_recoverable', message: 'Re-verify identity and retry.' },
             reasons,
