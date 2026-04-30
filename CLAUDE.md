@@ -2,7 +2,7 @@
 
 Agent commerce SDK for Node.js. The full merchant-side toolkit: identity gating + payment helpers + 402 builders + discovery + Stripe multichain. One install, subpath imports per concern.
 
-Every helper lifts directly from working production code (`agentscore/martin-estate`) — extract from real consumers, not speculation.
+Every helper is extracted from a real consumer, not speculated.
 
 ## Subpaths
 
