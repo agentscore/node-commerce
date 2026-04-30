@@ -18,9 +18,9 @@
  *
  * All three are TTL-bounded (default 300s — long enough for an agent to retry, short
  * enough to bound memory). Backed by Redis when `redisUrl` is set, falls back to
- * in-process Map otherwise. Single-instance servers can use the in-memory cache; ECS
- * Fargate / multi-task deployments need Redis so a deposit lands on whichever task
- * settles it.
+ * in-process Map otherwise. Single-instance servers can use the in-memory cache;
+ * multi-instance deployments need a shared cache (Redis) so a deposit lands on
+ * whichever instance settles it.
  */
 
 // ioredis is an optional peer dep — typed structurally to avoid pulling its types into
