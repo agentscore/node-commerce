@@ -688,7 +688,7 @@ describe('agentscoreGate middleware — verify_url and operator_verification in 
 
   const COMPLIANCE_DENY_RESPONSE = {
     decision: 'deny',
-    decision_reasons: ['kyc_required', 'sanctions_check_pending'],
+    decision_reasons: ['kyc_required', 'sanctions_flagged'],
     subject: { chains: ['base'], address: WALLET },
     score: { value: 72, grade: 'C' },
     operator_verification: {
@@ -791,7 +791,7 @@ describe('agentscoreGate middleware — verify_url and operator_verification in 
       expect.objectContaining({
         code: 'wallet_not_trusted',
         decision: 'deny',
-        reasons: ['kyc_required', 'sanctions_check_pending'],
+        reasons: ['kyc_required', 'sanctions_flagged'],
       }),
     );
   });
