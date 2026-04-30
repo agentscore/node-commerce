@@ -2,8 +2,7 @@
  * Example: full multi-rail agent commerce merchant
  *
  * Scenario: you want to accept agent payments via every rail — Tempo MPP, x402 on
- * Base + Solana, AND Stripe SPT. Identity-gated for compliance. This mirrors what
- * Martin Estate runs in production, stripped of wine-specific business logic.
+ * Base + Solana, AND Stripe SPT. Identity-gated for compliance.
  *
  * The flow on each /purchase POST:
  *   1. Identity gate (agentscoreGate): KYC + age + jurisdiction + sanctions

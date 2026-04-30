@@ -22,9 +22,6 @@
  *   - shippingCountryAllowed / shippingStateAllowed
  *       (per-product shipping allowlists; null = ship anywhere)
  *
- * The pattern was extracted from agentscore/store. See its
- * store/routes/purchase.py (Python sibling) for the full per-request flow.
- *
  * Peer deps:
  *   bun add @agent-score/commerce hono
  *

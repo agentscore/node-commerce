@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 const API_KEY = process.env.AGENTSCORE_API_KEY;
-const BASE_URL = process.env.AGENTSCORE_BASE_URL || 'http://api.dev.agentscore.internal';
+const BASE_URL = process.env.AGENTSCORE_BASE_URL;
 const TEST_ADDRESS = '0x339559a2d1cd15059365fc7bd36b3047bba480e0';
 
-const describeIf = API_KEY ? describe : describe.skip;
+const describeIf = (API_KEY && BASE_URL) ? describe : describe.skip;
 
 describeIf('integration: real API assess response shape', () => {
   it('assess returns correct top-level shape', async () => {
