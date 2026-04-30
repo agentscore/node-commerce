@@ -13,6 +13,73 @@
 
 import type { DenialCode, DenialReason } from './core.js';
 
+/**
+ * JSON-encoded canonical agent_instructions per denial code. Auto-injected by
+ * `denialReasonToBody` when the gate produces a DenialReason without explicit
+ * `agent_instructions` so every denial carries a machine-readable next step.
+ *
+ * Codes covered:
+ *  - `wallet_not_trusted` — gate never stamps instructions today (the original gap)
+ *  - `payment_required` — gate never stamps; merchant tier misconfig, contact-merchant action
+ *  - `identity_verification_required` — fallback when API didn't return next_steps
+ *  - `token_expired` — fallback when API didn't return next_steps
+ *
+ * Codes already stamped explicitly upstream in core.ts (`missing_identity`,
+ * `invalid_credential`) and codes that don't go through DenialReason
+ * (`wallet_signer_mismatch`, `wallet_auth_requires_wallet_signing` — handled by
+ * `verifyWalletSignerMatch` result type) are not in this map. `api_error` has
+ * its own `next_steps: {action: retry}` fallback below.
+ */
+const WALLET_NOT_TRUSTED_INSTRUCTIONS = JSON.stringify({
+  action: 'contact_support',
+  steps: [
+    'The wallet\'s operator failed an UNFIXABLE compliance check (sanctions, age, or jurisdiction). `reasons` lists which: `sanctions_flagged` / `age_insufficient` / `jurisdiction_restricted`. KYC re-verification won\'t change the outcome — the policy denial is structural.',
+    'Surface the denial to the user with the merchant\'s support contact. Do not retry the same merchant request; do not hand the user a verify_url (verification won\'t fix this code path).',
+    'Fixable compliance reasons (`kyc_required`, `kyc_pending`, `kyc_failed`) do NOT land on this code — the gate auto-mints a verification session for those and returns `identity_verification_required` with poll endpoints, same shape as `missing_identity`. `jurisdiction_restricted` IS in the unfixable bucket because the API only emits it after KYC is verified (the user\'s KYC\'d country is in the blocked list — re-doing KYC won\'t change the country).',
+  ],
+  user_message:
+    'This purchase is denied by the merchant\'s compliance policy and cannot be resolved by re-verifying. Contact the merchant\'s support if you believe this is in error.',
+});
+
+const PAYMENT_REQUIRED_INSTRUCTIONS = JSON.stringify({
+  action: 'contact_merchant',
+  steps: [
+    'The merchant\'s AgentScore tier does not include the assess feature, so agent identity cannot be evaluated. This is a merchant-side configuration gap — there is no agent-side recovery.',
+    'Contact the merchant (their support channel — typically listed in /llms.txt or the OpenAPI servers metadata) and request they upgrade their AgentScore plan.',
+  ],
+  user_message:
+    'This merchant\'s identity gate is misconfigured (AgentScore tier doesn\'t support assess). Contact the merchant — there\'s nothing to fix on the agent side.',
+});
+
+const IDENTITY_VERIFICATION_REQUIRED_FALLBACK_INSTRUCTIONS = JSON.stringify({
+  action: 'deliver_verify_url_and_poll',
+  steps: [
+    'Share verify_url with the user — they complete identity verification on AgentScore.',
+    'If session_id + poll_secret are present in the body, poll poll_url every 5 seconds with header `X-Poll-Secret: <poll_secret>` until status=verified. The poll returns a one-time operator_token.',
+    'Retry the original request with header `X-Operator-Token: <opc_...>`.',
+  ],
+  user_message:
+    'Identity verification is required. Visit verify_url, then poll poll_url for the operator token and retry.',
+});
+
+const TOKEN_EXPIRED_FALLBACK_INSTRUCTIONS = JSON.stringify({
+  action: 'deliver_verify_url_and_poll',
+  steps: [
+    'The operator token is expired or revoked. AgentScore auto-mints a fresh verification session — complete it to receive a new opc_...',
+    'Share verify_url with the user, then poll poll_url every 5 seconds with header `X-Poll-Secret: <poll_secret>` until status=verified. The poll returns a fresh one-time operator_token.',
+    'Retry the original request with header `X-Operator-Token: <new_opc_...>`.',
+  ],
+  user_message:
+    'Operator token is expired or revoked. A new verification session has been minted — visit verify_url to refresh.',
+});
+
+const DEFAULT_AGENT_INSTRUCTIONS: Partial<Record<DenialCode, string>> = {
+  wallet_not_trusted: WALLET_NOT_TRUSTED_INSTRUCTIONS,
+  payment_required: PAYMENT_REQUIRED_INSTRUCTIONS,
+  identity_verification_required: IDENTITY_VERIFICATION_REQUIRED_FALLBACK_INSTRUCTIONS,
+  token_expired: TOKEN_EXPIRED_FALLBACK_INSTRUCTIONS,
+};
+
 const DEFAULT_MESSAGES: Record<DenialCode, string> = {
   missing_identity:
     'No identity provided. Send X-Wallet-Address (wallet) or X-Operator-Token (credential).',
@@ -63,7 +130,8 @@ export function denialReasonToBody(reason: DenialReason): Record<string, unknown
   if (reason.session_id) body.session_id = reason.session_id;
   if (reason.poll_secret) body.poll_secret = reason.poll_secret;
   if (reason.poll_url) body.poll_url = reason.poll_url;
-  if (reason.agent_instructions) body.agent_instructions = reason.agent_instructions;
+  const instructions = reason.agent_instructions ?? DEFAULT_AGENT_INSTRUCTIONS[reason.code];
+  if (instructions) body.agent_instructions = instructions;
   if (reason.agent_memory) body.agent_memory = reason.agent_memory;
   if (reason.claimed_operator) body.claimed_operator = reason.claimed_operator;
   if (reason.code === 'wallet_signer_mismatch') body.actual_signer_operator = reason.actual_signer_operator ?? null;

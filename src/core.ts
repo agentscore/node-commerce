@@ -1,3 +1,4 @@
+import { isFixableDenial } from './_denial';
 import { normalizeAddress } from './address';
 import { TTLCache } from './cache';
 
@@ -413,107 +414,108 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
 
   const cache = new TTLCache<AssessResult>(cacheSeconds * 1000);
 
+  // Mint a verification session via /v1/sessions and return the resulting
+  // identity_verification_required DenialReason — or undefined if the mint failed (network
+  // error, non-2xx, missing fields). Used for both the missing-identity path and the
+  // fixable-wallet bootstrap path: in both cases the UX is identical (agent polls the
+  // returned poll_url until it gets a fresh opc_... and retries).
+  async function tryMintSessionDenial(ctx: unknown): Promise<DenialReason | undefined> {
+    if (!createSessionOnMissing) return undefined;
+    try {
+      const sessionBody: { context?: string; product_name?: string } = {};
+      if (createSessionOnMissing.context != null) sessionBody.context = createSessionOnMissing.context;
+      if (createSessionOnMissing.productName != null) sessionBody.product_name = createSessionOnMissing.productName;
+
+      if (createSessionOnMissing.getSessionOptions && ctx !== undefined) {
+        try {
+          const dynamic = await createSessionOnMissing.getSessionOptions(ctx);
+          if (dynamic?.context != null) sessionBody.context = dynamic.context;
+          if (dynamic?.productName != null) sessionBody.product_name = dynamic.productName;
+        } catch (err) {
+          console.warn('[gate] createSessionOnMissing.getSessionOptions hook failed:', err instanceof Error ? err.message : err);
+        }
+      }
+
+      const sessionBaseUrl = stripTrailingSlashes(createSessionOnMissing.baseUrl ?? 'https://api.agentscore.sh');
+      const sessionRes = await fetch(`${sessionBaseUrl}/v1/sessions`, {
+        method: 'POST',
+        headers: {
+          'X-API-Key': createSessionOnMissing.apiKey,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'User-Agent': userAgentHeader,
+        },
+        body: JSON.stringify(sessionBody),
+        signal: AbortSignal.timeout(API_TIMEOUT_MS),
+      });
+
+      if (!sessionRes.ok) return undefined;
+      const data = (await sessionRes.json()) as Record<string, unknown>;
+
+      // Validate required fields before trusting the response. A misbehaving (or mocked-wrong)
+      // API could 200 without session_id/poll_secret/verify_url, which would propagate
+      // `undefined` into the 403 body and leave the agent stuck — treat as session-create
+      // failure and fall back to the caller's bare denial.
+      if (
+        typeof data.session_id !== 'string' ||
+        typeof data.poll_secret !== 'string' ||
+        typeof data.verify_url !== 'string'
+      ) {
+        console.warn('[gate] /v1/sessions returned 200 without required fields — falling back to bare denial');
+        return undefined;
+      }
+
+      // Run onBeforeSession side-effect hook. Errors are swallowed — a failing DB write
+      // (e.g. can't insert pending order) should not block the 403.
+      let extra: Record<string, unknown> | undefined;
+      if (createSessionOnMissing.onBeforeSession && ctx !== undefined) {
+        try {
+          const sessionMeta = {
+            session_id: data.session_id as string,
+            verify_url: data.verify_url as string,
+            poll_secret: data.poll_secret as string,
+            poll_url: data.poll_url as string,
+            expires_at: data.expires_at as string | undefined,
+          };
+          const result = await createSessionOnMissing.onBeforeSession(ctx, sessionMeta);
+          if (result && typeof result === 'object') extra = result;
+        } catch (err) {
+          console.warn('[gate] createSessionOnMissing.onBeforeSession hook failed:', err instanceof Error ? err.message : err);
+        }
+      }
+
+      // The API emits `next_steps` (structured object) on /v1/sessions success. Stringify it
+      // into the gate's `agent_instructions` contract so merchants get the same JSON-encoded
+      // {action, steps, user_message} envelope as every other gate-emitted denial.
+      const apiNextSteps = data.next_steps as Record<string, unknown> | undefined;
+      return {
+        code: 'identity_verification_required',
+        verify_url: data.verify_url as string,
+        session_id: data.session_id as string,
+        poll_secret: data.poll_secret as string,
+        poll_url: data.poll_url as string | undefined,
+        agent_instructions: apiNextSteps ? JSON.stringify(apiNextSteps) : undefined,
+        agent_memory: agentMemoryHint,
+        ...(extra && { extra }),
+      };
+    } catch (err) {
+      // Session-mint failed (network, /v1/sessions returned non-2xx, body parse error,
+      // onBeforeSession threw inside the inner try). Caller falls back to a bare denial —
+      // agents still get a 403 with a probe-strategy hint. Log loudly so a persistent
+      // /v1/sessions outage isn't masked.
+      console.warn('[gate] createSessionOnMissing path failed — falling back to bare denial:', err instanceof Error ? err.message : err);
+      return undefined;
+    }
+  }
+
   async function evaluate(identity: AgentIdentity | undefined, ctx?: unknown): Promise<EvaluateOutcome> {
     // Treat "returned identity object with no usable fields" the same as "no identity at all" —
     // otherwise a misbehaving custom extractIdentity would send an empty body to /v1/assess.
     if (!identity || (!identity.address && !identity.operatorToken)) {
       if (failOpen) return { kind: 'allow' };
 
-      if (createSessionOnMissing) {
-        try {
-          // Start with static context/productName; let getSessionOptions override per-request.
-          const sessionBody: { context?: string; product_name?: string } = {};
-          if (createSessionOnMissing.context != null) sessionBody.context = createSessionOnMissing.context;
-          if (createSessionOnMissing.productName != null) sessionBody.product_name = createSessionOnMissing.productName;
-
-          if (createSessionOnMissing.getSessionOptions && ctx !== undefined) {
-            try {
-              const dynamic = await createSessionOnMissing.getSessionOptions(ctx);
-              if (dynamic?.context != null) sessionBody.context = dynamic.context;
-              if (dynamic?.productName != null) sessionBody.product_name = dynamic.productName;
-            } catch (err) {
-              console.warn('[gate] createSessionOnMissing.getSessionOptions hook failed:', err instanceof Error ? err.message : err);
-            }
-          }
-
-          const sessionBaseUrl = stripTrailingSlashes(createSessionOnMissing.baseUrl ?? 'https://api.agentscore.sh');
-          const sessionRes = await fetch(`${sessionBaseUrl}/v1/sessions`, {
-            method: 'POST',
-            headers: {
-              'X-API-Key': createSessionOnMissing.apiKey,
-              'Content-Type': 'application/json',
-              Accept: 'application/json',
-              'User-Agent': userAgentHeader,
-            },
-            body: JSON.stringify(sessionBody),
-            signal: AbortSignal.timeout(API_TIMEOUT_MS),
-          });
-
-          if (sessionRes.ok) {
-            const data = (await sessionRes.json()) as Record<string, unknown>;
-
-            // Validate required fields before trusting the response. A misbehaving
-            // (or mocked-wrong) API could 200 without session_id/poll_secret/verify_url,
-            // which would propagate `undefined` into the 403 body and leave the agent
-            // stuck — treat that as a session-create failure and fall back to the bare
-            // missing_identity denial with the probe strategy copy.
-            if (
-              typeof data.session_id !== 'string' ||
-              typeof data.poll_secret !== 'string' ||
-              typeof data.verify_url !== 'string'
-            ) {
-              console.warn('[gate] /v1/sessions returned 200 without required fields — falling back to bare missing_identity');
-              // fall through to the bare denial below
-            } else {
-
-            // Run onBeforeSession side-effect hook. Errors are swallowed — a failing DB
-            // write (e.g. can't insert pending order) should not block the 403.
-            let extra: Record<string, unknown> | undefined;
-            if (createSessionOnMissing.onBeforeSession && ctx !== undefined) {
-              try {
-                const sessionMeta = {
-                  session_id: data.session_id as string,
-                  verify_url: data.verify_url as string,
-                  poll_secret: data.poll_secret as string,
-                  poll_url: data.poll_url as string,
-                  expires_at: data.expires_at as string | undefined,
-                };
-                const result = await createSessionOnMissing.onBeforeSession(ctx, sessionMeta);
-                if (result && typeof result === 'object') extra = result;
-              } catch (err) {
-                console.warn('[gate] createSessionOnMissing.onBeforeSession hook failed:', err instanceof Error ? err.message : err);
-              }
-            }
-
-            // The API emits `next_steps` (structured object) on /v1/sessions success.
-            // Stringify it into the gate's `agent_instructions` contract so merchants
-            // get the same JSON-encoded {action, steps, user_message} envelope as every
-            // other gate-emitted denial.
-            const apiNextSteps = data.next_steps as Record<string, unknown> | undefined;
-            return {
-              kind: 'deny',
-              reason: {
-                code: 'identity_verification_required',
-                verify_url: data.verify_url as string,
-                session_id: data.session_id as string,
-                poll_secret: data.poll_secret as string,
-                poll_url: data.poll_url as string | undefined,
-                agent_instructions: apiNextSteps ? JSON.stringify(apiNextSteps) : undefined,
-                agent_memory: agentMemoryHint,
-                ...(extra && { extra }),
-              },
-            };
-            }
-          }
-        } catch (err) {
-          // Session-mint failed (network, /v1/sessions returned non-2xx, body parse error,
-          // onBeforeSession threw inside the inner try). Falling through to bare
-          // missing_identity is correct — agents still get a 403 with a probe-strategy
-          // hint. But the silent catch used to mask /v1/sessions schema drift and
-          // unreachable-API issues for hours, so log loudly.
-          console.warn('[gate] createSessionOnMissing path failed — falling back to bare missing_identity:', err instanceof Error ? err.message : err);
-        }
-      }
+      const sessionReason = await tryMintSessionDenial(ctx);
+      if (sessionReason) return { kind: 'deny', reason: sessionReason };
 
       // Bare missing-identity denial (no session was auto-created). Describe the probe
       // strategy so agents without memory can recover: try wallet first on signing rails,
@@ -549,6 +551,17 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     if (cached) {
       if (cached.allow) {
         return { kind: 'allow', data: cached.raw as AgentScoreData };
+      }
+      // Fixable compliance denials (kyc_required, kyc_pending, kyc_failed) get the
+      // same UX as missing_identity: mint a fresh verification session, agent polls
+      // until status=verified, gets a fresh opc_..., retries. Unfixable reasons
+      // (sanctions_flagged, age_insufficient, jurisdiction_restricted) keep the bare
+      // wallet_not_trusted denial. `jurisdiction_restricted` is unfixable: the API
+      // only emits it after KYC is verified (the user's KYC'd country is in the
+      // blocked list — re-doing KYC won't change the country).
+      if (isFixableDenial(cached.reasons)) {
+        const sessionReason = await tryMintSessionDenial(ctx);
+        if (sessionReason) return { kind: 'deny', reason: sessionReason };
       }
       return {
         kind: 'deny',
@@ -685,6 +698,18 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
 
       if (allow) {
         return { kind: 'allow', data: data as unknown as AgentScoreData };
+      }
+
+      // Fixable compliance denials (kyc_required, kyc_pending, kyc_failed) get the
+      // same UX as missing_identity: mint a fresh verification session, agent polls
+      // until status=verified, gets a fresh opc_..., retries. Unfixable reasons
+      // (sanctions_flagged, age_insufficient, jurisdiction_restricted) keep the bare
+      // wallet_not_trusted denial. `jurisdiction_restricted` is unfixable: the API
+      // only emits it after KYC is verified (the user's KYC'd country is in the
+      // blocked list — re-doing KYC won't change the country).
+      if (isFixableDenial(decisionReasons)) {
+        const sessionReason = await tryMintSessionDenial(ctx);
+        if (sessionReason) return { kind: 'deny', reason: sessionReason };
       }
 
       return {

@@ -23,7 +23,7 @@ Runnable, copy-pasteable example integrations covering the most common merchant 
 
 ## Patterns
 
-All six examples follow the same rough shape:
+All seven examples follow the same rough shape:
 
 1. **Boot:** instantiate framework, identity gate (if any), x402/mppx servers (if any) via commerce factories
 2. **Discovery routes:** `/llms.txt` + `/.well-known/mpp.json` + `/openapi.json` (where applicable) using commerce/discovery helpers

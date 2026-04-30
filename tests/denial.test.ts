@@ -28,24 +28,33 @@ describe('denialReasonStatus', () => {
 
 describe('FIXABLE_DENIAL_REASONS / isFixableDenial', () => {
   it('classifies known fixable reasons', () => {
-    for (const r of ['kyc_required', 'kyc_pending', 'kyc_failed', 'jurisdiction_restricted']) {
+    for (const r of ['kyc_required', 'kyc_pending', 'kyc_failed']) {
       expect(FIXABLE_DENIAL_REASONS.has(r)).toBe(true);
     }
   });
 
-  it('returns true for empty/undefined reasons (treated as fixable)', () => {
-    expect(isFixableDenial(undefined)).toBe(true);
-    expect(isFixableDenial([])).toBe(true);
+  it('jurisdiction_restricted is UNFIXABLE', () => {
+    // The API only emits jurisdiction_restricted AFTER KYC is verified — meaning the
+    // user's KYC'd country is in the merchant's blocked list. Re-doing KYC won't change
+    // the country, same shape as sanctions_flagged / age_insufficient.
+    expect(FIXABLE_DENIAL_REASONS.has('jurisdiction_restricted')).toBe(false);
+  });
+
+  it('returns false for empty/undefined reasons (default to bare denial)', () => {
+    expect(isFixableDenial(undefined)).toBe(false);
+    expect(isFixableDenial([])).toBe(false);
   });
 
   it('returns true when every reason is fixable', () => {
-    expect(isFixableDenial(['kyc_required', 'jurisdiction_restricted'])).toBe(true);
+    expect(isFixableDenial(['kyc_required', 'kyc_pending'])).toBe(true);
   });
 
-  it('returns false when ANY reason is permanent (sanctions, age)', () => {
-    expect(isFixableDenial(['sanctions_not_clear'])).toBe(false);
-    expect(isFixableDenial(['age_not_verified'])).toBe(false);
-    expect(isFixableDenial(['kyc_required', 'sanctions_not_clear'])).toBe(false);
+  it('returns false when ANY reason is permanent (sanctions, age, jurisdiction_restricted)', () => {
+    expect(isFixableDenial(['sanctions_flagged'])).toBe(false);
+    expect(isFixableDenial(['age_insufficient'])).toBe(false);
+    expect(isFixableDenial(['jurisdiction_restricted'])).toBe(false);
+    expect(isFixableDenial(['kyc_required', 'sanctions_flagged'])).toBe(false);
+    expect(isFixableDenial(['kyc_required', 'jurisdiction_restricted'])).toBe(false);
   });
 });
 

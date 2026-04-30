@@ -21,27 +21,31 @@
 import type { DenialReason, VerifyWalletSignerResult } from './core';
 
 /**
- * Compliance denial reasons that can be resolved by re-completing KYC. Sanctions hits and
- * age-not-verified are NOT in this set — they're permanent policy failures on an
- * otherwise-verified identity and require contact-support, not retry.
+ * Compliance denial reasons that can be resolved by re-completing KYC. The API emits these
+ * when KYC is missing/pending/failed; the user can re-verify and retry.
+ *
+ * `jurisdiction_restricted` is NOT in this set — the API only emits it AFTER KYC is verified,
+ * meaning the user's KYC'd country is in the merchant's blocked list (or absent from the
+ * allowed list). Re-doing KYC won't change the country, so it's permanent. Same shape as
+ * `sanctions_flagged` and `age_insufficient` — surface contact_support, don't waste a
+ * /v1/sessions mint.
  */
 export const FIXABLE_DENIAL_REASONS: ReadonlySet<string> = new Set([
   'kyc_required',
   'kyc_pending',
   'kyc_failed',
-  'jurisdiction_restricted',
 ]);
 
 /**
- * Returns true when a `wallet_not_trusted` denial's reasons are all "fixable" (the user can
- * re-verify and retry). False when any reason is permanent (sanctions, age).
+ * Returns true when a `wallet_not_trusted` denial's reasons are all fixable via KYC
+ * re-verification. False when any reason is permanent (sanctions, age, jurisdiction_restricted).
  *
- * Empty reasons array is treated as fixable on the assumption that an empty-reason denial
- * means a generic policy fail that's worth retrying — vendors can override by checking the
- * specific reasons themselves.
+ * Empty reasons returns false — without a known reason we can't promise a fix, so default to
+ * the bare denial path (vendors can override via custom onDenied if they want different
+ * behavior on empty reasons).
  */
 export function isFixableDenial(reasons: readonly string[] | undefined): boolean {
-  if (!reasons || reasons.length === 0) return true;
+  if (!reasons || reasons.length === 0) return false;
   return reasons.every((r) => FIXABLE_DENIAL_REASONS.has(r));
 }
 

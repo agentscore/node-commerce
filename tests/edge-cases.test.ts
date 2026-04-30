@@ -683,7 +683,7 @@ describe('evaluate() — 401 passthrough edge cases', () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('passes through token_expired without agent_instructions when next_steps absent', async () => {
+  it('falls back to canonical token_expired agent_instructions when API next_steps absent', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 401,
@@ -697,8 +697,10 @@ describe('evaluate() — 401 passthrough edge cases', () => {
 
     expect(status).toHaveBeenCalledWith(401);
     const body = json.mock.calls[0]![0] as Record<string, unknown>;
-    expect(body.error.code).toBe('token_expired');
-    expect(body).not.toHaveProperty('agent_instructions');
+    expect((body.error as { code: string }).code).toBe('token_expired');
+    // _response.ts injects a canonical fallback so agents always have a recovery action.
+    const instructions = JSON.parse(body.agent_instructions as string);
+    expect(instructions.action).toBe('deliver_verify_url_and_poll');
   });
 
   it('falls through to generic api_error when 401 body has unknown error.code', async () => {
