@@ -552,11 +552,13 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       if (cached.allow) {
         return { kind: 'allow', data: cached.raw as AgentScoreData };
       }
-      // Fixable compliance denials (kyc_required, kyc_pending, kyc_failed,
-      // jurisdiction_required when not explicitly restricted) get the same UX as
-      // missing_identity: mint a fresh verification session, agent polls until
-      // status=verified, gets a fresh opc_..., retries. Unfixable reasons (sanctions,
-      // age, jurisdiction_restricted) keep the bare wallet_not_trusted denial.
+      // Fixable compliance denials (kyc_required, kyc_pending, kyc_failed) get the
+      // same UX as missing_identity: mint a fresh verification session, agent polls
+      // until status=verified, gets a fresh opc_..., retries. Unfixable reasons
+      // (sanctions_flagged, age_insufficient, jurisdiction_restricted) keep the bare
+      // wallet_not_trusted denial. `jurisdiction_restricted` is unfixable: the API
+      // only emits it after KYC is verified (the user's KYC'd country is in the
+      // blocked list — re-doing KYC won't change the country).
       if (isFixableDenial(cached.reasons)) {
         const sessionReason = await tryMintSessionDenial(ctx);
         if (sessionReason) return { kind: 'deny', reason: sessionReason };
@@ -698,12 +700,13 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         return { kind: 'allow', data: data as unknown as AgentScoreData };
       }
 
-      // Fixable compliance denials (kyc_required, kyc_pending, kyc_failed,
-      // jurisdiction_required when not explicitly restricted) get the same UX as
-      // missing_identity: mint a fresh verification session, agent polls until
-      // status=verified, gets a fresh opc_..., retries. Unfixable reasons (sanctions,
-      // age, jurisdiction_restricted) keep the bare wallet_not_trusted denial — re-
-      // verification won't fix them.
+      // Fixable compliance denials (kyc_required, kyc_pending, kyc_failed) get the
+      // same UX as missing_identity: mint a fresh verification session, agent polls
+      // until status=verified, gets a fresh opc_..., retries. Unfixable reasons
+      // (sanctions_flagged, age_insufficient, jurisdiction_restricted) keep the bare
+      // wallet_not_trusted denial. `jurisdiction_restricted` is unfixable: the API
+      // only emits it after KYC is verified (the user's KYC'd country is in the
+      // blocked list — re-doing KYC won't change the country).
       if (isFixableDenial(decisionReasons)) {
         const sessionReason = await tryMintSessionDenial(ctx);
         if (sessionReason) return { kind: 'deny', reason: sessionReason };

@@ -35,7 +35,7 @@ const WALLET_NOT_TRUSTED_INSTRUCTIONS = JSON.stringify({
   steps: [
     'The wallet\'s operator failed an UNFIXABLE compliance check (sanctions, age, or jurisdiction). `reasons` lists which: `sanctions_flagged` / `age_insufficient` / `jurisdiction_restricted`. KYC re-verification won\'t change the outcome — the policy denial is structural.',
     'Surface the denial to the user with the merchant\'s support contact. Do not retry the same merchant request; do not hand the user a verify_url (verification won\'t fix this code path).',
-    'Fixable compliance reasons (`kyc_required`, `kyc_pending`, `kyc_failed`, `jurisdiction_required` without explicit restriction) do NOT land on this code — the gate auto-mints a verification session for those and returns `identity_verification_required` with poll endpoints, same shape as `missing_identity`.',
+    'Fixable compliance reasons (`kyc_required`, `kyc_pending`, `kyc_failed`) do NOT land on this code — the gate auto-mints a verification session for those and returns `identity_verification_required` with poll endpoints, same shape as `missing_identity`. `jurisdiction_restricted` IS in the unfixable bucket because the API only emits it after KYC is verified (the user\'s KYC\'d country is in the blocked list — re-doing KYC won\'t change the country).',
   ],
   user_message:
     'This purchase is denied by the merchant\'s compliance policy and cannot be resolved by re-verifying. Contact the merchant\'s support if you believe this is in error.',
