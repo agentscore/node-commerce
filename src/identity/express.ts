@@ -16,6 +16,7 @@ import type {
   AgentScoreData,
   CreateSessionOnMissing,
   DenialReason,
+  FailOpenInfraReason,
   VerifyWalletSignerResult,
 } from '../core';
 import type { Request, Response, NextFunction } from 'express';
@@ -26,6 +27,11 @@ interface GateState {
   core: AgentScoreCore;
   operatorToken?: string;
   walletAddress?: string;
+  /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
+   *  (429/5xx/network timeout). Compliance was NOT enforced — log/alert in your handler. */
+  degraded?: boolean;
+  /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
+  infraReason?: FailOpenInfraReason;
 }
 
 export interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
@@ -72,6 +78,13 @@ export function agentscoreGate(options: AgentScoreGateOptions) {
     const outcome = await core.evaluate(identity, req);
 
     if (outcome.kind === 'allow') {
+      if (outcome.degraded) {
+        const state = (req as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+        if (state) {
+          state.degraded = true;
+          state.infraReason = outcome.infraReason;
+        }
+      }
       if (outcome.data) (req as unknown as Record<string, unknown>).agentscore = outcome.data;
       next();
       return;
@@ -79,6 +92,18 @@ export function agentscoreGate(options: AgentScoreGateOptions) {
 
     onDenied(req, res, outcome.reason);
   };
+}
+
+/**
+ * Read whether the gate fail-open'd due to AgentScore-side infrastructure failure on
+ * this request. Returns `{ degraded: false }` for normal allows; `{ degraded: true,
+ * infraReason }` when bypassed (compliance NOT enforced — log/alert).
+ */
+export function getGateDegradedState(
+  req: Request,
+): { degraded: boolean; infraReason?: FailOpenInfraReason } {
+  const state = (req as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+  return { degraded: state?.degraded ?? false, infraReason: state?.infraReason };
 }
 
 /**

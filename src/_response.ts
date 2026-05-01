@@ -62,6 +62,17 @@ const IDENTITY_VERIFICATION_REQUIRED_FALLBACK_INSTRUCTIONS = JSON.stringify({
     'Identity verification is required. Visit verify_url, then poll poll_url for the operator token and retry.',
 });
 
+const API_ERROR_INSTRUCTIONS = JSON.stringify({
+  action: 'retry_with_backoff',
+  steps: [
+    'Verification system is temporarily unavailable (AgentScore-side issue: quota cap, transient 5xx, or network timeout). Retry the request after 5–30 seconds with exponential backoff.',
+    'This is NOT a compliance denial — the user does not need to re-verify their identity. The same identity headers (X-Wallet-Address or X-Operator-Token) should be sent on retry.',
+    'If the request continues to fail after 3+ retries (~60 seconds total), surface the error to the user with the merchant\'s support contact. A sustained AgentScore outage is rare but possible; merchants generally also degrade gracefully when this happens.',
+  ],
+  user_message:
+    'Verification is temporarily unavailable. Please try again in a moment — this is a transient issue, not a problem with your account.',
+});
+
 const TOKEN_EXPIRED_FALLBACK_INSTRUCTIONS = JSON.stringify({
   action: 'deliver_verify_url_and_poll',
   steps: [
@@ -74,6 +85,7 @@ const TOKEN_EXPIRED_FALLBACK_INSTRUCTIONS = JSON.stringify({
 });
 
 const DEFAULT_AGENT_INSTRUCTIONS: Partial<Record<DenialCode, string>> = {
+  api_error: API_ERROR_INSTRUCTIONS,
   wallet_not_trusted: WALLET_NOT_TRUSTED_INSTRUCTIONS,
   payment_required: PAYMENT_REQUIRED_INSTRUCTIONS,
   identity_verification_required: IDENTITY_VERIFICATION_REQUIRED_FALLBACK_INSTRUCTIONS,

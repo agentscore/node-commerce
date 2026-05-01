@@ -1,6 +1,6 @@
 import { createAgentScoreGate } from './web';
 import type { AgentScoreGateOptions as WebAgentScoreGateOptions } from './web';
-import type { AgentScoreData, VerifyWalletSignerResult } from '../core';
+import type { AgentScoreData, FailOpenInfraReason, VerifyWalletSignerResult } from '../core';
 
 export type AgentScoreGateOptions = WebAgentScoreGateOptions;
 
@@ -40,6 +40,11 @@ export function withAgentScoreGate<TReq extends Request = Request, TCtx = unknow
         signer?: string | null;
         network?: 'evm' | 'solana';
       }) => Promise<VerifyWalletSignerResult>;
+      /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
+       *  (429/5xx/network timeout). Compliance was NOT enforced — log/alert in your handler. */
+      degraded?: boolean;
+      /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
+      infraReason?: FailOpenInfraReason;
     },
     ctx?: TCtx,
   ) => Response | Promise<Response>,
@@ -54,6 +59,7 @@ export function withAgentScoreGate<TReq extends Request = Request, TCtx = unknow
         data: result.data,
         captureWallet: result.captureWallet,
         verifyWalletSignerMatch: result.verifyWalletSignerMatch,
+        ...(result.degraded ? { degraded: true, infraReason: result.infraReason } : {}),
       },
       ctx,
     );

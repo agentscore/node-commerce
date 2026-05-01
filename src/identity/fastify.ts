@@ -16,6 +16,7 @@ import type {
   AgentScoreData,
   CreateSessionOnMissing,
   DenialReason,
+  FailOpenInfraReason,
   VerifyWalletSignerResult,
 } from '../core';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
@@ -26,6 +27,11 @@ interface GateState {
   core: AgentScoreCore;
   operatorToken?: string;
   walletAddress?: string;
+  /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
+   *  (429/5xx/network timeout). Compliance was NOT enforced — log/alert in your handler. */
+  degraded?: boolean;
+  /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
+  infraReason?: FailOpenInfraReason;
 }
 
 export interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
@@ -87,6 +93,13 @@ const agentscoreGatePlugin: FastifyPluginAsync<AgentScoreGateOptions> = async (f
     const outcome = await core.evaluate(identity, request);
 
     if (outcome.kind === 'allow') {
+      if (outcome.degraded) {
+        const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+        if (state) {
+          state.degraded = true;
+          state.infraReason = outcome.infraReason;
+        }
+      }
       if (outcome.data) (request as unknown as Record<string, unknown>).agentscore = outcome.data;
       return;
     }
@@ -101,6 +114,18 @@ const agentscoreGatePlugin: FastifyPluginAsync<AgentScoreGateOptions> = async (f
  */
 export function getAgentScoreData(request: FastifyRequest): AgentScoreData | undefined {
   return (request as unknown as Record<string, AgentScoreData | undefined>).agentscore;
+}
+
+/**
+ * Read whether the gate fail-open'd due to AgentScore-side infrastructure failure on
+ * this request. Returns `{ degraded: false }` for normal allows; `{ degraded: true,
+ * infraReason }` when bypassed (compliance NOT enforced — log/alert).
+ */
+export function getGateDegradedState(
+  request: FastifyRequest,
+): { degraded: boolean; infraReason?: FailOpenInfraReason } {
+  const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+  return { degraded: state?.degraded ?? false, infraReason: state?.infraReason };
 }
 
 /**

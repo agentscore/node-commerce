@@ -15,6 +15,7 @@ import type {
   AgentScoreData,
   CreateSessionOnMissing,
   DenialReason,
+  FailOpenInfraReason,
   VerifyWalletSignerResult,
 } from '../core';
 
@@ -52,6 +53,11 @@ export type GuardResult =
         signer?: string | null;
         network?: 'evm' | 'solana';
       }) => Promise<VerifyWalletSignerResult>;
+      /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
+       *  (429/5xx/network timeout). Compliance was NOT enforced this request — log/alert. */
+      degraded?: boolean;
+      /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
+      infraReason?: FailOpenInfraReason;
     }
   | { allowed: false; response: Response };
 
@@ -120,6 +126,7 @@ export function createAgentScoreGate(options: AgentScoreGateOptions): (req: Requ
         data: outcome.data,
         captureWallet,
         verifyWalletSignerMatch: verifyWalletSignerMatchBound,
+        ...(outcome.degraded ? { degraded: true, infraReason: outcome.infraReason } : {}),
       };
     }
 

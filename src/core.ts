@@ -201,16 +201,30 @@ export interface AgentScoreData {
 }
 
 /**
+ * Reason a failOpen allow short-circuited an evaluate call due to AgentScore-side
+ * infrastructure issues. Surfaced on `EvaluateOutcome` so merchants can log/alert when
+ * their gate is running in degraded mode (compliance not actually enforced this request).
+ *
+ * - `quota_exceeded` — AgentScore returned 429 (the merchant's monthly quota is at cap)
+ * - `api_error` — AgentScore returned 5xx or non-2xx that isn't quota
+ * - `network_timeout` — request to /v1/assess timed out or failed at the network layer
+ */
+export type FailOpenInfraReason = 'quota_exceeded' | 'api_error' | 'network_timeout';
+
+/**
  * Outcome from `AgentScoreCore.evaluate()`. Adapters map this to framework-specific responses.
  *
  * - `{ kind: 'allow', data }` — the request passed the policy. `data` is present on a normal
  *   allow; `undefined` when fail-open short-circuited (identity missing, API unreachable,
  *   timeout, or 402 paid-tier required).
+ * - When `failOpen: true` and the allow was the result of an AgentScore-side infrastructure
+ *   failure (429/5xx/timeout), the result also carries `degraded: true` + `infraReason` so
+ *   merchants can alert/log without parsing console output.
  * - `{ kind: 'deny', reason }` — the request was denied. Adapters should render a 403 with the
  *   reason, or invoke the caller's custom denial handler.
  */
 export type EvaluateOutcome =
-  | { kind: 'allow'; data?: AgentScoreData }
+  | { kind: 'allow'; data?: AgentScoreData; degraded?: boolean; infraReason?: FailOpenInfraReason }
   | { kind: 'deny'; reason: DenialReason };
 
 export interface CaptureWalletOptions {
@@ -685,6 +699,15 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         }
       }
 
+      // 429 quota_exceeded gets dedicated handling so the merchant's monthly cap is visible
+      // in the gate result (`infraReason: 'quota_exceeded'`) rather than collapsed into a
+      // generic api_error. failOpen merchants can alert on quota_exceeded specifically.
+      if (response.status === 429) {
+        console.warn('[gate] /v1/assess returned 429 — AgentScore quota exceeded for this account');
+        if (failOpen) return { kind: 'allow', degraded: true, infraReason: 'quota_exceeded' };
+        return { kind: 'deny', reason: { code: 'api_error' } };
+      }
+
       if (!response.ok) {
         throw new Error(`AgentScore API returned ${response.status}`);
       }
@@ -727,8 +750,10 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       // explicit `throw new Error(...)` for an unhandled non-ok status. Log so ops
       // can distinguish "API down" from "merchant config wrong" — without this,
       // every transient blip looked identical to a misconfigured base URL.
-      console.warn('[gate] /v1/assess call failed — surfacing as api_error:', err instanceof Error ? err.message : err);
-      if (failOpen) return { kind: 'allow' };
+      const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+      const infraReason: FailOpenInfraReason = isTimeout ? 'network_timeout' : 'api_error';
+      console.warn(`[gate] /v1/assess call failed — surfacing as ${infraReason}:`, err instanceof Error ? err.message : err);
+      if (failOpen) return { kind: 'allow', degraded: true, infraReason };
       return { kind: 'deny', reason: { code: 'api_error' } };
     }
   }

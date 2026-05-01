@@ -16,6 +16,7 @@ import type {
   AgentScoreData,
   CreateSessionOnMissing,
   DenialReason,
+  FailOpenInfraReason,
   VerifyWalletSignerResult,
 } from '../core';
 import type { Context, MiddlewareHandler } from 'hono';
@@ -27,6 +28,12 @@ interface GateState {
   core: AgentScoreCore;
   operatorToken?: string;
   walletAddress?: string;
+  /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
+   *  (429/5xx/network timeout). Compliance was NOT enforced for this request — log/alert
+   *  in your handler. See {@link getGateDegradedState}. */
+  degraded?: boolean;
+  /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
+  infraReason?: FailOpenInfraReason;
 }
 
 export interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
@@ -80,6 +87,10 @@ export function agentscoreGate(options: AgentScoreGateOptions): MiddlewareHandle
     const outcome = await core.evaluate(identity, c);
 
     if (outcome.kind === 'allow') {
+      if (outcome.degraded) {
+        const prev = c.get(GATE_STATE_KEY) as GateState;
+        c.set(GATE_STATE_KEY, { ...prev, degraded: true, infraReason: outcome.infraReason } satisfies GateState);
+      }
       if (outcome.data) c.set(CONTEXT_KEY, outcome.data);
       await next();
       return;
@@ -96,6 +107,20 @@ export function agentscoreGate(options: AgentScoreGateOptions): MiddlewareHandle
  */
 export function getAgentScoreData(c: Context): AgentScoreData | undefined {
   return c.get(CONTEXT_KEY) as AgentScoreData | undefined;
+}
+
+/**
+ * Read whether the gate fail-open'd due to AgentScore-side infrastructure failure on
+ * this request. Returns `{ degraded: false }` for normal allows; `{ degraded: true,
+ * infraReason }` when the gate was bypassed (compliance NOT enforced — log/alert).
+ *
+ * Only set when `failOpen: true` was configured AND the failure was an infra failure
+ * (429 quota_exceeded, 5xx api_error, network_timeout). Real compliance denials never
+ * trigger fail-open and so never set this flag.
+ */
+export function getGateDegradedState(c: Context): { degraded: boolean; infraReason?: FailOpenInfraReason } {
+  const state = c.get(GATE_STATE_KEY) as GateState | undefined;
+  return { degraded: state?.degraded ?? false, infraReason: state?.infraReason };
 }
 
 /**
