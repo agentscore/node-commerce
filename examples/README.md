@@ -29,7 +29,7 @@ All seven examples follow the same rough shape:
 2. **Discovery routes:** `/llms.txt` + `/.well-known/mpp.json` + `/openapi.json` (where applicable) using commerce/discovery helpers
 3. **Per-request:** identity gate → validate body → 402 challenge (built via commerce/challenge helpers) → settle payment → return result
 
-The commerce SDK keeps every step ~5-15 lines instead of ~50-150 lines. Vendors compose; commerce wraps the protocol-correctness boilerplate.
+AgentScore Commerce keeps every step ~5–15 lines instead of ~50–150 lines. Vendors compose; the SDK wraps the protocol-correctness boilerplate.
 
 ## What stays vendor-specific
 
@@ -41,4 +41,4 @@ These examples are intentionally thin on domain logic. Vendors plug in their own
 - Tax / shipping calculators
 - Frontend UI (none of these examples include one — they're agent-only APIs)
 
-Commerce handles the agent commerce protocol layer; everything else is your business.
+AgentScore Commerce handles the agent commerce protocol layer; everything else is your business.
