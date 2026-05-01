@@ -18,7 +18,7 @@ Every helper is extracted from a real consumer, not speculated.
 
 ## Architecture
 
-Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framework identity adapters expose the same surface — `agentscoreGate`, `captureWallet`, `getAgentScoreData`, `verifyWalletSignerMatch` — with network-aware address normalization (EVM lowercased, Solana base58 preserved verbatim).
+Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framework identity adapters expose the same surface — `agentscoreGate`, `captureWallet`, `getAgentScoreData`, `verifyWalletSignerMatch`, `getGateDegradedState` — with network-aware address normalization (EVM lowercased, Solana base58 preserved verbatim).
 
 | Directory | Contents |
 |---|---|
@@ -57,6 +57,10 @@ Denial reason codes: `missing_identity`, `identity_verification_required`, `toke
 `createSessionOnMissing` auto-mints a verification session when no identity is present and returns 403 with `verify_url` + poll instructions instead of a bare denial. `verifyWalletSignerMatch` (per-adapter) recovers the signer from MPP/x402 credentials and compares against `linked_wallets[]` for cross-chain wallet-stack matching.
 
 Captured wallets: `captureWallet(ctx, { walletAddress, network, idempotencyKey })` is fire-and-forget — reads `operator_token` stashed during gating and POSTs to `/v1/credentials/wallets`. No-ops for wallet-authenticated requests.
+
+### Fail-open (opt-in)
+
+`failOpen: true` on `agentscoreGate({...})` flips infra-failure handling: 429 / 5xx / network-timeout return `{ kind: 'allow', degraded: true, infraReason: 'quota_exceeded' | 'api_error' | 'network_timeout' }` instead of throwing. Per-adapter `getGateDegradedState(c)` exposes the flag for merchant logging/alerting; `withAgentScoreGate` (Next.js / Web Fetch) propagates `degraded` + `infraReason` directly on the handler's `gate` arg. Default stays `failOpen: false` — regulated commerce should keep it. Compliance denials (sanctions, age, jurisdiction, signer-mismatch) still deny regardless of the flag.
 
 ### Mount posture: gate-first vs gate-conditional
 
