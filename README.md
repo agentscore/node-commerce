@@ -280,7 +280,7 @@ app.post("/purchase", async (c) => {
 
 ## Examples
 
-The [examples/](./examples) directory has 6 runnable single-file Hono apps covering common merchant scenarios — copy-paste templates, not frameworks. See [examples/README.md](./examples/README.md) for the full table.
+The [examples/](./examples) directory has 7 runnable single-file Hono apps covering common merchant scenarios — copy-paste templates, not frameworks. See [examples/README.md](./examples/README.md) for the full table.
 
 ## Vendor profile examples
 
