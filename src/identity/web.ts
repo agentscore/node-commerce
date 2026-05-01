@@ -16,6 +16,7 @@ import type {
   CreateSessionOnMissing,
   DenialReason,
   FailOpenInfraReason,
+  GateQuotaInfo,
   VerifyWalletSignerResult,
 } from '../core';
 
@@ -58,6 +59,8 @@ export type GuardResult =
       degraded?: boolean;
       /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
       infraReason?: FailOpenInfraReason;
+      /** Per-account assess quota observability from X-Quota-* response headers. */
+      quota?: GateQuotaInfo;
     }
   | { allowed: false; response: Response };
 
@@ -127,6 +130,7 @@ export function createAgentScoreGate(options: AgentScoreGateOptions): (req: Requ
         captureWallet,
         verifyWalletSignerMatch: verifyWalletSignerMatchBound,
         ...(outcome.degraded ? { degraded: true, infraReason: outcome.infraReason } : {}),
+        ...(outcome.quota ? { quota: outcome.quota } : {}),
       };
     }
 
@@ -166,6 +170,8 @@ export function withAgentScoreGate<TCtx = unknown>(
       degraded?: boolean;
       /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
       infraReason?: FailOpenInfraReason;
+      /** Per-account assess quota observability from X-Quota-* response headers. */
+      quota?: GateQuotaInfo;
     },
     ctx?: TCtx,
   ) => Response | Promise<Response>,
@@ -181,6 +187,7 @@ export function withAgentScoreGate<TCtx = unknown>(
         captureWallet: result.captureWallet,
         verifyWalletSignerMatch: result.verifyWalletSignerMatch,
         ...(result.degraded ? { degraded: true, infraReason: result.infraReason } : {}),
+        ...(result.quota ? { quota: result.quota } : {}),
       },
       ctx,
     );

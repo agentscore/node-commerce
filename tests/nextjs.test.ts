@@ -16,18 +16,21 @@ const DENY_RESPONSE = {
 };
 
 function mockFetchOk(body: unknown): void {
-  global.fetch = vi.fn().mockResolvedValueOnce({
+  global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     status: 200,
-    json: vi.fn().mockResolvedValueOnce(body),
+    headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
 
-function mockFetchStatus(status: number): void {
-  global.fetch = vi.fn().mockResolvedValueOnce({
+function mockFetchStatus(status: number, errorCode?: string): void {
+  const body = errorCode ? { error: { code: errorCode, message: 'mock' } } : {};
+  global.fetch = vi.fn().mockResolvedValue({
     ok: false,
     status,
-    json: vi.fn().mockResolvedValueOnce({}),
+    headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
 
@@ -158,14 +161,17 @@ describe('Next.js adapter — withAgentScoreGate (route handler wrapper)', () =>
     await POST(req);
 
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(fetchCall[1].headers['User-Agent']).toMatch(/^my-next-app\/1\.0\.0 \(@agent-score\/commerce@\d+\.\d+\.\d+\)$/);
+    expect(fetchCall[1].headers['User-Agent']).toMatch(
+      /^my-next-app\/1\.0\.0 \(@agent-score\/commerce@\d+\.\d+\.\d+\) \(@agent-score\/sdk@\d+\.\d+\.\d+\)$/,
+    );
   });
 
   it('allows through when failOpen is true and API returns 402', async () => {
-    global.fetch = vi.fn().mockResolvedValueOnce({
+    global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 402,
-      json: vi.fn().mockResolvedValueOnce({}),
+      headers: new Headers({ 'retry-after': '0' }),
+      json: vi.fn().mockResolvedValue({}),
     } as unknown as Response);
     const handler = vi.fn(async () => new Response('reached'));
     const POST = withAgentScoreGate({ apiKey: API_KEY, failOpen: true }, handler);
@@ -181,10 +187,11 @@ describe('Next.js adapter — withAgentScoreGate (route handler wrapper)', () =>
   });
 
   it('failOpen propagates degraded=true with infraReason="quota_exceeded" on 429 to handler', async () => {
-    global.fetch = vi.fn().mockResolvedValueOnce({
+    global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 429,
-      json: vi.fn().mockResolvedValueOnce({}),
+      headers: new Headers({ 'retry-after': '0' }),
+      json: vi.fn().mockResolvedValue({ error: { code: 'quota_exceeded', message: 'mock' } }),
     } as unknown as Response);
     let captured: { degraded?: boolean; infraReason?: string } | null = null;
     const POST = withAgentScoreGate(

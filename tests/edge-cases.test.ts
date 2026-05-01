@@ -50,7 +50,9 @@ describe('source code structure', () => {
     await def(req1, res1, next1);
 
     const call1 = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(call1[1].headers['User-Agent']).toMatch(/^@agent-score\/commerce@\d+\.\d+\.\d+$/);
+    expect(call1[1].headers['User-Agent']).toMatch(
+      /^@agent-score\/commerce@\d+\.\d+\.\d+ \(@agent-score\/sdk@\d+\.\d+\.\d+\)$/,
+    );
 
     const custom = agentscoreGate({ apiKey: API_KEY, userAgent: 'express-app/1.0.0' });
     const req2 = { headers: { 'x-wallet-address': WALLET } } as unknown as Request;
@@ -59,7 +61,9 @@ describe('source code structure', () => {
     await custom(req2, res2, next2);
 
     const call2 = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[1];
-    expect(call2[1].headers['User-Agent']).toMatch(/^express-app\/1\.0\.0 \(@agent-score\/commerce@\d+\.\d+\.\d+\)$/);
+    expect(call2[1].headers['User-Agent']).toMatch(
+      /^express-app\/1\.0\.0 \(@agent-score\/commerce@\d+\.\d+\.\d+\) \(@agent-score\/sdk@\d+\.\d+\.\d+\)$/,
+    );
   });
 
   it('Express defaultOnDenied delegates body marshaling to the shared _response helper', () => {
@@ -108,23 +112,26 @@ const DENY_RESPONSE = {
 };
 
 function mockFetchOk(body: unknown): void {
-  global.fetch = vi.fn().mockResolvedValueOnce({
+  global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     status: 200,
-    json: vi.fn().mockResolvedValueOnce(body),
+    headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
 
-function mockFetchStatus(status: number): void {
-  global.fetch = vi.fn().mockResolvedValueOnce({
+function mockFetchStatus(status: number, errorCode?: string): void {
+  const body = errorCode ? { error: { code: errorCode, message: 'mock' } } : {};
+  global.fetch = vi.fn().mockResolvedValue({
     ok: false,
     status,
-    json: vi.fn().mockResolvedValueOnce({}),
+    headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
 
 function mockFetchReject(error?: Error): void {
-  global.fetch = vi.fn().mockRejectedValueOnce(error ?? new Error('Network failure'));
+  global.fetch = vi.fn().mockRejectedValue(error ?? new Error('Network failure'));
 }
 
 // ---------------------------------------------------------------------------
@@ -651,19 +658,20 @@ describe('evaluate() — 401 passthrough edge cases', () => {
     // Revoked and expired credentials both surface as token_expired from the API with
     // an auto-minted session in the 401 body. Gate forwards all session fields so the
     // 403 downstream carries verify_url + session_id + poll_secret for agent recovery.
+    const tokenExpiredBody = {
+      error: { code: 'token_expired', message: 'invalid' },
+      session_id: 'sess_auto',
+      poll_secret: 'poll_auto',
+      verify_url: 'https://agentscore.sh/verify?session=sess_auto',
+      poll_url: 'https://api.agentscore.sh/v1/sessions/sess_auto',
+      next_steps: { action: 'deliver_verify_url_and_poll' },
+    };
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 401,
-      clone: () => ({
-        json: async () => ({
-          error: { code: 'token_expired', message: 'invalid' },
-          session_id: 'sess_auto',
-          poll_secret: 'poll_auto',
-          verify_url: 'https://agentscore.sh/verify?session=sess_auto',
-          poll_url: 'https://api.agentscore.sh/v1/sessions/sess_auto',
-          next_steps: { action: 'deliver_verify_url_and_poll' },
-        }),
-      }),
+      headers: new Headers(),
+      json: async () => tokenExpiredBody,
+      clone: () => ({ json: async () => tokenExpiredBody }),
     } as unknown as Response);
 
     const mw = agentscoreGate({ apiKey: API_KEY });
@@ -684,10 +692,13 @@ describe('evaluate() — 401 passthrough edge cases', () => {
   });
 
   it('falls back to canonical token_expired agent_instructions when API next_steps absent', async () => {
+    const apiBody = { error: { code: 'token_expired' } };
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 401,
-      clone: () => ({ json: async () => ({ error: { code: 'token_expired' } }) }),
+      headers: new Headers(),
+      json: async () => apiBody,
+      clone: () => ({ json: async () => apiBody }),
     } as unknown as Response);
 
     const mw = agentscoreGate({ apiKey: API_KEY });
@@ -705,10 +716,13 @@ describe('evaluate() — 401 passthrough edge cases', () => {
 
   it('falls through to generic api_error when 401 body has unknown error.code', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const body = { error: { code: 'something_unknown' } };
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 401,
-      clone: () => ({ json: async () => ({ error: { code: 'something_unknown' } }) }),
+      headers: new Headers(),
+      json: async () => body,
+      clone: () => ({ json: async () => body }),
     } as unknown as Response);
 
     const mw = agentscoreGate({ apiKey: API_KEY });
@@ -730,10 +744,13 @@ describe('evaluate() — 401 passthrough edge cases', () => {
     // — invalid_credential has no recovery payload, the agent must switch tokens or
     // restart the session flow. Used to fall through to api_error → 503 retry which
     // looped forever on a permanent state.
+    const apiBody = { error: { code: 'invalid_credential', message: 'Operator credential not found' } };
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 401,
-      clone: () => ({ json: async () => ({ error: { code: 'invalid_credential', message: 'Operator credential not found' } }) }),
+      headers: new Headers(),
+      json: async () => apiBody,
+      clone: () => ({ json: async () => apiBody }),
     } as unknown as Response);
 
     const mw = agentscoreGate({ apiKey: API_KEY });

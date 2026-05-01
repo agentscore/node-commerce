@@ -18,7 +18,7 @@ Every helper is extracted from a real consumer, not speculated.
 
 ## Architecture
 
-Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framework identity adapters expose the same surface — `agentscoreGate`, `captureWallet`, `getAgentScoreData`, `verifyWalletSignerMatch`, `getGateDegradedState` — with network-aware address normalization (EVM lowercased, Solana base58 preserved verbatim).
+Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framework identity adapters expose the same surface — `agentscoreGate`, `captureWallet`, `getAgentScoreData`, `verifyWalletSignerMatch`, `getGateDegradedState`, `getGateQuotaInfo` — with network-aware address normalization (EVM lowercased, Solana base58 preserved verbatim).
 
 | Directory | Contents |
 |---|---|
@@ -57,6 +57,8 @@ Denial reason codes: `missing_identity`, `identity_verification_required`, `toke
 `createSessionOnMissing` auto-mints a verification session when no identity is present and returns 403 with `verify_url` + poll instructions instead of a bare denial. `verifyWalletSignerMatch` (per-adapter) recovers the signer from MPP/x402 credentials and compares against `linked_wallets[]` for cross-chain wallet-stack matching.
 
 Captured wallets: `captureWallet(ctx, { walletAddress, network, idempotencyKey })` is fire-and-forget — reads `operator_token` stashed during gating and POSTs to `/v1/credentials/wallets`. No-ops for wallet-authenticated requests.
+
+Wallet-signer-match: `verifyWalletSignerMatch(ctx, { signer, network })` makes a single `/v1/assess` call with `resolve_signer` set; the API resolves both wallets and emits a `signer_match` verdict in the same response — collapses the legacy 2 follow-up assess calls into one round trip. Repeat lookups for the same `(claimed, signer)` pair hit a per-cache-entry `signerMatchBySigner` sub-map and skip the API entirely. Falls back to a 2-resolve path when the API doesn't emit `signer_match` (canary rollout safety).
 
 ### Fail-open (opt-in)
 

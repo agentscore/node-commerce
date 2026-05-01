@@ -120,7 +120,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@agent-score/sdk": "^2.1.1"
+    "@agent-score/sdk": "^2.2.0"
   },
   "overrides": {
     "axios": "^1.15.0"

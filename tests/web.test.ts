@@ -26,18 +26,21 @@ const SESSION_RESPONSE = {
 };
 
 function mockFetchOk(body: unknown): void {
-  global.fetch = vi.fn().mockResolvedValueOnce({
+  global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     status: 200,
-    json: vi.fn().mockResolvedValueOnce(body),
+    headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
 
-function mockFetchStatus(status: number): void {
-  global.fetch = vi.fn().mockResolvedValueOnce({
+function mockFetchStatus(status: number, errorCode?: string): void {
+  const body = errorCode ? { error: { code: errorCode, message: 'mock' } } : {};
+  global.fetch = vi.fn().mockResolvedValue({
     ok: false,
     status,
-    json: vi.fn().mockResolvedValueOnce({}),
+    headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
 
@@ -149,7 +152,9 @@ describe('Web Fetch adapter — createAgentScoreGate', () => {
     await guard(new Request('https://example.com/', { headers: { 'x-wallet-address': WALLET } }));
 
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(fetchCall[1].headers['User-Agent']).toBe(`@agent-score/commerce@${__VERSION__}`);
+    expect(fetchCall[1].headers['User-Agent']).toMatch(
+      new RegExp(`^@agent-score/commerce@${__VERSION__} \\(@agent-score/sdk@\\d+\\.\\d+\\.\\d+\\)$`),
+    );
   });
 
   it('prepends userAgent to the default when configured', async () => {
@@ -158,7 +163,11 @@ describe('Web Fetch adapter — createAgentScoreGate', () => {
     await guard(new Request('https://example.com/', { headers: { 'x-wallet-address': WALLET } }));
 
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(fetchCall[1].headers['User-Agent']).toBe(`worker/1.0 (@agent-score/commerce@${__VERSION__})`);
+    expect(fetchCall[1].headers['User-Agent']).toMatch(
+      new RegExp(
+        `^worker/1\\.0 \\(@agent-score/commerce@${__VERSION__}\\) \\(@agent-score/sdk@\\d+\\.\\d+\\.\\d+\\)$`,
+      ),
+    );
   });
 
   it('fails open on 402 when failOpen is true — returns allowed with no data', async () => {

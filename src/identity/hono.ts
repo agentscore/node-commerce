@@ -17,6 +17,7 @@ import type {
   CreateSessionOnMissing,
   DenialReason,
   FailOpenInfraReason,
+  GateQuotaInfo,
   VerifyWalletSignerResult,
 } from '../core';
 import type { Context, MiddlewareHandler } from 'hono';
@@ -34,6 +35,10 @@ interface GateState {
   degraded?: boolean;
   /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
   infraReason?: FailOpenInfraReason;
+  /** Per-account assess quota observability captured from `X-Quota-*` response headers
+   *  on the success path. Absent on Enterprise / unlimited tiers, or when the gate didn't
+   *  call assess. */
+  quota?: GateQuotaInfo;
 }
 
 export interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
@@ -87,9 +92,13 @@ export function agentscoreGate(options: AgentScoreGateOptions): MiddlewareHandle
     const outcome = await core.evaluate(identity, c);
 
     if (outcome.kind === 'allow') {
-      if (outcome.degraded) {
+      if (outcome.degraded || outcome.quota) {
         const prev = c.get(GATE_STATE_KEY) as GateState;
-        c.set(GATE_STATE_KEY, { ...prev, degraded: true, infraReason: outcome.infraReason } satisfies GateState);
+        c.set(GATE_STATE_KEY, {
+          ...prev,
+          ...(outcome.degraded && { degraded: true, infraReason: outcome.infraReason }),
+          ...(outcome.quota && { quota: outcome.quota }),
+        } satisfies GateState);
       }
       if (outcome.data) c.set(CONTEXT_KEY, outcome.data);
       await next();
@@ -121,6 +130,17 @@ export function getAgentScoreData(c: Context): AgentScoreData | undefined {
 export function getGateDegradedState(c: Context): { degraded: boolean; infraReason?: FailOpenInfraReason } {
   const state = c.get(GATE_STATE_KEY) as GateState | undefined;
   return { degraded: state?.degraded ?? false, infraReason: state?.infraReason };
+}
+
+/**
+ * Read AgentScore assess quota observability captured from `X-Quota-*` response headers
+ * on this request's gate evaluate. Returns `undefined` when the request was a fail-open
+ * pass-through (no assess call) or when the API didn't emit quota headers (Enterprise /
+ * unlimited tiers). Use to monitor approach-to-cap proactively.
+ */
+export function getGateQuotaInfo(c: Context): GateQuotaInfo | undefined {
+  const state = c.get(GATE_STATE_KEY) as GateState | undefined;
+  return state?.quota;
 }
 
 /**

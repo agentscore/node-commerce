@@ -17,6 +17,7 @@ import type {
   CreateSessionOnMissing,
   DenialReason,
   FailOpenInfraReason,
+  GateQuotaInfo,
   VerifyWalletSignerResult,
 } from '../core';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
@@ -32,6 +33,8 @@ interface GateState {
   degraded?: boolean;
   /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
   infraReason?: FailOpenInfraReason;
+  /** Per-account assess quota observability captured from `X-Quota-*` response headers. */
+  quota?: GateQuotaInfo;
 }
 
 export interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
@@ -93,12 +96,13 @@ const agentscoreGatePlugin: FastifyPluginAsync<AgentScoreGateOptions> = async (f
     const outcome = await core.evaluate(identity, request);
 
     if (outcome.kind === 'allow') {
-      if (outcome.degraded) {
-        const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
-        if (state) {
+      const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+      if (state) {
+        if (outcome.degraded) {
           state.degraded = true;
           state.infraReason = outcome.infraReason;
         }
+        if (outcome.quota) state.quota = outcome.quota;
       }
       if (outcome.data) (request as unknown as Record<string, unknown>).agentscore = outcome.data;
       return;
@@ -126,6 +130,16 @@ export function getGateDegradedState(
 ): { degraded: boolean; infraReason?: FailOpenInfraReason } {
   const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
   return { degraded: state?.degraded ?? false, infraReason: state?.infraReason };
+}
+
+/**
+ * Read AgentScore assess quota observability captured from `X-Quota-*` response headers
+ * on this request's gate evaluate. Returns `undefined` when the request was a fail-open
+ * pass-through (no assess call) or when the API didn't emit quota headers.
+ */
+export function getGateQuotaInfo(request: FastifyRequest): GateQuotaInfo | undefined {
+  const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+  return state?.quota;
 }
 
 /**

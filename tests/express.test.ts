@@ -41,23 +41,29 @@ const DENY_RESPONSE = {
 };
 
 function mockFetchOk(body: unknown): void {
-  global.fetch = vi.fn().mockResolvedValueOnce({
+  global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     status: 200,
-    json: vi.fn().mockResolvedValueOnce(body),
+    headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
 
-function mockFetchStatus(status: number): void {
-  global.fetch = vi.fn().mockResolvedValueOnce({
+function mockFetchStatus(status: number, errorCode?: string): void {
+  // SDK retries once on 429 — use mockResolvedValue so both attempts get the same body.
+  // Include retry-after: 0 so the SDK retry path doesn't wait.
+  // Include error.code in the body when provided so SDK maps to a typed error subclass.
+  const body = errorCode ? { error: { code: errorCode, message: 'mock' } } : {};
+  global.fetch = vi.fn().mockResolvedValue({
     ok: false,
     status,
-    json: vi.fn().mockResolvedValueOnce({}),
+    headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
 
-function mockFetchReject(): void {
-  global.fetch = vi.fn().mockRejectedValueOnce(new Error('Network failure'));
+function mockFetchReject(err: Error = new Error('Network failure')): void {
+  global.fetch = vi.fn().mockRejectedValue(err);
 }
 
 // ---------------------------------------------------------------------------
@@ -495,7 +501,10 @@ describe('agentscoreGate middleware — custom onDenied', () => {
     await middleware(req, res, next);
     const call = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const headers = call[1].headers as Record<string, string>;
-    expect(headers['User-Agent']).toBe(`@agent-score/commerce@${__VERSION__}`);
+    // SDK appends its own UA to the chain: `<commerce@v> (@agent-score/sdk@<sdkV>)`.
+    expect(headers['User-Agent']).toMatch(
+      new RegExp(`^@agent-score/commerce@${__VERSION__} \\(@agent-score/sdk@\\d+\\.\\d+\\.\\d+\\)$`),
+    );
   });
 
   it('prepends custom userAgent to the default on /v1/assess', async () => {
@@ -507,7 +516,11 @@ describe('agentscoreGate middleware — custom onDenied', () => {
     await middleware(req, res, next);
     const call = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const headers = call[1].headers as Record<string, string>;
-    expect(headers['User-Agent']).toBe(`my-app/1.2.3 (@agent-score/commerce@${__VERSION__})`);
+    expect(headers['User-Agent']).toMatch(
+      new RegExp(
+        `^my-app/1\\.2\\.3 \\(@agent-score/commerce@${__VERSION__}\\) \\(@agent-score/sdk@\\d+\\.\\d+\\.\\d+\\)$`,
+      ),
+    );
   });
 
   it('prepends custom userAgent to the default on /v1/sessions', async () => {
@@ -525,7 +538,11 @@ describe('agentscoreGate middleware — custom onDenied', () => {
     await middleware(req, res, next);
     const call = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const headers = call[1].headers as Record<string, string>;
-    expect(headers['User-Agent']).toBe(`my-app/1.2.3 (@agent-score/commerce@${__VERSION__})`);
+    expect(headers['User-Agent']).toMatch(
+      new RegExp(
+        `^my-app/1\\.2\\.3 \\(@agent-score/commerce@${__VERSION__}\\) \\(@agent-score/sdk@\\d+\\.\\d+\\.\\d+\\)$`,
+      ),
+    );
   });
 });
 
@@ -621,7 +638,9 @@ describe('agentscoreGate middleware — edge cases', () => {
 
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const headers = fetchCall[1].headers as Record<string, string>;
-    expect(headers['User-Agent']).toMatch(/^@agent-score\/commerce@\d+\.\d+\.\d+$/);
+    expect(headers['User-Agent']).toMatch(
+      /^@agent-score\/commerce@\d+\.\d+\.\d+ \(@agent-score\/sdk@\d+\.\d+\.\d+\)$/,
+    );
   });
 
   it('sends requireKyc as policy.require_kyc in request body', async () => {
