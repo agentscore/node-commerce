@@ -180,6 +180,68 @@ describe('Next.js adapter — withAgentScoreGate (route handler wrapper)', () =>
     expect(handler).toHaveBeenCalledOnce();
   });
 
+  it('failOpen propagates degraded=true with infraReason="quota_exceeded" on 429 to handler', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      json: vi.fn().mockResolvedValueOnce({}),
+    } as unknown as Response);
+    let captured: { degraded?: boolean; infraReason?: string } | null = null;
+    const POST = withAgentScoreGate(
+      { apiKey: API_KEY, failOpen: true },
+      async (_req, gate) => {
+        captured = { degraded: gate.degraded, infraReason: gate.infraReason };
+        return new Response('ok');
+      },
+    );
+    const res = await POST(new Request('https://example.com/api/x', { method: 'POST', headers: { 'x-wallet-address': WALLET } }));
+    expect(res.status).toBe(200);
+    expect(captured).toEqual({ degraded: true, infraReason: 'quota_exceeded' });
+  });
+
+  it('failOpen propagates degraded=true with infraReason="api_error" on 500 to handler', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: vi.fn().mockResolvedValueOnce({}),
+    } as unknown as Response);
+    let captured: { degraded?: boolean; infraReason?: string } | null = null;
+    const POST = withAgentScoreGate(
+      { apiKey: API_KEY, failOpen: true },
+      async (_req, gate) => {
+        captured = { degraded: gate.degraded, infraReason: gate.infraReason };
+        return new Response('ok');
+      },
+    );
+    const res = await POST(new Request('https://example.com/api/x', { method: 'POST', headers: { 'x-wallet-address': WALLET } }));
+    expect(res.status).toBe(200);
+    expect(captured).toEqual({ degraded: true, infraReason: 'api_error' });
+  });
+
+  it('normal allow leaves degraded undefined on handler gate arg', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValueOnce({
+        decision: 'allow',
+        decision_reasons: ['no_policy_applied'],
+        subject: { chains: ['base'], address: WALLET },
+        score: { value: 85, grade: 'A' },
+      }),
+    } as unknown as Response);
+    let captured: { degraded?: boolean; infraReason?: string } | null = null;
+    const POST = withAgentScoreGate(
+      { apiKey: API_KEY },
+      async (_req, gate) => {
+        captured = { degraded: gate.degraded, infraReason: gate.infraReason };
+        return new Response('ok');
+      },
+    );
+    const res = await POST(new Request('https://example.com/api/x', { method: 'POST', headers: { 'x-wallet-address': WALLET } }));
+    expect(res.status).toBe(200);
+    expect(captured).toEqual({ degraded: undefined, infraReason: undefined });
+  });
+
   it('creates a session and returns 403 identity_verification_required when identity is missing', async () => {
     const SESSION_RESPONSE = {
       session_id: 'sess_nx1',

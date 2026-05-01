@@ -23,12 +23,13 @@ import type { DenialCode, DenialReason } from './core.js';
  *  - `payment_required` — gate never stamps; merchant tier misconfig, contact-merchant action
  *  - `identity_verification_required` — fallback when API didn't return next_steps
  *  - `token_expired` — fallback when API didn't return next_steps
+ *  - `api_error` — `retry_with_backoff` envelope; sole retry channel (no separate
+ *    next_steps block emitted)
  *
  * Codes already stamped explicitly upstream in core.ts (`missing_identity`,
  * `invalid_credential`) and codes that don't go through DenialReason
  * (`wallet_signer_mismatch`, `wallet_auth_requires_wallet_signing` — handled by
- * `verifyWalletSignerMatch` result type) are not in this map. `api_error` has
- * its own `next_steps: {action: retry}` fallback below.
+ * `verifyWalletSignerMatch` result type) are not in this map.
  */
 const WALLET_NOT_TRUSTED_INSTRUCTIONS = JSON.stringify({
   action: 'contact_support',
@@ -44,11 +45,11 @@ const WALLET_NOT_TRUSTED_INSTRUCTIONS = JSON.stringify({
 const PAYMENT_REQUIRED_INSTRUCTIONS = JSON.stringify({
   action: 'contact_merchant',
   steps: [
-    'The merchant\'s AgentScore tier does not include the assess feature, so agent identity cannot be evaluated. This is a merchant-side configuration gap — there is no agent-side recovery.',
-    'Contact the merchant (their support channel — typically listed in /llms.txt or the OpenAPI servers metadata) and request they upgrade their AgentScore plan.',
+    'The merchant\'s AgentScore account does not have the assess endpoint enabled, so agent identity cannot be evaluated. This is a merchant-side configuration gap — there is no agent-side recovery.',
+    'Contact the merchant (their support channel — typically listed in /llms.txt or the OpenAPI servers metadata) so they can resolve the configuration on their side.',
   ],
   user_message:
-    'This merchant\'s identity gate is misconfigured (AgentScore tier doesn\'t support assess). Contact the merchant — there\'s nothing to fix on the agent side.',
+    'This merchant\'s identity gate is misconfigured. Contact the merchant — there\'s nothing to fix on the agent side.',
 });
 
 const IDENTITY_VERIFICATION_REQUIRED_FALLBACK_INSTRUCTIONS = JSON.stringify({
@@ -65,12 +66,23 @@ const IDENTITY_VERIFICATION_REQUIRED_FALLBACK_INSTRUCTIONS = JSON.stringify({
 const API_ERROR_INSTRUCTIONS = JSON.stringify({
   action: 'retry_with_backoff',
   steps: [
-    'Verification system is temporarily unavailable (AgentScore-side issue: quota cap, transient 5xx, or network timeout). Retry the request after 5–30 seconds with exponential backoff.',
-    'This is NOT a compliance denial — the user does not need to re-verify their identity. The same identity headers (X-Wallet-Address or X-Operator-Token) should be sent on retry.',
-    'If the request continues to fail after 3+ retries (~60 seconds total), surface the error to the user with the merchant\'s support contact. A sustained AgentScore outage is rare but possible; merchants generally also degrade gracefully when this happens.',
+    'Verification is temporarily unavailable. Retry the request after 5–30 seconds with exponential backoff.',
+    'This is NOT a compliance denial — the user does not need to re-verify their identity. Send the same identity headers (X-Wallet-Address or X-Operator-Token) on retry.',
+    'If the request continues to fail after 3+ retries (~60 seconds total), surface the error to the user with the merchant\'s support contact.',
   ],
   user_message:
     'Verification is temporarily unavailable. Please try again in a moment — this is a transient issue, not a problem with your account.',
+});
+
+export const QUOTA_EXCEEDED_INSTRUCTIONS = JSON.stringify({
+  action: 'contact_merchant',
+  steps: [
+    'AgentScore identity verification is unavailable for this merchant. This is a merchant-side issue and is NOT recoverable via retry.',
+    'Do not retry: the same 503 will be returned until the merchant resolves the issue on their side.',
+    'Surface to the user with the merchant\'s support contact. The merchant (not the agent) needs to act.',
+  ],
+  user_message:
+    'This merchant\'s identity verification is temporarily unavailable. Try again later, or contact the merchant directly.',
 });
 
 const TOKEN_EXPIRED_FALLBACK_INSTRUCTIONS = JSON.stringify({
@@ -102,7 +114,7 @@ const DEFAULT_MESSAGES: Record<DenialCode, string> = {
   api_error:
     'AgentScore is unreachable. This is transient — retry in a few seconds.',
   payment_required:
-    'AgentScore tier does not support assess. Contact support.',
+    'Assess endpoint not enabled for this merchant. Contact support.',
   wallet_signer_mismatch:
     'Payment signer does not match the wallet claimed via X-Wallet-Address. The signer and the claimed wallet must both resolve to the same AgentScore operator.',
   wallet_auth_requires_wallet_signing:
@@ -150,11 +162,6 @@ export function denialReasonToBody(reason: DenialReason): Record<string, unknown
   if (reason.expected_signer) body.expected_signer = reason.expected_signer;
   if (reason.actual_signer) body.actual_signer = reason.actual_signer;
   if (reason.linked_wallets && reason.linked_wallets.length > 0) body.linked_wallets = reason.linked_wallets;
-  // api_error denials get a default retry hint so agents know it's transient. Vendors can
-  // override by spreading their own next_steps into a custom onDenied body.
-  if (reason.code === 'api_error' && !(reason.extra && (reason.extra as Record<string, unknown>).next_steps)) {
-    body.next_steps = { action: 'retry', retry_after_seconds: 5 };
-  }
   if (reason.extra) {
     for (const [key, value] of Object.entries(reason.extra)) {
       if (RESERVED_FIELDS.has(key)) {

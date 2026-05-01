@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agentscoreGate, captureWallet } from '../src/identity/express';
+import { agentscoreGate, captureWallet, getGateDegradedState } from '../src/identity/express';
 import type { NextFunction, Request, Response } from 'express';
 
 // ---------------------------------------------------------------------------
@@ -209,6 +209,81 @@ describe('agentscoreGate middleware — API error', () => {
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(503);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
+  });
+
+  it('failOpen marks degraded=true with infraReason="quota_exceeded" on 429', async () => {
+    mockFetchStatus(429);
+    const mw = agentscoreGate({ apiKey: API_KEY, failOpen: true });
+    const req = makeReq(WALLET);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    const state = getGateDegradedState(req);
+    expect(state.degraded).toBe(true);
+    expect(state.infraReason).toBe('quota_exceeded');
+  });
+
+  it('failOpen marks degraded=true with infraReason="api_error" on 500', async () => {
+    mockFetchStatus(500);
+    const mw = agentscoreGate({ apiKey: API_KEY, failOpen: true });
+    const req = makeReq(WALLET);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    const state = getGateDegradedState(req);
+    expect(state.degraded).toBe(true);
+    expect(state.infraReason).toBe('api_error');
+  });
+
+  it('failOpen marks degraded=true with infraReason="api_error" on generic fetch reject', async () => {
+    mockFetchReject();
+    const mw = agentscoreGate({ apiKey: API_KEY, failOpen: true });
+    const req = makeReq(WALLET);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    const state = getGateDegradedState(req);
+    expect(state.degraded).toBe(true);
+    expect(state.infraReason).toBe('api_error');
+  });
+
+  it('failOpen marks degraded=true with infraReason="network_timeout" on AbortError', async () => {
+    global.fetch = vi.fn().mockRejectedValueOnce(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    const mw = agentscoreGate({ apiKey: API_KEY, failOpen: true });
+    const req = makeReq(WALLET);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    const state = getGateDegradedState(req);
+    expect(state.degraded).toBe(true);
+    expect(state.infraReason).toBe('network_timeout');
+  });
+
+  it('normal allow leaves degraded=false', async () => {
+    mockFetchOk(ALLOW_RESPONSE);
+    const mw = agentscoreGate({ apiKey: API_KEY });
+    const req = makeReq(WALLET);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    const state = getGateDegradedState(req);
+    expect(state.degraded).toBe(false);
+    expect(state.infraReason).toBeUndefined();
   });
 });
 

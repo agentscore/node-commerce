@@ -1,4 +1,5 @@
 import { isFixableDenial } from './_denial';
+import { QUOTA_EXCEEDED_INSTRUCTIONS } from './_response';
 import { normalizeAddress } from './address';
 import { TTLCache } from './cache';
 
@@ -205,8 +206,8 @@ export interface AgentScoreData {
  * infrastructure issues. Surfaced on `EvaluateOutcome` so merchants can log/alert when
  * their gate is running in degraded mode (compliance not actually enforced this request).
  *
- * - `quota_exceeded` — AgentScore returned 429 (the merchant's monthly quota is at cap)
- * - `api_error` — AgentScore returned 5xx or non-2xx that isn't quota
+ * - `quota_exceeded` — AgentScore returned 429
+ * - `api_error` — AgentScore returned 5xx or non-2xx that isn't 429
  * - `network_timeout` — request to /v1/assess timed out or failed at the network layer
  */
 export type FailOpenInfraReason = 'quota_exceeded' | 'api_error' | 'network_timeout';
@@ -526,6 +527,12 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     // Treat "returned identity object with no usable fields" the same as "no identity at all" —
     // otherwise a misbehaving custom extractIdentity would send an empty body to /v1/assess.
     if (!identity || (!identity.address && !identity.operatorToken)) {
+      // failOpen short-circuits BEFORE the session mint. This branch isn't an infra failure
+      // (no AgentScore call has been made yet) so we don't mark the gate state as degraded —
+      // missing identity + failOpen is the explicit opt-in pass-through behavior, not a
+      // graceful-degradation event. Merchants who need identity-or-deny on a failOpen gate
+      // should add a guard at the handler that checks for X-Wallet-Address / X-Operator-Token
+      // before reading the gate state.
       if (failOpen) return { kind: 'allow' };
 
       const sessionReason = await tryMintSessionDenial(ctx);
@@ -679,12 +686,18 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         }
       }
 
-      // 4xx with a structured error body that ISN'T 401/402: log it so operators see
+      // 4xx with a structured error body that ISN'T 401/402/429: log it so operators see
       // misclassifications instead of opaque 503 retries. Most common cause: a merchant
       // that didn't validate input shape before invoking the gate (invalid_address,
-      // invalid_identity). We still fall through to api_error so behavior is unchanged
-      // for callers — just visible now.
-      if (response.status >= 400 && response.status < 500 && response.status !== 402) {
+      // invalid_identity). 429 is handled below with its own dedicated branch + warning;
+      // 401 already has dedicated handling above. We still fall through to api_error so
+      // behavior is unchanged for callers — just visible now.
+      if (
+        response.status >= 400 &&
+        response.status < 500 &&
+        response.status !== 402 &&
+        response.status !== 429
+      ) {
         try {
           const errData = (await response.clone().json()) as { error?: { code?: string; message?: string } };
           const code = errData?.error?.code;
@@ -699,13 +712,18 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         }
       }
 
-      // 429 quota_exceeded gets dedicated handling so the merchant's monthly cap is visible
-      // in the gate result (`infraReason: 'quota_exceeded'`) rather than collapsed into a
-      // generic api_error. failOpen merchants can alert on quota_exceeded specifically.
+      // 429 gets dedicated handling so it's visible in the gate result
+      // (`infraReason: 'quota_exceeded'`) rather than collapsed into a generic api_error.
+      // failOpen merchants can alert on quota_exceeded specifically; closed-mode denials
+      // get dedicated agent_instructions telling the agent to surface to the user instead
+      // of retrying (this 503 won't recover from retry).
       if (response.status === 429) {
-        console.warn('[gate] /v1/assess returned 429 — AgentScore quota exceeded for this account');
+        console.warn('[gate] /v1/assess returned 429');
         if (failOpen) return { kind: 'allow', degraded: true, infraReason: 'quota_exceeded' };
-        return { kind: 'deny', reason: { code: 'api_error' } };
+        return {
+          kind: 'deny',
+          reason: { code: 'api_error', agent_instructions: QUOTA_EXCEEDED_INSTRUCTIONS },
+        };
       }
 
       if (!response.ok) {
