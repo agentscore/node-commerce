@@ -25,8 +25,7 @@
  *    {@link GateResult} so the vendor decides how to surface it.
  *
  * All three are additive — vendors using `agentscoreGate(...)` directly are
- * unaffected. The pattern was extracted from `agentscore/store`; see its
- * `store/routes/purchase.py` (Python sibling) for the full per-request flow.
+ * unaffected.
  */
 
 import type { AgentScoreCoreOptions, DenialReason } from '../core.js';
