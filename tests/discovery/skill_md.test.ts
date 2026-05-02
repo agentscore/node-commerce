@@ -33,6 +33,11 @@ describe('buildSkillMd', () => {
       expect(out2).toContain('  version: "2.0.1"');
     });
 
+    it('passes version: 0 through unchanged (nullish-coalescing default, not falsy)', () => {
+      const out = buildSkillMd({ ...baseInput, version: 0 });
+      expect(out).toContain('  version: "0"');
+    });
+
     it("quotes description containing colons (the spec's primary YAML pitfall)", () => {
       const out = buildSkillMd({ ...baseInput, description: 'Use when: buying premium wine' });
       expect(out).toContain('description: "Use when: buying premium wine"');
