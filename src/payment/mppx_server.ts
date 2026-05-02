@@ -85,16 +85,20 @@ interface MppxModule {
  */
 export async function createMppxServer(opts: CreateMppxServerOptions): Promise<unknown> {
   const mppx = await dynamicImport<MppxModule>('mppx/server');
+  /* v8 ignore start -- peer-dep-absence guard; mppx is installed in the test env */
   if (!mppx?.Mppx?.create) {
     throw new Error('mppx not installed — `npm install mppx` to use createMppxServer.');
   }
+  /* v8 ignore stop */
 
   const methods: unknown[] = [...(opts.methods ?? [])];
 
   if (opts.rails?.tempo) {
+    /* v8 ignore start -- peer-dep version-mismatch guard; current mppx ships tempo.charge */
     if (!mppx.tempo?.charge) {
       throw new Error('mppx.tempo.charge not available — check installed mppx version.');
     }
+    /* v8 ignore stop */
     const t = opts.rails.tempo;
     const defaultCurrency = t.testnet ? USDC.tempo.testnet.address : USDC.tempo.mainnet.address;
     methods.push(
@@ -107,11 +111,13 @@ export async function createMppxServer(opts: CreateMppxServerOptions): Promise<u
   }
 
   if (opts.rails?.tempo_session) {
+    /* v8 ignore start -- peer-dep version-mismatch guard; current mppx ships tempo.session */
     if (!mppx.tempo?.session) {
       throw new Error(
         'mppx.tempo.session not available — your mppx version may not support sessions yet. Upgrade with `npm install mppx@latest`.',
       );
     }
+    /* v8 ignore stop */
     const s = opts.rails.tempo_session;
     const defaultCurrency = s.testnet ? USDC.tempo.testnet.address : USDC.tempo.mainnet.address;
     methods.push(
