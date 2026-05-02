@@ -76,13 +76,34 @@ function defaultWarnings(howToPay: HowToPayBlock): string[] {
  * for humans (rationale, per-rail commands, why some clients don't fully work, last
  * verified date) — this default keeps the merchant-side surface in sync.
  */
-function defaultCompatibleClients(howToPay: HowToPayBlock): CompatibleClients | undefined {
+/** Symbolic rail keys agent-facing surfaces use to talk about a rail without spelling out
+ *  network/scheme details. Same keys as `CompatibleClients` map keys. */
+export type RailKey = 'tempo_mpp' | 'x402_base' | 'x402_solana' | 'stripe';
+
+const RAIL_CLIENTS: Record<RailKey, readonly string[]> = {
+  tempo_mpp: ['agentscore-pay', 'tempo request', 'x402-proxy'],
+  x402_base: ['agentscore-pay', 'x402-proxy', 'purl (omit --network flag)'],
+  x402_solana: ['agentscore-pay'],
+  stripe: ['link-cli'],
+};
+
+/** Returns the smoke-verified client list for a set of rail keys. The single source of
+ *  truth for "which CLIs we've verified end-to-end on each rail" — consumed both by the
+ *  402-body builder (`defaultCompatibleClients`) and by discovery surfaces (skill.md,
+ *  llms.txt, etc.). Update here, every surface inherits. */
+export function compatibleClientsByRails(rails: readonly RailKey[]): CompatibleClients | undefined {
   const out: CompatibleClients = {};
-  if (howToPay.tempo) out.tempo_mpp = ['agentscore-pay', 'tempo request', 'x402-proxy'];
-  if (howToPay.x402_base) out.x402_base = ['agentscore-pay', 'x402-proxy', 'purl (omit --network flag)'];
-  if (howToPay.x402_solana) out.x402_solana = ['agentscore-pay'];
-  if (howToPay.stripe) out.stripe = ['link-cli'];
+  for (const r of rails) out[r] = [...RAIL_CLIENTS[r]];
   return Object.keys(out).length === 0 ? undefined : out;
+}
+
+function defaultCompatibleClients(howToPay: HowToPayBlock): CompatibleClients | undefined {
+  const rails: RailKey[] = [];
+  if (howToPay.tempo) rails.push('tempo_mpp');
+  if (howToPay.x402_base) rails.push('x402_base');
+  if (howToPay.x402_solana) rails.push('x402_solana');
+  if (howToPay.stripe) rails.push('stripe');
+  return compatibleClientsByRails(rails);
 }
 
 /**
