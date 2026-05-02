@@ -15,44 +15,167 @@ describe('buildSkillMd', () => {
     triggers: ['User wants to buy wine from Martin Estate'],
   };
 
-  it('emits valid YAML frontmatter with name, description, homepage, version', () => {
-    const out = buildSkillMd(baseInput);
-    expect(out.startsWith('---\n')).toBe(true);
-    expect(out).toMatch(/^---\nname: martin-estate-wine-commerce\ndescription: .+\nhomepage: https:\/\/martin-estate\.com\nmetadata:\n {2}version: 1\n---/);
-  });
-
-  it('honors version override', () => {
-    const out = buildSkillMd({ ...baseInput, version: 7 });
-    expect(out).toContain('  version: 7');
-  });
-
-  it('renders merchant name as h1', () => {
-    const out = buildSkillMd(baseInput);
-    expect(out).toContain('\n# Martin Estate\n');
-  });
-
-  it('emits the SKILL.md self-reference under Important Files', () => {
-    const out = buildSkillMd(baseInput);
-    expect(out).toContain('## Important Files');
-    expect(out).toContain('| **SKILL.md** (this file) | `https://martin-estate.com/skill.md` |');
-  });
-
-  it('appends caller-supplied files to Important Files', () => {
-    const out = buildSkillMd({
-      ...baseInput,
-      files: [
-        { label: 'llms.txt', url: 'https://martin-estate.com/llms.txt' },
-        { label: 'OpenAPI', url: 'https://martin-estate.com/openapi.json' },
-      ],
+  describe('frontmatter (agentskills.io spec)', () => {
+    it('emits valid YAML frontmatter with name + quoted description + metadata', () => {
+      const out = buildSkillMd(baseInput);
+      expect(out.startsWith('---\n')).toBe(true);
+      expect(out).toContain('name: martin-estate-wine-commerce');
+      expect(out).toContain('description: "Buy wine from Martin Estate via an AI agent"');
+      expect(out).toContain('metadata:');
+      expect(out).toContain('  version: "1"');
+      expect(out).toContain('  homepage: "https://martin-estate.com"');
     });
-    expect(out).toContain('| llms.txt | `https://martin-estate.com/llms.txt` |');
-    expect(out).toContain('| OpenAPI | `https://martin-estate.com/openapi.json` |');
+
+    it('emits version as a quoted string per spec (string keys to string values)', () => {
+      const out = buildSkillMd({ ...baseInput, version: 7 });
+      expect(out).toContain('  version: "7"');
+      const out2 = buildSkillMd({ ...baseInput, version: '2.0.1' });
+      expect(out2).toContain('  version: "2.0.1"');
+    });
+
+    it("quotes description containing colons (the spec's primary YAML pitfall)", () => {
+      const out = buildSkillMd({ ...baseInput, description: 'Use when: buying premium wine' });
+      expect(out).toContain('description: "Use when: buying premium wine"');
+    });
+
+    it('escapes embedded double-quotes in description', () => {
+      const out = buildSkillMd({ ...baseInput, description: 'Buy "Estate" wine' });
+      expect(out).toContain('description: "Buy \\"Estate\\" wine"');
+    });
+
+    it('escapes embedded newlines in description', () => {
+      const out = buildSkillMd({ ...baseInput, description: 'line one\nline two' });
+      expect(out).toContain('description: "line one\\nline two"');
+    });
+
+    it('emits optional license / compatibility / allowed-tools when set', () => {
+      const out = buildSkillMd({
+        ...baseInput,
+        license: 'Apache-2.0',
+        compatibility: 'Requires Node 20+',
+        allowedTools: 'Bash(curl:*)',
+      });
+      expect(out).toContain('license: "Apache-2.0"');
+      expect(out).toContain('compatibility: "Requires Node 20+"');
+      expect(out).toContain('allowed-tools: "Bash(curl:*)"');
+    });
+
+    it('omits license / compatibility / allowed-tools by default', () => {
+      const out = buildSkillMd(baseInput);
+      expect(out).not.toMatch(/^license:/m);
+      expect(out).not.toMatch(/^compatibility:/m);
+      expect(out).not.toMatch(/^allowed-tools:/m);
+    });
+
+    it('merges caller-supplied metadata entries (string values, version/homepage protected)', () => {
+      const out = buildSkillMd({
+        ...baseInput,
+        metadata: { author: 'agentscore', vendor_id: 'me-001', version: 'IGNORED', homepage: 'IGNORED' },
+      });
+      expect(out).toContain('  author: "agentscore"');
+      expect(out).toContain('  vendor_id: "me-001"');
+      expect(out).toContain('  version: "1"');
+      expect(out).toContain('  homepage: "https://martin-estate.com"');
+      expect(out).not.toContain('IGNORED');
+    });
   });
 
-  it('strips trailing slash from homepage when computing skill.md URL', () => {
-    const out = buildSkillMd({ ...baseInput, homepage: 'https://martin-estate.com/' });
-    expect(out).toContain('`https://martin-estate.com/skill.md`');
-    expect(out).not.toContain('//skill.md');
+  describe('name + description validation (spec)', () => {
+    it('rejects empty name', () => {
+      expect(() => buildSkillMd({ ...baseInput, name: '' })).toThrow(/1-64/);
+    });
+
+    it('rejects name exceeding 64 characters', () => {
+      expect(() => buildSkillMd({ ...baseInput, name: 'a'.repeat(65) })).toThrow(/1-64/);
+    });
+
+    it('rejects name with uppercase characters', () => {
+      expect(() => buildSkillMd({ ...baseInput, name: 'Martin-Estate' })).toThrow(/lowercase/);
+    });
+
+    it('rejects name with leading hyphen', () => {
+      expect(() => buildSkillMd({ ...baseInput, name: '-foo' })).toThrow(/hyphens/);
+    });
+
+    it('rejects name with trailing hyphen', () => {
+      expect(() => buildSkillMd({ ...baseInput, name: 'foo-' })).toThrow(/hyphens/);
+    });
+
+    it('rejects name with consecutive hyphens', () => {
+      expect(() => buildSkillMd({ ...baseInput, name: 'foo--bar' })).toThrow(/hyphens/);
+    });
+
+    it('rejects empty description', () => {
+      expect(() => buildSkillMd({ ...baseInput, description: '' })).toThrow(/non-empty/);
+    });
+
+    it('rejects description exceeding 1024 characters', () => {
+      expect(() => buildSkillMd({ ...baseInput, description: 'a'.repeat(1025) })).toThrow(/1024/);
+    });
+
+    it('rejects compatibility exceeding 500 characters', () => {
+      expect(() => buildSkillMd({ ...baseInput, compatibility: 'a'.repeat(501) })).toThrow(/500/);
+    });
+  });
+
+  describe('title block', () => {
+    it('renders merchant name as h1', () => {
+      const out = buildSkillMd(baseInput);
+      expect(out).toContain('\n# Martin Estate\n');
+    });
+
+    it('renders title + tagline + intro with single blank line between each', () => {
+      const out = buildSkillMd({
+        ...baseInput,
+        tagline: 'A classic is forever',
+        intro: 'Napa Valley winery, family-run.',
+      });
+      expect(out).toContain('# Martin Estate\n\n_A classic is forever_\n\nNapa Valley winery, family-run.');
+    });
+
+    it('renders tagline only when provided', () => {
+      const out = buildSkillMd({ ...baseInput, tagline: 'A classic is forever' });
+      expect(out).toContain('# Martin Estate\n\n_A classic is forever_');
+    });
+
+    it('renders intro only when provided', () => {
+      const out = buildSkillMd({ ...baseInput, intro: 'Napa Valley winery.' });
+      expect(out).toContain('# Martin Estate\n\nNapa Valley winery.');
+    });
+  });
+
+  describe('Important Files section', () => {
+    it('emits the SKILL.md self-reference', () => {
+      const out = buildSkillMd(baseInput);
+      expect(out).toContain('## Important Files');
+      expect(out).toContain('| **SKILL.md** (this file) | `https://martin-estate.com/skill.md` |');
+    });
+
+    it('appends caller-supplied files', () => {
+      const out = buildSkillMd({
+        ...baseInput,
+        files: [
+          { label: 'llms.txt', url: 'https://martin-estate.com/llms.txt' },
+          { label: 'OpenAPI', url: 'https://martin-estate.com/openapi.json' },
+        ],
+      });
+      expect(out).toContain('| llms.txt | `https://martin-estate.com/llms.txt` |');
+      expect(out).toContain('| OpenAPI | `https://martin-estate.com/openapi.json` |');
+    });
+
+    it('strips trailing slash from homepage when computing skill.md URL', () => {
+      const out = buildSkillMd({ ...baseInput, homepage: 'https://martin-estate.com/' });
+      expect(out).toContain('`https://martin-estate.com/skill.md`');
+      expect(out).not.toContain('//skill.md');
+    });
+
+    it('escapes pipe characters in file labels and URLs to keep tables intact', () => {
+      const out = buildSkillMd({
+        ...baseInput,
+        files: [{ label: 'a|b', url: 'https://x.example/foo|bar' }],
+      });
+      expect(out).toContain('| a\\|b | `https://x.example/foo\\|bar` |');
+    });
   });
 
   describe('payment section', () => {
@@ -68,7 +191,7 @@ describe('buildSkillMd', () => {
       expect(out).toContain('link-cli');
     });
 
-    it('omits rails not declared in acceptedRails (Store has no Stripe)', () => {
+    it('omits rails not declared in acceptedRails', () => {
       const out = buildSkillMd({
         ...baseInput,
         acceptedRails: ['tempo_mpp', 'x402_base', 'x402_solana'],
@@ -78,7 +201,7 @@ describe('buildSkillMd', () => {
       expect(out).not.toContain('link-cli');
     });
 
-    it('honors compatibleClients override for verified-by-merchant clients', () => {
+    it('honors compatibleClients override per rail', () => {
       const out = buildSkillMd({
         ...baseInput,
         acceptedRails: ['x402_base'],
@@ -86,6 +209,28 @@ describe('buildSkillMd', () => {
       });
       expect(out).toContain('agentscore-pay, merchant-custom-cli');
       expect(out).not.toContain('purl');
+    });
+
+    it('drops compatibleClients overrides for rails not in acceptedRails', () => {
+      const out = buildSkillMd({
+        ...baseInput,
+        acceptedRails: ['x402_base'],
+        compatibleClients: {
+          x402_base: ['agentscore-pay'],
+          stripe: ['rogue-cli'],
+        },
+      });
+      expect(out).not.toContain('rogue-cli');
+      expect(out).not.toContain('Stripe Shared Payment Token');
+    });
+
+    it("renders '—' when a rail's compatible-clients list is explicitly empty", () => {
+      const out = buildSkillMd({
+        ...baseInput,
+        acceptedRails: ['x402_base'],
+        compatibleClients: { x402_base: [] },
+      });
+      expect(out).toMatch(/x402 on Base.+\| —/);
     });
   });
 
@@ -111,10 +256,18 @@ describe('buildSkillMd', () => {
       const out = buildSkillMd({
         ...baseInput,
         identity: { kycRequired: true },
-        identityBootstrapUrl: 'https://agentscore.sh/skill.md',
+        identityBootstrapUrl: 'https://identity.example.com/skill.md',
       });
-      expect(out).toContain('`https://agentscore.sh/skill.md`');
+      expect(out).toContain('`https://identity.example.com/skill.md`');
       expect(out).toContain('X-Operator-Token');
+    });
+
+    it('omits the section when every requirement flag is falsy', () => {
+      const out = buildSkillMd({
+        ...baseInput,
+        identity: { kycRequired: false, sanctionsClear: false },
+      });
+      expect(out).not.toContain('## Identity Prerequisite');
     });
 
     it('does not leak failOpen, mount-posture, or KYC vendor names', () => {
@@ -147,13 +300,23 @@ describe('buildSkillMd', () => {
       expect(out).toContain('Blocked US states: AK, HI, MS.');
     });
 
-    it('renders only the populated half', () => {
+    it('renders only allowed countries when blocked is omitted', () => {
       const out = buildSkillMd({
         ...baseInput,
         shipping: { allowedCountries: ['US'] },
       });
       expect(out).toContain('Ships to: US.');
       expect(out).not.toContain('Blocked US states');
+    });
+
+    it('renders only blocked states when allowed is omitted', () => {
+      const out = buildSkillMd({
+        ...baseInput,
+        shipping: { blockedStates: ['UT', 'AK'] },
+      });
+      expect(out).toContain('## Shipping');
+      expect(out).toContain('Blocked US states: UT, AK.');
+      expect(out).not.toContain('Ships to:');
     });
   });
 
@@ -164,10 +327,25 @@ describe('buildSkillMd', () => {
       expect(out).toContain('| GET | `/api/v1/wines` | anonymous | Wine catalog |');
       expect(out).toContain('| POST | `/api/v1/orders` | identity required | Place order |');
     });
+
+    it('omits the endpoints section when the list is empty', () => {
+      const out = buildSkillMd({ ...baseInput, endpoints: [] });
+      expect(out).not.toContain('## Endpoints');
+    });
+
+    it('escapes pipes in endpoint paths and descriptions', () => {
+      const out = buildSkillMd({
+        ...baseInput,
+        endpoints: [
+          { method: 'GET', path: '/foo|bar', authRequired: false, description: 'a|b' },
+        ],
+      });
+      expect(out).toContain('| GET | `/foo\\|bar` | anonymous | a\\|b |');
+    });
   });
 
   describe('triggers section', () => {
-    it('emits each trigger as a bullet under "Use this skill when the user wants to"', () => {
+    it('emits each trigger as a bullet', () => {
       const out = buildSkillMd({
         ...baseInput,
         triggers: ['Buy wine from Martin Estate', 'Check order status'],
@@ -175,6 +353,11 @@ describe('buildSkillMd', () => {
       expect(out).toContain('## Triggers');
       expect(out).toContain('- Buy wine from Martin Estate');
       expect(out).toContain('- Check order status');
+    });
+
+    it('omits the triggers section when triggers is empty', () => {
+      const out = buildSkillMd({ ...baseInput, triggers: [] });
+      expect(out).not.toContain('## Triggers');
     });
   });
 
@@ -213,59 +396,6 @@ describe('buildSkillMd', () => {
     it('suppresses the refresh footer when set to false', () => {
       const out = buildSkillMd({ ...baseInput, refreshFooter: false });
       expect(out).not.toContain('Re-fetch this file');
-    });
-  });
-
-  describe('optional title elements', () => {
-    it('renders tagline in italics under the title', () => {
-      const out = buildSkillMd({ ...baseInput, tagline: 'A classic is forever' });
-      expect(out).toContain('# Martin Estate');
-      expect(out).toContain('_A classic is forever_');
-    });
-
-    it('renders intro paragraph under the title', () => {
-      const out = buildSkillMd({ ...baseInput, intro: 'Napa Valley winery, family-run.' });
-      expect(out).toContain('Napa Valley winery, family-run.');
-    });
-  });
-
-  describe('empty-collection paths', () => {
-    it('omits the triggers section when triggers is empty', () => {
-      const out = buildSkillMd({ ...baseInput, triggers: [] });
-      expect(out).not.toContain('## Triggers');
-    });
-
-    it('omits the endpoints section when the list is empty', () => {
-      const out = buildSkillMd({ ...baseInput, endpoints: [] });
-      expect(out).not.toContain('## Endpoints');
-    });
-
-    it("renders '—' when a rail's compatible-clients list is explicitly empty", () => {
-      const out = buildSkillMd({
-        ...baseInput,
-        acceptedRails: ['x402_base'],
-        compatibleClients: { x402_base: [] },
-      });
-      expect(out).toContain('| **x402 on Base** | ');
-      expect(out).toMatch(/x402 on Base.+\| —/);
-    });
-
-    it('omits the identity section when every requirement flag is falsy', () => {
-      const out = buildSkillMd({
-        ...baseInput,
-        identity: { kycRequired: false, sanctionsClear: false },
-      });
-      expect(out).not.toContain('## Identity Prerequisite');
-    });
-
-    it('renders shipping section with only blockedStates (no allowedCountries)', () => {
-      const out = buildSkillMd({
-        ...baseInput,
-        shipping: { blockedStates: ['UT', 'AK'] },
-      });
-      expect(out).toContain('## Shipping');
-      expect(out).toContain('Blocked US states: UT, AK.');
-      expect(out).not.toContain('Ships to:');
     });
   });
 

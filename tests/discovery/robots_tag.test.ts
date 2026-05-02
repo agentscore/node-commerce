@@ -15,6 +15,7 @@ describe('defaultDiscoveryPaths', () => {
       '/openapi.json',
       '/llms.txt',
       '/skill.md',
+      '/SKILL.md',
       '/.well-known/mpp.json',
       '/.well-known/agent-card.json',
       '/.well-known/ucp',
@@ -31,6 +32,7 @@ describe('isDiscoveryPath', () => {
     expect(isDiscoveryPath('/openapi.json')).toBe(true);
     expect(isDiscoveryPath('/llms.txt')).toBe(true);
     expect(isDiscoveryPath('/skill.md')).toBe(true);
+    expect(isDiscoveryPath('/SKILL.md')).toBe(true);
     expect(isDiscoveryPath('/.well-known/mpp.json')).toBe(true);
   });
 
