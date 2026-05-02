@@ -181,6 +181,15 @@ describe('buildSkillMd', () => {
       });
       expect(out).toContain('| a\\|b | `https://x.example/foo\\|bar` |');
     });
+
+    it('escapes backslashes before pipes (so existing `\\` are not consumed as escapes)', () => {
+      const out = buildSkillMd({
+        ...baseInput,
+        files: [{ label: 'a\\|b', url: 'https://x.example/c\\d' }],
+      });
+      // Backslash escaped first → `\\`, then pipe → `\|`. Combined: `a\\\|b`.
+      expect(out).toContain('| a\\\\\\|b | `https://x.example/c\\\\d` |');
+    });
   });
 
   describe('payment section', () => {

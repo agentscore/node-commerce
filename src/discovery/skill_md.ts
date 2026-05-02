@@ -163,9 +163,11 @@ function quoteYaml(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`;
 }
 
-/** Sanitize a string for inclusion in a markdown table cell — pipes break the row. */
+/** Sanitize a string for inclusion in a markdown table cell — escape backslashes first
+ *  (so existing `\` aren't treated as escapes), then escape pipes (which would otherwise
+ *  terminate the cell). */
 function tableCell(value: string): string {
-  return value.replace(/\|/g, '\\|');
+  return value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
 }
 
 function frontmatter(input: BuildSkillMdInput): string {
