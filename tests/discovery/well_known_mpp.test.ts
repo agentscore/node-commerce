@@ -57,4 +57,32 @@ describe('buildWellKnownMpp', () => {
     });
     expect(manifest.custom_field).toBe('foo');
   });
+
+  it('populates every optional field when fully specified', () => {
+    const manifest = buildWellKnownMpp({
+      name: 'Full',
+      description: 'A complete merchant manifest',
+      url: 'https://full.example',
+      openapi: 'https://full.example/openapi.json',
+      endpoints: { purchase: { method: 'POST', url: 'https://full.example/buy' } },
+      catalog: 'https://full.example/catalog.json',
+      purchase: {
+        required_fields: ['email', 'shipping_address'],
+        optional_fields: ['gift_note'],
+        extra: { custom_purchase_meta: 'bar' },
+        identity: { type: 'wallet', required: true },
+        methods: ['tempo'],
+      },
+      shipping: { countries: ['US'], states: { US: ['CA', 'NY'] } },
+    });
+    expect(manifest.description).toBe('A complete merchant manifest');
+    expect(manifest.openapi).toBe('https://full.example/openapi.json');
+    expect(manifest.catalog).toBe('https://full.example/catalog.json');
+    expect(manifest.shipping).toEqual({ countries: ['US'], states: { US: ['CA', 'NY'] } });
+    const purchase = manifest.purchase as Record<string, unknown>;
+    expect(purchase.required_fields).toEqual(['email', 'shipping_address']);
+    expect(purchase.optional_fields).toEqual(['gift_note']);
+    expect(purchase.custom_purchase_meta).toBe('bar');
+    expect(purchase.identity).toEqual({ type: 'wallet', required: true });
+  });
 });

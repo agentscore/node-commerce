@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agentscoreGate, captureWallet, getAgentScoreData } from '../src/identity/hono';
+import { agentscoreGate, captureWallet, getAgentScoreData, getGateDegradedState } from '../src/identity/hono';
 
 declare const __VERSION__: string;
 
@@ -39,18 +39,21 @@ const SESSION_RESPONSE = {
 };
 
 function mockFetchOk(body: unknown): void {
-  global.fetch = vi.fn().mockResolvedValueOnce({
+  global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     status: 200,
-    json: vi.fn().mockResolvedValueOnce(body),
+    headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
 
-function mockFetchStatus(status: number): void {
-  global.fetch = vi.fn().mockResolvedValueOnce({
+function mockFetchStatus(status: number, errorCode?: string): void {
+  const body = errorCode ? { error: { code: errorCode, message: 'mock' } } : {};
+  global.fetch = vi.fn().mockResolvedValue({
     ok: false,
     status,
-    json: vi.fn().mockResolvedValueOnce({}),
+    headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
 
@@ -561,7 +564,9 @@ describe('Hono adapter — User-Agent header', () => {
     await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
 
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(fetchCall[1].headers['User-Agent']).toBe(`@agent-score/commerce@${__VERSION__}`);
+    expect(fetchCall[1].headers['User-Agent']).toMatch(
+      new RegExp(`^@agent-score/commerce@${__VERSION__} \\(@agent-score/sdk@\\d+\\.\\d+\\.\\d+\\)$`),
+    );
   });
 
   it('prepends userAgent option to default when configured', async () => {
@@ -573,7 +578,11 @@ describe('Hono adapter — User-Agent header', () => {
     await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
 
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(fetchCall[1].headers['User-Agent']).toBe(`wine-co/1.0.0 (@agent-score/commerce@${__VERSION__})`);
+    expect(fetchCall[1].headers['User-Agent']).toMatch(
+      new RegExp(
+        `^wine-co/1\\.0\\.0 \\(@agent-score/commerce@${__VERSION__}\\) \\(@agent-score/sdk@\\d+\\.\\d+\\.\\d+\\)$`,
+      ),
+    );
   });
 });
 
@@ -608,6 +617,21 @@ describe('Hono adapter — error paths', () => {
     expect(body.error.code).toBe('api_error');
   });
 
+  it('429 fail-closed denial carries quota-specific contact_merchant instructions, not retry_with_backoff', async () => {
+    mockFetchStatus(429);
+    const app = new Hono();
+    app.use('*', agentscoreGate({ apiKey: API_KEY }));
+    app.get('/test', (c) => c.text('ok'));
+
+    const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
+    expect(res.status).toBe(503);
+    const body = await res.json() as { error: { code: string }; agent_instructions: string };
+    expect(body.error.code).toBe('api_error');
+    const instructions = JSON.parse(body.agent_instructions);
+    expect(instructions.action).toBe('contact_merchant');
+    expect(instructions.steps[0]).toContain('merchant-side issue');
+  });
+
   it('fail_open allows through on 402', async () => {
     mockFetchStatus(402);
     const app = new Hono();
@@ -626,6 +650,58 @@ describe('Hono adapter — error paths', () => {
 
     const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
     expect(res.status).toBe(200);
+  });
+
+  it('fail_open marks degraded=true with infraReason="quota_exceeded" on 429', async () => {
+    mockFetchStatus(429);
+    const app = new Hono();
+    app.use('*', agentscoreGate({ apiKey: API_KEY, failOpen: true }));
+    app.get('/test', (c) => c.json(getGateDegradedState(c)));
+
+    const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { degraded: boolean; infraReason?: string };
+    expect(body.degraded).toBe(true);
+    expect(body.infraReason).toBe('quota_exceeded');
+  });
+
+  it('fail_open marks degraded=true with infraReason="api_error" on 500', async () => {
+    mockFetchStatus(500);
+    const app = new Hono();
+    app.use('*', agentscoreGate({ apiKey: API_KEY, failOpen: true }));
+    app.get('/test', (c) => c.json(getGateDegradedState(c)));
+
+    const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { degraded: boolean; infraReason?: string };
+    expect(body.degraded).toBe(true);
+    expect(body.infraReason).toBe('api_error');
+  });
+
+  it('fail_open marks degraded=true with infraReason="network_timeout" on fetch reject', async () => {
+    global.fetch = vi.fn().mockRejectedValueOnce(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    const app = new Hono();
+    app.use('*', agentscoreGate({ apiKey: API_KEY, failOpen: true }));
+    app.get('/test', (c) => c.json(getGateDegradedState(c)));
+
+    const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { degraded: boolean; infraReason?: string };
+    expect(body.degraded).toBe(true);
+    expect(body.infraReason).toBe('network_timeout');
+  });
+
+  it('normal allow leaves degraded=false', async () => {
+    mockFetchOk(ALLOW_RESPONSE);
+    const app = new Hono();
+    app.use('*', agentscoreGate({ apiKey: API_KEY }));
+    app.get('/test', (c) => c.json(getGateDegradedState(c)));
+
+    const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
+    expect(res.status).toBe(200);
+    const body = await res.json() as { degraded: boolean; infraReason?: string };
+    expect(body.degraded).toBe(false);
+    expect(body.infraReason).toBeUndefined();
   });
 });
 

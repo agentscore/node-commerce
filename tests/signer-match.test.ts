@@ -11,7 +11,8 @@ function mockFetchSequence(responses: unknown[]): void {
     mock.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: vi.fn().mockResolvedValueOnce(body),
+      headers: new Headers({ 'retry-after': '0' }),
+      json: vi.fn().mockResolvedValue(body),
     } as unknown as Response);
   }
   global.fetch = mock;
@@ -90,10 +91,15 @@ describe('AgentScoreCore.verifyWalletSignerMatch', () => {
     expect(assessCalls).toHaveLength(0);
   });
 
-  it('returns pass when both wallets resolve to the same operator', async () => {
+  it('returns pass when both wallets resolve to the same operator (server-side signer_match)', async () => {
+    // New 1-call path: API returns signer_match in the same response as the assess.
     mockFetchSequence([
-      { resolved_operator: 'op_123', decision: 'allow' },
-      { resolved_operator: 'op_123', decision: 'allow' },
+      {
+        decision: 'allow',
+        decision_reasons: [],
+        resolved_operator: 'op_123',
+        signer_match: { kind: 'pass', claimed_operator: 'op_123', signer_operator: 'op_123' },
+      },
     ]);
     const core = createAgentScoreCore({ apiKey: API_KEY });
 
@@ -109,10 +115,26 @@ describe('AgentScoreCore.verifyWalletSignerMatch', () => {
     }
   });
 
-  it('returns wallet_signer_mismatch when operators differ', async () => {
+  it('returns wallet_signer_mismatch with full body fields from server-side signer_match', async () => {
     mockFetchSequence([
-      { resolved_operator: 'op_claimed', decision: 'allow' },
-      { resolved_operator: 'op_signer', decision: 'allow' },
+      {
+        decision: 'allow',
+        decision_reasons: [],
+        resolved_operator: 'op_claimed',
+        signer_match: {
+          kind: 'wallet_signer_mismatch',
+          claimed_operator: 'op_claimed',
+          signer_operator: 'op_signer',
+          expected_signer: WALLET_A.toLowerCase(),
+          actual_signer: WALLET_B.toLowerCase(),
+          linked_wallets: [WALLET_A.toLowerCase(), '0x3333333333333333333333333333333333333333'],
+          agent_instructions: JSON.stringify({
+            action: 'resign_or_switch_to_operator_token',
+            steps: ['re-sign with linked_wallets'],
+            user_message: 'Different operator',
+          }),
+        },
+      },
     ]);
     const core = createAgentScoreCore({ apiKey: API_KEY });
 
@@ -128,17 +150,20 @@ describe('AgentScoreCore.verifyWalletSignerMatch', () => {
       expect(result.expectedSigner).toBe(WALLET_A.toLowerCase());
       expect(result.actualSigner).toBe(WALLET_B.toLowerCase());
       expect(result.agentInstructions).toContain('resign_or_switch_to_operator_token');
-      expect(result.agentInstructions).toContain('linked_wallets');
-      // user_message lives INSIDE agent_instructions (single source of truth).
-      const instr = JSON.parse(result.agentInstructions) as { user_message: string };
-      expect(instr.user_message).toMatch(/operator/i);
+      expect(result.linkedWallets.length).toBeGreaterThan(0);
     }
   });
 
-  it('returns wallet_signer_mismatch when signer resolves to null operator (unlinked)', async () => {
+  it('falls back to legacy 2-resolve path when server omits signer_match', async () => {
+    // Server didn't include signer_match in the response. Commerce falls back to two
+    // resolveWalletToOperator calls so the gate still produces a verdict.
     mockFetchSequence([
-      { resolved_operator: 'op_claimed', decision: 'allow' },
-      { resolved_operator: null, decision: 'deny' },
+      // First call: resolve_signer-aware assess but old API ignores the field.
+      { decision: 'allow', decision_reasons: [], resolved_operator: 'op_claimed' },
+      // Legacy fallback resolve(claimed)
+      { decision: 'allow', decision_reasons: [], resolved_operator: 'op_claimed', linked_wallets: [WALLET_A.toLowerCase()] },
+      // Legacy fallback resolve(signer)
+      { decision: 'allow', decision_reasons: [], resolved_operator: 'op_signer' },
     ]);
     const core = createAgentScoreCore({ apiKey: API_KEY });
 
@@ -149,7 +174,8 @@ describe('AgentScoreCore.verifyWalletSignerMatch', () => {
 
     expect(result.kind).toBe('wallet_signer_mismatch');
     if (result.kind === 'wallet_signer_mismatch') {
-      expect(result.actualSignerOperator).toBeNull();
+      expect(result.claimedOperator).toBe('op_claimed');
+      expect(result.actualSignerOperator).toBe('op_signer');
     }
   });
 
@@ -194,54 +220,20 @@ describe('AgentScoreCore.verifyWalletSignerMatch', () => {
 });
 
 describe('AgentScoreCore.verifyWalletSignerMatch — coverage paths', () => {
-  it('reads the plain evaluate() cache when the same wallet was gated first', async () => {
-    // Pre-warm: evaluate() writes under the wallet key. Subsequent verify should
-    // NOT hit the API again for the claimed side.
-    global.fetch = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: vi.fn().mockResolvedValueOnce({
-        decision: 'allow',
-        decision_reasons: [],
-        resolved_operator: 'op_shared',
-        linked_wallets: ['0xaaa0000000000000000000000000000000000001'],
-      }),
-    } as unknown as Response).mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: vi.fn().mockResolvedValueOnce({ resolved_operator: 'op_shared', linked_wallets: [] }),
-    } as unknown as Response).mockResolvedValue({ ok: true, status: 201, json: async () => ({}) });
-
-    const core = createAgentScoreCore({ apiKey: API_KEY });
-    // Prime: evaluate the claimed wallet to populate the plain cache.
-    await core.evaluate({ address: '0xaaa0000000000000000000000000000000000000' });
-    const fetchCallsBefore = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.length;
-
-    const result = await core.verifyWalletSignerMatch({
-      claimedWallet: '0xaaa0000000000000000000000000000000000000',
-      signer: '0xbbb0000000000000000000000000000000000000',
-    });
-
-    expect(result.kind).toBe('pass');
-    // Only the signer side (+ telemetry) hits the network; the claimed side uses the cache.
-    const callUrls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls
-      .slice(fetchCallsBefore)
-      .map((c) => c[0] as string);
-    const assessForClaimed = callUrls.filter(
-      (u) => u.includes('/v1/assess'),
-    ).length;
-    expect(assessForClaimed).toBe(1); // only the signer wallet resolve, not claimed
-  });
-
-  it('reuses the resolve: cache across calls', async () => {
+  it('reuses cached signer_match for repeat same-pair calls (no extra /v1/assess)', async () => {
     let assessCount = 0;
     global.fetch = vi.fn().mockImplementation(async (url: string) => {
-      if ((url as string).includes('/v1/assess')) {
+      if (url.includes('/v1/assess')) {
         assessCount++;
         return {
           ok: true,
           status: 200,
-          json: async () => ({ resolved_operator: 'op_shared', linked_wallets: [] }),
+          json: async () => ({
+            decision: 'allow',
+            decision_reasons: [],
+            resolved_operator: 'op_shared',
+            signer_match: { kind: 'pass', claimed_operator: 'op_shared', signer_operator: 'op_shared' },
+          }),
         } as unknown as Response;
       }
       return { ok: true, status: 201, json: async () => ({}) } as unknown as Response;
@@ -254,8 +246,36 @@ describe('AgentScoreCore.verifyWalletSignerMatch — coverage paths', () => {
     await core.verifyWalletSignerMatch(opts);
     const first = assessCount;
     await core.verifyWalletSignerMatch(opts);
-    // Second run hits the resolve: cache for both wallets — no extra /v1/assess calls.
+    // Second run reads the cached signer_match — no fresh assess call.
     expect(assessCount).toBe(first);
+  });
+
+  it('separate signer wallets on the same claimed wallet each get their own cache slot', async () => {
+    // The signerMatchBySigner sub-map keys by signer — so two payments under the same
+    // claimed wallet from different signers don't serve stale verdicts to each other.
+    let assessCount = 0;
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/v1/assess')) {
+        assessCount++;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            decision: 'allow',
+            decision_reasons: [],
+            resolved_operator: 'op_shared',
+            signer_match: { kind: 'pass', claimed_operator: 'op_shared', signer_operator: 'op_shared' },
+          }),
+        } as unknown as Response;
+      }
+      return { ok: true, status: 201, json: async () => ({}) } as unknown as Response;
+    });
+    const core = createAgentScoreCore({ apiKey: API_KEY });
+    const claimed = '0xaaa0000000000000000000000000000000000000';
+    await core.verifyWalletSignerMatch({ claimedWallet: claimed, signer: '0xbbb0000000000000000000000000000000000000' });
+    await core.verifyWalletSignerMatch({ claimedWallet: claimed, signer: '0xccc0000000000000000000000000000000000000' });
+    // Two different signers → two separate assess calls (one per pair).
+    expect(assessCount).toBe(2);
   });
 
   it('401 with non-JSON body falls through to generic error (ok: false)', async () => {

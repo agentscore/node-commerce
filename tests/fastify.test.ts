@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { agentscoreGate, captureWallet } from '../src/identity/fastify';
+import { agentscoreGate, captureWallet, getGateDegradedState } from '../src/identity/fastify';
 
 declare const __VERSION__: string;
 
@@ -20,18 +20,21 @@ const DENY_RESPONSE = {
 };
 
 function mockFetchOk(body: unknown): void {
-  global.fetch = vi.fn().mockResolvedValueOnce({
+  global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     status: 200,
-    json: vi.fn().mockResolvedValueOnce(body),
+    headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
 
-function mockFetchStatus(status: number): void {
-  global.fetch = vi.fn().mockResolvedValueOnce({
+function mockFetchStatus(status: number, errorCode?: string): void {
+  const body = errorCode ? { error: { code: errorCode, message: 'mock' } } : {};
+  global.fetch = vi.fn().mockResolvedValue({
     ok: false,
     status,
-    json: vi.fn().mockResolvedValueOnce({}),
+    headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
 
@@ -158,7 +161,9 @@ describe('Fastify adapter — User-Agent', () => {
     await app.inject({ method: 'GET', url: '/test', headers: { 'x-wallet-address': WALLET } });
 
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(fetchCall[1].headers['User-Agent']).toBe(`@agent-score/commerce@${__VERSION__}`);
+    expect(fetchCall[1].headers['User-Agent']).toMatch(
+      new RegExp(`^@agent-score/commerce@${__VERSION__} \\(@agent-score/sdk@\\d+\\.\\d+\\.\\d+\\)$`),
+    );
   });
 
   it('prepends custom userAgent to the default', async () => {
@@ -170,7 +175,11 @@ describe('Fastify adapter — User-Agent', () => {
     await app.inject({ method: 'GET', url: '/test', headers: { 'x-wallet-address': WALLET } });
 
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(fetchCall[1].headers['User-Agent']).toBe(`fastify-app/2.0 (@agent-score/commerce@${__VERSION__})`);
+    expect(fetchCall[1].headers['User-Agent']).toMatch(
+      new RegExp(
+        `^fastify-app/2\\.0 \\(@agent-score/commerce@${__VERSION__}\\) \\(@agent-score/sdk@\\d+\\.\\d+\\.\\d+\\)$`,
+      ),
+    );
   });
 });
 
@@ -262,6 +271,51 @@ describe('Fastify adapter — error paths', () => {
 
     const res = await app.inject({ method: 'GET', url: '/test', headers: { 'x-wallet-address': WALLET } });
     expect(res.statusCode).toBe(200);
+  });
+
+  it('fail_open marks degraded=true with infraReason="quota_exceeded" on 429', async () => {
+    mockFetchStatus(429);
+    const app = Fastify();
+    await app.register(agentscoreGate, { apiKey: API_KEY, failOpen: true });
+    app.get('/test', async (req) => getGateDegradedState(req));
+
+    const res = await app.inject({ method: 'GET', url: '/test', headers: { 'x-wallet-address': WALLET } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ degraded: true, infraReason: 'quota_exceeded' });
+  });
+
+  it('fail_open marks degraded=true with infraReason="api_error" on 500', async () => {
+    mockFetchStatus(500);
+    const app = Fastify();
+    await app.register(agentscoreGate, { apiKey: API_KEY, failOpen: true });
+    app.get('/test', async (req) => getGateDegradedState(req));
+
+    const res = await app.inject({ method: 'GET', url: '/test', headers: { 'x-wallet-address': WALLET } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ degraded: true, infraReason: 'api_error' });
+  });
+
+  it('fail_open marks degraded=true with infraReason="network_timeout" on AbortError', async () => {
+    global.fetch = vi.fn().mockRejectedValueOnce(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    const app = Fastify();
+    await app.register(agentscoreGate, { apiKey: API_KEY, failOpen: true });
+    app.get('/test', async (req) => getGateDegradedState(req));
+
+    const res = await app.inject({ method: 'GET', url: '/test', headers: { 'x-wallet-address': WALLET } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ degraded: true, infraReason: 'network_timeout' });
+  });
+
+  it('normal allow leaves degraded=false', async () => {
+    mockFetchOk(ALLOW_RESPONSE);
+    const app = Fastify();
+    await app.register(agentscoreGate, { apiKey: API_KEY });
+    app.get('/test', async (req) => getGateDegradedState(req));
+
+    const res = await app.inject({ method: 'GET', url: '/test', headers: { 'x-wallet-address': WALLET } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ degraded: false });
+    expect(res.json().infraReason).toBeUndefined();
   });
 });
 

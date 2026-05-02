@@ -26,18 +26,21 @@ const SESSION_RESPONSE = {
 };
 
 function mockFetchOk(body: unknown): void {
-  global.fetch = vi.fn().mockResolvedValueOnce({
+  global.fetch = vi.fn().mockResolvedValue({
     ok: true,
     status: 200,
-    json: vi.fn().mockResolvedValueOnce(body),
+    headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
 
-function mockFetchStatus(status: number): void {
-  global.fetch = vi.fn().mockResolvedValueOnce({
+function mockFetchStatus(status: number, errorCode?: string): void {
+  const body = errorCode ? { error: { code: errorCode, message: 'mock' } } : {};
+  global.fetch = vi.fn().mockResolvedValue({
     ok: false,
     status,
-    json: vi.fn().mockResolvedValueOnce({}),
+    headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
 
@@ -149,7 +152,9 @@ describe('Web Fetch adapter — createAgentScoreGate', () => {
     await guard(new Request('https://example.com/', { headers: { 'x-wallet-address': WALLET } }));
 
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(fetchCall[1].headers['User-Agent']).toBe(`@agent-score/commerce@${__VERSION__}`);
+    expect(fetchCall[1].headers['User-Agent']).toMatch(
+      new RegExp(`^@agent-score/commerce@${__VERSION__} \\(@agent-score/sdk@\\d+\\.\\d+\\.\\d+\\)$`),
+    );
   });
 
   it('prepends userAgent to the default when configured', async () => {
@@ -158,7 +163,11 @@ describe('Web Fetch adapter — createAgentScoreGate', () => {
     await guard(new Request('https://example.com/', { headers: { 'x-wallet-address': WALLET } }));
 
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(fetchCall[1].headers['User-Agent']).toBe(`worker/1.0 (@agent-score/commerce@${__VERSION__})`);
+    expect(fetchCall[1].headers['User-Agent']).toMatch(
+      new RegExp(
+        `^worker/1\\.0 \\(@agent-score/commerce@${__VERSION__}\\) \\(@agent-score/sdk@\\d+\\.\\d+\\.\\d+\\)$`,
+      ),
+    );
   });
 
   it('fails open on 402 when failOpen is true — returns allowed with no data', async () => {
@@ -368,6 +377,65 @@ describe('Web Fetch adapter — error paths + chain', () => {
     const req = new Request('https://example.com/', { headers: { 'x-wallet-address': WALLET } });
     const result = await guard(req);
     expect(result.allowed).toBe(true);
+  });
+
+  it('fail_open surfaces degraded=true with infraReason="quota_exceeded" on 429', async () => {
+    mockFetchStatus(429);
+    const guard = createAgentScoreGate({ apiKey: API_KEY, failOpen: true });
+    const result = await guard(new Request('https://example.com/', { headers: { 'x-wallet-address': WALLET } }));
+    expect(result.allowed).toBe(true);
+    if (result.allowed) {
+      expect(result.degraded).toBe(true);
+      expect(result.infraReason).toBe('quota_exceeded');
+    }
+  });
+
+  it('fail_open surfaces degraded=true with infraReason="api_error" on 500', async () => {
+    mockFetchStatus(500);
+    const guard = createAgentScoreGate({ apiKey: API_KEY, failOpen: true });
+    const result = await guard(new Request('https://example.com/', { headers: { 'x-wallet-address': WALLET } }));
+    expect(result.allowed).toBe(true);
+    if (result.allowed) {
+      expect(result.degraded).toBe(true);
+      expect(result.infraReason).toBe('api_error');
+    }
+  });
+
+  it('fail_open surfaces degraded=true with infraReason="network_timeout" on AbortError', async () => {
+    global.fetch = vi.fn().mockRejectedValueOnce(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    const guard = createAgentScoreGate({ apiKey: API_KEY, failOpen: true });
+    const result = await guard(new Request('https://example.com/', { headers: { 'x-wallet-address': WALLET } }));
+    expect(result.allowed).toBe(true);
+    if (result.allowed) {
+      expect(result.degraded).toBe(true);
+      expect(result.infraReason).toBe('network_timeout');
+    }
+  });
+
+  it('normal allow leaves degraded undefined', async () => {
+    mockFetchOk(ALLOW_RESPONSE);
+    const guard = createAgentScoreGate({ apiKey: API_KEY });
+    const result = await guard(new Request('https://example.com/', { headers: { 'x-wallet-address': WALLET } }));
+    expect(result.allowed).toBe(true);
+    if (result.allowed) {
+      expect(result.degraded).toBeUndefined();
+      expect(result.infraReason).toBeUndefined();
+    }
+  });
+
+  it('withAgentScoreGate propagates degraded into the handler gate arg', async () => {
+    mockFetchStatus(429);
+    let captured: { degraded?: boolean; infraReason?: string } | null = null;
+    const handler = withAgentScoreGate(
+      { apiKey: API_KEY, failOpen: true },
+      async (_req, gate) => {
+        captured = { degraded: gate.degraded, infraReason: gate.infraReason };
+        return new Response('ok');
+      },
+    );
+    const res = await handler(new Request('https://example.com/', { headers: { 'x-wallet-address': WALLET } }));
+    expect(res.status).toBe(200);
+    expect(captured).toEqual({ degraded: true, infraReason: 'quota_exceeded' });
   });
 
   it('forwards constructor chain to /v1/assess body', async () => {

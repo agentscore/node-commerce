@@ -1,4 +1,13 @@
+import {
+  AgentScore,
+  InvalidCredentialError,
+  PaymentRequiredError,
+  QuotaExceededError,
+  TimeoutError as SdkTimeoutError,
+  TokenExpiredError,
+} from '@agent-score/sdk';
 import { isFixableDenial } from './_denial';
+import { QUOTA_EXCEEDED_INSTRUCTIONS } from './_response';
 import { normalizeAddress } from './address';
 import { TTLCache } from './cache';
 
@@ -201,16 +210,42 @@ export interface AgentScoreData {
 }
 
 /**
+ * Reason a failOpen allow short-circuited an evaluate call due to AgentScore-side
+ * infrastructure issues. Surfaced on `EvaluateOutcome` so merchants can log/alert when
+ * their gate is running in degraded mode (compliance not actually enforced this request).
+ *
+ * - `quota_exceeded` — AgentScore returned 429
+ * - `api_error` — AgentScore returned 5xx or non-2xx that isn't 429
+ * - `network_timeout` — request to /v1/assess timed out or failed at the network layer
+ */
+export type FailOpenInfraReason = 'quota_exceeded' | 'api_error' | 'network_timeout';
+
+/** Per-account assess quota observability, captured from `X-Quota-*` response headers
+ *  on the success path. Mirrors the SDK's `QuotaInfo` shape — re-exported from gate state
+ *  so merchants can monitor approach-to-cap proactively (warn at 80%, alert at 95%). */
+export interface GateQuotaInfo {
+  limit: number | null;
+  used: number | null;
+  /** ISO-8601 timestamp, or the literal string `"never"` for unlimited tiers. */
+  reset: string | null;
+}
+
+/**
  * Outcome from `AgentScoreCore.evaluate()`. Adapters map this to framework-specific responses.
  *
  * - `{ kind: 'allow', data }` — the request passed the policy. `data` is present on a normal
  *   allow; `undefined` when fail-open short-circuited (identity missing, API unreachable,
  *   timeout, or 402 paid-tier required).
+ * - When `failOpen: true` and the allow was the result of an AgentScore-side infrastructure
+ *   failure (429/5xx/timeout), the result also carries `degraded: true` + `infraReason` so
+ *   merchants can alert/log without parsing console output.
+ * - `quota` propagates the SDK's per-request quota observability when the API emits the
+ *   `X-Quota-*` headers. Optional; absent on Enterprise / unlimited tiers.
  * - `{ kind: 'deny', reason }` — the request was denied. Adapters should render a 403 with the
  *   reason, or invoke the caller's custom denial handler.
  */
 export type EvaluateOutcome =
-  | { kind: 'allow'; data?: AgentScoreData }
+  | { kind: 'allow'; data?: AgentScoreData; degraded?: boolean; infraReason?: FailOpenInfraReason; quota?: GateQuotaInfo }
   | { kind: 'deny'; reason: DenialReason };
 
 export interface CaptureWalletOptions {
@@ -295,6 +330,13 @@ interface AssessResult {
   decision?: string;
   reasons?: string[];
   raw?: unknown;
+  // Per-signer wallet-match verdicts cached from prior verifyWalletSignerMatch() calls
+  // for this same claimed wallet. Each signer gets its own slot so two payments under
+  // the same claimed identity but from different signer wallets don't serve stale
+  // verdicts to each other. Verdicts come from the API's `signer_match` response field
+  // (populated when the assess request carried `resolve_signer`), so reading a hit
+  // skips the round-trip altogether.
+  signerMatchBySigner?: Map<string, Record<string, unknown>>;
 }
 
 /**
@@ -410,7 +452,31 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
   const defaultUa = `@agent-score/commerce@${__VERSION__}`;
   const userAgentHeader = userAgent ? `${userAgent} (${defaultUa})` : defaultUa;
 
-  const API_TIMEOUT_MS = 10_000;
+  // Single shared SDK instance for every API call this gate makes (assess, sessions,
+  // credentials/wallets, telemetry). Connection pooling + typed-error classification +
+  // X-Quota-* header capture all flow through here. The SDK owns the transport layer
+  // (timeouts, retry-on-429); the gate adds policy semantics on top. Pass the
+  // merchant-prefixed UA — SDK appends its own default to produce a chain like
+  // `<merchant-app> (@agent-score/commerce@<v>) (@agent-score/sdk@<v>)`.
+  const sdk = new AgentScore({ apiKey, baseUrl, userAgent: userAgentHeader });
+
+  // createSessionOnMissing can carry its own apiKey + baseUrl (merchants sometimes wire
+  // a session-only key for this hook). Lazily build a separate SDK instance keyed on
+  // (apiKey, baseUrl) so we don't construct a new client per request.
+  const sessionSdkCache = new Map<string, AgentScore>();
+  function getSessionSdk(sessionApiKey: string, sessionBaseUrl?: string): AgentScore {
+    const key = `${sessionApiKey}|${sessionBaseUrl ?? ''}`;
+    let s = sessionSdkCache.get(key);
+    if (!s) {
+      s = new AgentScore({
+        apiKey: sessionApiKey,
+        baseUrl: sessionBaseUrl ?? baseUrl,
+        userAgent: userAgentHeader,
+      });
+      sessionSdkCache.set(key, s);
+    }
+    return s;
+  }
 
   const cache = new TTLCache<AssessResult>(cacheSeconds * 1000);
 
@@ -436,21 +502,13 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         }
       }
 
-      const sessionBaseUrl = stripTrailingSlashes(createSessionOnMissing.baseUrl ?? 'https://api.agentscore.sh');
-      const sessionRes = await fetch(`${sessionBaseUrl}/v1/sessions`, {
-        method: 'POST',
-        headers: {
-          'X-API-Key': createSessionOnMissing.apiKey,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'User-Agent': userAgentHeader,
-        },
-        body: JSON.stringify(sessionBody),
-        signal: AbortSignal.timeout(API_TIMEOUT_MS),
-      });
-
-      if (!sessionRes.ok) return undefined;
-      const data = (await sessionRes.json()) as Record<string, unknown>;
+      // createSessionOnMissing.apiKey may differ from the gate's apiKey (e.g. merchant
+      // wires a session-only key for this hook). Build a per-config SDK lazily.
+      const sessionSdk = getSessionSdk(createSessionOnMissing.apiKey, createSessionOnMissing.baseUrl);
+      const data = (await sessionSdk.createSession({
+        ...(sessionBody.context !== undefined ? { context: sessionBody.context } : {}),
+        ...(sessionBody.product_name !== undefined ? { product_name: sessionBody.product_name } : {}),
+      })) as unknown as Record<string, unknown>;
 
       // Validate required fields before trusting the response. A misbehaving (or mocked-wrong)
       // API could 200 without session_id/poll_secret/verify_url, which would propagate
@@ -512,6 +570,12 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     // Treat "returned identity object with no usable fields" the same as "no identity at all" —
     // otherwise a misbehaving custom extractIdentity would send an empty body to /v1/assess.
     if (!identity || (!identity.address && !identity.operatorToken)) {
+      // failOpen short-circuits BEFORE the session mint. This branch isn't an infra failure
+      // (no AgentScore call has been made yet) so we don't mark the gate state as degraded —
+      // missing identity + failOpen is the explicit opt-in pass-through behavior, not a
+      // graceful-degradation event. Merchants who need identity-or-deny on a failOpen gate
+      // should add a guard at the handler that checks for X-Wallet-Address / X-Operator-Token
+      // before reading the gate state.
       if (failOpen) return { kind: 'allow' };
 
       const sessionReason = await tryMintSessionDenial(ctx);
@@ -550,7 +614,13 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     const cached = cache.get(cacheKey);
     if (cached) {
       if (cached.allow) {
-        return { kind: 'allow', data: cached.raw as AgentScoreData };
+        const cachedRaw = cached.raw as Record<string, unknown> | undefined;
+        const cachedQuota = cachedRaw?.quota as GateQuotaInfo | undefined;
+        return {
+          kind: 'allow',
+          data: cachedRaw as unknown as AgentScoreData,
+          ...(cachedQuota !== undefined && { quota: cachedQuota }),
+        };
       }
       // Fixable compliance denials (kyc_required, kyc_pending, kyc_failed) get the
       // same UX as missing_identity: mint a fresh verification session, agent polls
@@ -575,182 +645,152 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       };
     }
 
+    const policy: Record<string, unknown> = {};
+    if (requireKyc != null) policy.require_kyc = requireKyc;
+    if (requireSanctionsClear != null) policy.require_sanctions_clear = requireSanctionsClear;
+    if (minAge != null) policy.min_age = minAge;
+    if (blockedJurisdictions != null) policy.blocked_jurisdictions = blockedJurisdictions;
+    if (allowedJurisdictions != null) policy.allowed_jurisdictions = allowedJurisdictions;
+
+    let data: Record<string, unknown>;
     try {
-      const body: Record<string, unknown> = {};
-      if (identity.address) body.address = identity.address;
-      if (identity.operatorToken) body.operator_token = identity.operatorToken;
-      if (gateChain) body.chain = gateChain;
-
-      const policy: Record<string, unknown> = {};
-      if (requireKyc != null) policy.require_kyc = requireKyc;
-      if (requireSanctionsClear != null) policy.require_sanctions_clear = requireSanctionsClear;
-      if (minAge != null) policy.min_age = minAge;
-      if (blockedJurisdictions != null) policy.blocked_jurisdictions = blockedJurisdictions;
-      if (allowedJurisdictions != null) policy.allowed_jurisdictions = allowedJurisdictions;
-      if (Object.keys(policy).length > 0) body.policy = policy;
-
-      const response = await fetch(`${baseUrl}/v1/assess`, {
-        method: 'POST',
-        headers: {
-          'X-API-Key': apiKey,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'User-Agent': userAgentHeader,
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(API_TIMEOUT_MS),
-      });
-
-      if (response.status === 402) {
+      // Single SDK call: typed-error subclasses (PaymentRequiredError / TokenExpiredError /
+      // InvalidCredentialError / QuotaExceededError / TimeoutError) flow through the
+      // catch below; success path captures `quota` from X-Quota-* headers automatically.
+      const opts = {
+        chain: gateChain,
+        ...(Object.keys(policy).length > 0 ? { policy: policy as never } : {}),
+      };
+      // SDK has two overloads — narrow by which identity is set so TS picks the right one.
+      const result = identity.address
+        ? await sdk.assess(identity.address, { ...opts, operatorToken: identity.operatorToken })
+        : await sdk.assess(null, { ...opts, operatorToken: identity.operatorToken! });
+      data = result as unknown as Record<string, unknown>;
+    } catch (err) {
+      if (err instanceof PaymentRequiredError) {
         if (failOpen) return { kind: 'allow' };
         return { kind: 'deny', reason: { code: 'payment_required' } };
       }
-
-      // Pass through the API's token_expired 401 (covers both expired and revoked
-      // credentials — the API deliberately doesn't distinguish). The 401 body carries
-      // an auto-minted session (verify_url + session_id + poll_secret + next_steps +
-      // agent_memory) so agents can recover without holding an API key. Forward all of
-      // that into the DenialReason so the gate's 403 body includes the session fields.
-      if (response.status === 401) {
-        try {
-          const errData = (await response.clone().json()) as {
-            error?: { code?: string };
-            session_id?: unknown;
-            poll_secret?: unknown;
-            verify_url?: unknown;
-            poll_url?: unknown;
-            next_steps?: unknown;
-            agent_memory?: unknown;
-          };
-          const code = errData?.error?.code;
-          if (code === 'token_expired') {
-            return {
-              kind: 'deny',
-              reason: {
-                code,
-                data: errData as unknown as AgentScoreData,
-                ...(typeof errData.verify_url === 'string' ? { verify_url: errData.verify_url } : {}),
-                ...(typeof errData.session_id === 'string' ? { session_id: errData.session_id } : {}),
-                ...(typeof errData.poll_secret === 'string' ? { poll_secret: errData.poll_secret } : {}),
-                ...(typeof errData.poll_url === 'string' ? { poll_url: errData.poll_url } : {}),
-                ...(errData.next_steps ? { agent_instructions: JSON.stringify(errData.next_steps) } : {}),
-                ...(errData.agent_memory ? { agent_memory: errData.agent_memory as AgentMemoryHint } : {}),
-              },
-            };
-          }
-          // The API returns this when the operator_token doesn't exist at all (typo,
-          // never minted, fabricated). Distinct from token_expired — no auto-session
-          // is issued because the agent may have other valid tokens to try first.
-          // Without this branch the gate would fall through to api_error → 503 retry,
-          // which loops forever on a permanent state.
-          if (code === 'invalid_credential') {
-            return {
-              kind: 'deny',
-              reason: {
-                code: 'invalid_credential',
-                agent_instructions: INVALID_CREDENTIAL_INSTRUCTIONS,
-                agent_memory: agentMemoryHint,
-              },
-            };
-          }
-          // Unknown 401 code — log so we notice if the API adds a new credential-state
-          // code without us mapping it. Falls through to api_error below.
-          if (code) {
-            console.warn(`[gate] /v1/assess returned 401 ${code} — no specific handler, surfacing as api_error.`);
-          }
-        } catch (err) {
-          // Body wasn't the expected JSON shape. Don't crash the request, but DO log —
-          // a silent swallow here used to mask /v1/sessions schema drift for hours.
-          console.warn('[gate] /v1/assess 401 body parse failed:', err instanceof Error ? err.message : err);
-        }
+      if (err instanceof TokenExpiredError) {
+        // SDK extracts the auto-minted session fields onto the error instance — no body
+        // re-parsing needed here.
+        return {
+          kind: 'deny',
+          reason: {
+            code: 'token_expired',
+            data: err.details as unknown as AgentScoreData,
+            ...(err.verifyUrl ? { verify_url: err.verifyUrl } : {}),
+            ...(err.sessionId ? { session_id: err.sessionId } : {}),
+            ...(err.pollSecret ? { poll_secret: err.pollSecret } : {}),
+            ...(err.pollUrl ? { poll_url: err.pollUrl } : {}),
+            ...(err.nextSteps ? { agent_instructions: JSON.stringify(err.nextSteps) } : {}),
+            ...(err.agentMemory ? { agent_memory: err.agentMemory as AgentMemoryHint } : {}),
+          },
+        };
       }
-
-      // 4xx with a structured error body that ISN'T 401/402: log it so operators see
-      // misclassifications instead of opaque 503 retries. Most common cause: a merchant
-      // that didn't validate input shape before invoking the gate (invalid_address,
-      // invalid_identity). We still fall through to api_error so behavior is unchanged
-      // for callers — just visible now.
-      if (response.status >= 400 && response.status < 500 && response.status !== 402) {
-        try {
-          const errData = (await response.clone().json()) as { error?: { code?: string; message?: string } };
-          const code = errData?.error?.code;
-          if (code && code !== 'token_expired' && code !== 'invalid_credential') {
-            console.warn(
-              `[gate] /v1/assess returned ${response.status} ${code} — surfacing as api_error. ` +
-              'Validate input shape before invoking the gate to avoid this.',
-            );
-          }
-        } catch {
-          // Body wasn't JSON or didn't have the expected shape — silent fall-through.
-        }
+      if (err instanceof InvalidCredentialError) {
+        // Permanent — no auto-session, agent should switch tokens or restart.
+        return {
+          kind: 'deny',
+          reason: {
+            code: 'invalid_credential',
+            agent_instructions: INVALID_CREDENTIAL_INSTRUCTIONS,
+            agent_memory: agentMemoryHint,
+          },
+        };
       }
-
-      if (!response.ok) {
-        throw new Error(`AgentScore API returned ${response.status}`);
+      if (err instanceof QuotaExceededError) {
+        console.warn('[gate] /v1/assess returned 429 quota_exceeded');
+        if (failOpen) return { kind: 'allow', degraded: true, infraReason: 'quota_exceeded' };
+        return {
+          kind: 'deny',
+          reason: { code: 'api_error', agent_instructions: QUOTA_EXCEEDED_INSTRUCTIONS },
+        };
       }
-
-      const data = (await response.json()) as Record<string, unknown>;
-      const decision = data.decision as string | null | undefined;
-      const decisionReasons = (data.decision_reasons as string[]) ?? [];
-      const allow = decision === 'allow' || decision == null;
-
-      cache.set(cacheKey, { allow, decision: decision ?? undefined, reasons: decisionReasons, raw: data });
-
-      if (allow) {
-        return { kind: 'allow', data: data as unknown as AgentScoreData };
+      if (err instanceof SdkTimeoutError) {
+        console.warn('[gate] /v1/assess timed out:', err.message);
+        if (failOpen) return { kind: 'allow', degraded: true, infraReason: 'network_timeout' };
+        return { kind: 'deny', reason: { code: 'api_error' } };
       }
-
-      // Fixable compliance denials (kyc_required, kyc_pending, kyc_failed) get the
-      // same UX as missing_identity: mint a fresh verification session, agent polls
-      // until status=verified, gets a fresh opc_..., retries. Unfixable reasons
-      // (sanctions_flagged, age_insufficient, jurisdiction_restricted) keep the bare
-      // wallet_not_trusted denial. `jurisdiction_restricted` is unfixable: the API
-      // only emits it after KYC is verified (the user's KYC'd country is in the
-      // blocked list — re-doing KYC won't change the country).
-      if (isFixableDenial(decisionReasons)) {
-        const sessionReason = await tryMintSessionDenial(ctx);
-        if (sessionReason) return { kind: 'deny', reason: sessionReason };
+      // Status-based fallbacks for AgentScoreError instances the SDK couldn't classify
+      // into a typed subclass (e.g. 429 with body that lacked error.code, or a fetch
+      // rejection whose .name doesn't match AbortError but whose status code is set).
+      // The real API always emits error.code on 429, so this is purely defensive.
+      const status = (err as { status?: number } | null)?.status;
+      const errName = err instanceof Error ? err.name : '';
+      if (status === 429) {
+        console.warn('[gate] /v1/assess returned 429 (untyped — defensive)');
+        if (failOpen) return { kind: 'allow', degraded: true, infraReason: 'quota_exceeded' };
+        return {
+          kind: 'deny',
+          reason: { code: 'api_error', agent_instructions: QUOTA_EXCEEDED_INSTRUCTIONS },
+        };
       }
-
-      return {
-        kind: 'deny',
-        reason: {
-          code: 'wallet_not_trusted',
-          decision: decision ?? undefined,
-          reasons: decisionReasons,
-          verify_url: data.verify_url as string | undefined,
-          data: data as unknown as AgentScoreData,
-        },
-      };
-    } catch (err) {
-      // Network failure, AbortSignal timeout, JSON parse error on a 2xx, or the
-      // explicit `throw new Error(...)` for an unhandled non-ok status. Log so ops
-      // can distinguish "API down" from "merchant config wrong" — without this,
-      // every transient blip looked identical to a misconfigured base URL.
-      console.warn('[gate] /v1/assess call failed — surfacing as api_error:', err instanceof Error ? err.message : err);
-      if (failOpen) return { kind: 'allow' };
+      if (errName === 'TimeoutError' || errName === 'AbortError') {
+        console.warn('[gate] /v1/assess timed out (by Error.name):', err instanceof Error ? err.message : err);
+        if (failOpen) return { kind: 'allow', degraded: true, infraReason: 'network_timeout' };
+        return { kind: 'deny', reason: { code: 'api_error' } };
+      }
+      // Generic AgentScoreError (rate_limited, 5xx, network_error, body parse, unknown 4xx)
+      // or any non-AgentScoreError unexpected throw — surface as api_error.
+      // Include the SDK-classified error code (when available) so ops/dev see
+      // schema-drift cases like a new 401 error.code rather than a silent 503.
+      const errCode = (err as { code?: string } | null)?.code;
+      const msg = err instanceof Error ? err.message : String(err);
+      const detail = errCode ? `${errCode}: ${msg}` : msg;
+      console.warn(`[gate] /v1/assess call failed — surfacing as api_error: ${detail}`);
+      if (failOpen) return { kind: 'allow', degraded: true, infraReason: 'api_error' };
       return { kind: 'deny', reason: { code: 'api_error' } };
     }
+
+    const decision = data.decision as string | null | undefined;
+    const decisionReasons = (data.decision_reasons as string[]) ?? [];
+    const allow = decision === 'allow' || decision == null;
+
+    cache.set(cacheKey, { allow, decision: decision ?? undefined, reasons: decisionReasons, raw: data });
+
+    if (allow) {
+      // SDK populates `quota` on the assess response from X-Quota-* headers when the
+      // API emits them. Surface up to the adapter so merchants can monitor approach-to-cap.
+      const quota = data.quota as GateQuotaInfo | undefined;
+      return {
+        kind: 'allow',
+        data: data as unknown as AgentScoreData,
+        ...(quota !== undefined && { quota }),
+      };
+    }
+
+    // Fixable compliance denials (kyc_required, kyc_pending, kyc_failed) get the
+    // same UX as missing_identity: mint a fresh verification session, agent polls
+    // until status=verified, gets a fresh opc_..., retries. Unfixable reasons
+    // (sanctions_flagged, age_insufficient, jurisdiction_restricted) keep the bare
+    // wallet_not_trusted denial. `jurisdiction_restricted` is unfixable: the API
+    // only emits it after KYC is verified (the user's KYC'd country is in the
+    // blocked list — re-doing KYC won't change the country).
+    if (isFixableDenial(decisionReasons)) {
+      const sessionReason = await tryMintSessionDenial(ctx);
+      if (sessionReason) return { kind: 'deny', reason: sessionReason };
+    }
+
+    return {
+      kind: 'deny',
+      reason: {
+        code: 'wallet_not_trusted',
+        decision: decision ?? undefined,
+        reasons: decisionReasons,
+        verify_url: data.verify_url as string | undefined,
+        data: data as unknown as AgentScoreData,
+      },
+    };
   }
 
   async function captureWallet(options: CaptureWalletOptions): Promise<void> {
     try {
-      const body: Record<string, unknown> = {
-        operator_token: options.operatorToken,
-        wallet_address: options.walletAddress,
+      await sdk.associateWallet({
+        operatorToken: options.operatorToken,
+        walletAddress: options.walletAddress,
         network: options.network,
-      };
-      if (options.idempotencyKey) body.idempotency_key = options.idempotencyKey;
-      await fetch(`${baseUrl}/v1/credentials/wallets`, {
-        method: 'POST',
-        headers: {
-          'X-API-Key': apiKey,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'User-Agent': userAgentHeader,
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(API_TIMEOUT_MS),
+        ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
       });
     } catch (err) {
       // Fire-and-forget: don't throw. Log so a persistent capture outage is visible
@@ -800,19 +840,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     }
 
     try {
-      const response = await fetch(`${baseUrl}/v1/assess`, {
-        method: 'POST',
-        headers: {
-          'X-API-Key': apiKey,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'User-Agent': userAgentHeader,
-        },
-        body: JSON.stringify({ address: walletAddress }),
-        signal: AbortSignal.timeout(API_TIMEOUT_MS),
-      });
-      if (!response.ok) return { ok: false };
-      const data = (await response.json()) as Record<string, unknown>;
+      const data = (await sdk.assess(walletAddress)) as unknown as Record<string, unknown>;
       cache.set(`resolve:${wallet}`, { allow: true, raw: data });
       return { ok: true, ...extractFromCached(data) };
     } catch (err) {
@@ -827,33 +855,55 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
 
   function reportSignerEvent(kind: 'pass' | 'wallet_signer_mismatch' | 'wallet_auth_requires_wallet_signing' | 'api_error'): void {
     // Fire-and-forget: surfaces mismatch-catch rate + api_error SLO on the dashboard.
-    // Never blocks, awaits, or throws — telemetry failure must not affect the gate's decision.
-    try {
-      const pending = fetch(`${baseUrl}/v1/telemetry/signer-match`, {
-        method: 'POST',
-        headers: {
-          'X-API-Key': apiKey,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'User-Agent': userAgentHeader,
-        },
-        body: JSON.stringify({ kind }),
-        signal: AbortSignal.timeout(API_TIMEOUT_MS),
-      });
-      if (pending && typeof pending.catch === 'function') {
-        pending.catch((err) => {
-          console.warn('[agentscore-commerce] signer-match telemetry failed:', err instanceof Error ? err.message : err);
-        });
-      }
-    } catch {
-      // Thrown synchronously (e.g., fetch unavailable in test harness) — swallow silently.
+    // SDK's telemetrySignerMatch already does the catch + warn-log internally; this
+    // call must not affect the gate's decision so we don't await.
+    void sdk.telemetrySignerMatch({ kind });
+  }
+
+  // Project the API's signer_match block onto the gate's VerifyWalletSignerResult shape.
+  // The API authors agent_instructions, claimed/signer operators, and the linked-wallet
+  // set (deny-guarded server-side); the gate just shapes those fields into camelCase.
+  function projectSignerMatch(
+    sm: Record<string, unknown>,
+    claimedNorm: string,
+    signerNorm: string,
+  ): VerifyWalletSignerResult {
+    const kind = sm.kind as string;
+    if (kind === 'pass') {
+      return {
+        kind: 'pass',
+        claimedOperator: (sm.claimed_operator as string | null | undefined) ?? null,
+        signerOperator: (sm.signer_operator as string | null | undefined) ?? null,
+      };
     }
+    if (kind === 'wallet_auth_requires_wallet_signing') {
+      return {
+        kind: 'wallet_auth_requires_wallet_signing',
+        claimedWallet: (sm.claimed_wallet as string | undefined) ?? claimedNorm,
+        agentInstructions:
+          (sm.agent_instructions as string | undefined) ?? WALLET_AUTH_REQUIRES_WALLET_SIGNING_INSTRUCTIONS,
+      };
+    }
+    // Default: wallet_signer_mismatch
+    const linked = sm.linked_wallets;
+    return {
+      kind: 'wallet_signer_mismatch',
+      claimedOperator: (sm.claimed_operator as string | null | undefined) ?? null,
+      actualSignerOperator: (sm.signer_operator as string | null | undefined) ?? null,
+      expectedSigner: (sm.expected_signer as string | undefined) ?? claimedNorm,
+      actualSigner: (sm.actual_signer as string | undefined) ?? signerNorm,
+      linkedWallets: Array.isArray(linked)
+        ? (linked as unknown[]).filter((w): w is string => typeof w === 'string')
+        : [],
+      agentInstructions:
+        (sm.agent_instructions as string | undefined) ?? WALLET_SIGNER_MISMATCH_INSTRUCTIONS,
+    };
   }
 
   async function verifyWalletSignerMatch(
     options: VerifyWalletSignerMatchOptions,
   ): Promise<VerifyWalletSignerResult> {
-    const { claimedWallet, signer } = options;
+    const { claimedWallet, signer, network } = options;
 
     if (!signer) {
       reportSignerEvent('wallet_auth_requires_wallet_signing');
@@ -876,13 +926,59 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       return { kind: 'pass', claimedOperator: null, signerOperator: null };
     }
 
+    // Cache hit — a prior call for this same (claimed, signer) pair already populated
+    // signer_match. Skip the round trip + telemetry post (the API recorded it the first
+    // time). Subsequent same-pair payments cost zero outbound assess calls.
+    const cachedEntry = cache.get(claimedNorm);
+    const cachedMatch = cachedEntry?.signerMatchBySigner?.get(signerNorm);
+    if (cachedMatch) {
+      return projectSignerMatch(cachedMatch, claimedNorm, signerNorm);
+    }
+
+    // Single fresh assess call carrying resolve_signer. Server-side resolves both wallets
+    // against the operator graph and returns a signer_match verdict in the response —
+    // collapses the legacy 2 follow-up calls (one per wallet) into one round trip.
+    const inferredNetwork: 'evm' | 'solana' = network ?? (signerNorm.startsWith('0x') ? 'evm' : 'solana');
+    let assessResponse: { signer_match?: Record<string, unknown> } & Record<string, unknown>;
+    try {
+      assessResponse = (await sdk.assess(claimedNorm, {
+        resolveSigner: { address: signerNorm, network: inferredNetwork },
+      })) as unknown as { signer_match?: Record<string, unknown> } & Record<string, unknown>;
+    } catch (err) {
+      console.warn('[gate] verifyWalletSignerMatch assess failed:', err instanceof Error ? err.message : err);
+      reportSignerEvent('api_error');
+      return { kind: 'api_error', claimedWallet: claimedNorm };
+    }
+
+    const signerMatch = assessResponse.signer_match;
+    if (signerMatch && typeof signerMatch === 'object') {
+      // Cache for repeat same-pair lookups. Server-side already recorded telemetry for
+      // this verdict, so skip the SDK-side reportSignerEvent — avoids double-counting.
+      if (cachedEntry) {
+        // Mutate the existing entry in place — TTLCache.get() returns a reference, so the
+        // store's record sees the new sub-map without a `set()` call. This preserves the
+        // gate's original cache TTL window (set() would reset it forward, causing the
+        // gate verdict to be served past its intended freshness horizon).
+        const map = cachedEntry.signerMatchBySigner ?? new Map<string, Record<string, unknown>>();
+        map.set(signerNorm, signerMatch);
+        cachedEntry.signerMatchBySigner = map;
+      } else {
+        // No prior gate cache for this wallet — create a fresh entry with the verdict
+        // attached so a subsequent same-pair call hits cache.
+        const entry: AssessResult = { allow: true, raw: assessResponse };
+        entry.signerMatchBySigner = new Map([[signerNorm, signerMatch]]);
+        cache.set(claimedNorm, entry);
+      }
+      return projectSignerMatch(signerMatch, claimedNorm, signerNorm);
+    }
+
+    // API response had no signer_match (server didn't compute one). Fall back to the
+    // 2-resolve path so the gate still produces a verdict.
     const [claimedResolve, signerResolve] = await Promise.all([
       resolveWalletToOperator(claimedNorm),
       resolveWalletToOperator(signerNorm),
     ]);
 
-    // Transient API failure on either resolve → emit api_error. Caller should retry or
-    // surface 503 rather than falsely reject a legitimate user on a network flake.
     if (!claimedResolve.ok || !signerResolve.ok) {
       reportSignerEvent('api_error');
       return { kind: 'api_error', claimedWallet: claimedNorm };
@@ -903,8 +999,6 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       actualSignerOperator: signerOperator,
       expectedSigner: claimedNorm,
       actualSigner: signerNorm,
-      // Populated from /v1/assess.linked_wallets on the claimed wallet — the full set of
-      // wallets the agent CAN sign with to satisfy the claim (same-operator rule).
       linkedWallets: claimedResolve.linkedWallets,
       agentInstructions: WALLET_SIGNER_MISMATCH_INSTRUCTIONS,
     };

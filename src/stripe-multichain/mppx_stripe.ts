@@ -40,11 +40,13 @@ export async function createMppxStripe(input: CreateMppxStripeInput): Promise<un
       }) => unknown;
     };
   } | null;
+  /* v8 ignore start -- peer-dep-absence guard; mppx is installed in the test env so this branch can't be exercised without mocking the dynamic import */
   if (!mppx?.stripe?.charge) {
     throw new Error(
       'mppx not installed — install with `npm install mppx` to use createMppxStripe.',
     );
   }
+  /* v8 ignore stop */
   return mppx.stripe.charge({
     networkId: input.profileId,
     paymentMethodTypes: input.paymentMethodTypes ?? ['card', 'link'],

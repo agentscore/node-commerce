@@ -16,6 +16,8 @@ import type {
   AgentScoreData,
   CreateSessionOnMissing,
   DenialReason,
+  FailOpenInfraReason,
+  GateQuotaInfo,
   VerifyWalletSignerResult,
 } from '../core';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
@@ -26,6 +28,13 @@ interface GateState {
   core: AgentScoreCore;
   operatorToken?: string;
   walletAddress?: string;
+  /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
+   *  (429/5xx/network timeout). Compliance was NOT enforced — log/alert in your handler. */
+  degraded?: boolean;
+  /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
+  infraReason?: FailOpenInfraReason;
+  /** Per-account assess quota observability captured from `X-Quota-*` response headers. */
+  quota?: GateQuotaInfo;
 }
 
 export interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
@@ -87,6 +96,14 @@ const agentscoreGatePlugin: FastifyPluginAsync<AgentScoreGateOptions> = async (f
     const outcome = await core.evaluate(identity, request);
 
     if (outcome.kind === 'allow') {
+      const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+      if (state) {
+        if (outcome.degraded) {
+          state.degraded = true;
+          state.infraReason = outcome.infraReason;
+        }
+        if (outcome.quota) state.quota = outcome.quota;
+      }
       if (outcome.data) (request as unknown as Record<string, unknown>).agentscore = outcome.data;
       return;
     }
@@ -101,6 +118,28 @@ const agentscoreGatePlugin: FastifyPluginAsync<AgentScoreGateOptions> = async (f
  */
 export function getAgentScoreData(request: FastifyRequest): AgentScoreData | undefined {
   return (request as unknown as Record<string, AgentScoreData | undefined>).agentscore;
+}
+
+/**
+ * Read whether the gate fail-open'd due to AgentScore-side infrastructure failure on
+ * this request. Returns `{ degraded: false }` for normal allows; `{ degraded: true,
+ * infraReason }` when bypassed (compliance NOT enforced — log/alert).
+ */
+export function getGateDegradedState(
+  request: FastifyRequest,
+): { degraded: boolean; infraReason?: FailOpenInfraReason } {
+  const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+  return { degraded: state?.degraded ?? false, infraReason: state?.infraReason };
+}
+
+/**
+ * Read AgentScore assess quota observability captured from `X-Quota-*` response headers
+ * on this request's gate evaluate. Returns `undefined` when the request was a fail-open
+ * pass-through (no assess call) or when the API didn't emit quota headers.
+ */
+export function getGateQuotaInfo(request: FastifyRequest): GateQuotaInfo | undefined {
+  const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+  return state?.quota;
 }
 
 /**

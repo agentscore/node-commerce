@@ -278,6 +278,33 @@ app.post("/purchase", async (c) => {
 });
 ```
 
+## Fail-open behavior
+
+By default AgentScore Gate fails closed: any AgentScore-side infrastructure failure (HTTP 429, 5xx, network timeout) returns 503 to the buyer. Set `failOpen: true` on `agentscoreGate({...})` to opt in to graceful degradation:
+
+```ts
+import { agentscoreGate, getGateDegradedState } from '@agent-score/commerce/identity/hono';
+
+const gate = agentscoreGate({ apiKey: process.env.AGENTSCORE_API_KEY!, failOpen: true });
+
+app.use('/purchase', gate);
+
+app.post('/purchase', async (c) => {
+  const { degraded, infraReason } = getGateDegradedState(c);
+  if (degraded) {
+    // Compliance was NOT enforced this request — log/alert/refund-async/etc.
+    console.warn(`[gate] degraded: ${infraReason}`);
+  }
+  // ...rest of handler
+});
+```
+
+When `failOpen: true` AND the failure is infra-shape, the gate carries `degraded: true` + `infraReason: 'quota_exceeded' | 'api_error' | 'network_timeout'` so merchants can log/alert without parsing console output. **Compliance denials (sanctions, age, jurisdiction, signer-mismatch) still deny regardless of `failOpen`** — `failOpen` only covers "AgentScore couldn't tell us," never "AgentScore said no."
+
+For regulated commerce (alcohol, age-gated, sanctioned-jurisdiction-relevant) keep the default `failOpen: false` — outage is the correct posture; bypassing compliance on infra failure is a compliance gap. For low-stakes commerce or high-uptime SLAs, opt in and use the `degraded` flag as the audit trail.
+
+The `getGateDegradedState` helper is exported by every framework adapter (Hono, Express, Fastify, Next.js, Web Fetch). For `withAgentScoreGate` (Next.js / Web Fetch), the `degraded` + `infraReason` fields land directly on the `gate` object passed to your handler.
+
 ## Examples
 
 The [examples/](./examples) directory has 7 runnable single-file Hono apps covering common merchant scenarios — copy-paste templates, not frameworks. See [examples/README.md](./examples/README.md) for the full table.

@@ -16,6 +16,8 @@ import type {
   AgentScoreData,
   CreateSessionOnMissing,
   DenialReason,
+  FailOpenInfraReason,
+  GateQuotaInfo,
   VerifyWalletSignerResult,
 } from '../core';
 import type { Request, Response, NextFunction } from 'express';
@@ -26,6 +28,15 @@ interface GateState {
   core: AgentScoreCore;
   operatorToken?: string;
   walletAddress?: string;
+  /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
+   *  (429/5xx/network timeout). Compliance was NOT enforced — log/alert in your handler. */
+  degraded?: boolean;
+  /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
+  infraReason?: FailOpenInfraReason;
+  /** Per-account assess quota observability captured from `X-Quota-*` response headers
+   *  on the success path. Absent on Enterprise / unlimited tiers, or when the gate didn't
+   *  call assess (failOpen + missing identity). */
+  quota?: GateQuotaInfo;
 }
 
 export interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
@@ -72,6 +83,14 @@ export function agentscoreGate(options: AgentScoreGateOptions) {
     const outcome = await core.evaluate(identity, req);
 
     if (outcome.kind === 'allow') {
+      const state = (req as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+      if (state) {
+        if (outcome.degraded) {
+          state.degraded = true;
+          state.infraReason = outcome.infraReason;
+        }
+        if (outcome.quota) state.quota = outcome.quota;
+      }
       if (outcome.data) (req as unknown as Record<string, unknown>).agentscore = outcome.data;
       next();
       return;
@@ -79,6 +98,29 @@ export function agentscoreGate(options: AgentScoreGateOptions) {
 
     onDenied(req, res, outcome.reason);
   };
+}
+
+/**
+ * Read whether the gate fail-open'd due to AgentScore-side infrastructure failure on
+ * this request. Returns `{ degraded: false }` for normal allows; `{ degraded: true,
+ * infraReason }` when bypassed (compliance NOT enforced — log/alert).
+ */
+export function getGateDegradedState(
+  req: Request,
+): { degraded: boolean; infraReason?: FailOpenInfraReason } {
+  const state = (req as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+  return { degraded: state?.degraded ?? false, infraReason: state?.infraReason };
+}
+
+/**
+ * Read AgentScore assess quota observability captured from `X-Quota-*` response headers
+ * on this request's gate evaluate. Returns `undefined` when the request was a fail-open
+ * pass-through (no assess call) or when the API didn't emit quota headers (Enterprise /
+ * unlimited tiers). Use to monitor approach-to-cap proactively (warn at 80%, alert at 95%).
+ */
+export function getGateQuotaInfo(req: Request): GateQuotaInfo | undefined {
+  const state = (req as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+  return state?.quota;
 }
 
 /**
