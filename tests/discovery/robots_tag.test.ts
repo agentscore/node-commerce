@@ -14,6 +14,7 @@ describe('defaultDiscoveryPaths', () => {
     for (const p of [
       '/openapi.json',
       '/llms.txt',
+      '/skill.md',
       '/.well-known/mpp.json',
       '/.well-known/agent-card.json',
       '/.well-known/ucp',
@@ -29,6 +30,7 @@ describe('isDiscoveryPath', () => {
   it('matches paths in the default set', () => {
     expect(isDiscoveryPath('/openapi.json')).toBe(true);
     expect(isDiscoveryPath('/llms.txt')).toBe(true);
+    expect(isDiscoveryPath('/skill.md')).toBe(true);
     expect(isDiscoveryPath('/.well-known/mpp.json')).toBe(true);
   });
 
