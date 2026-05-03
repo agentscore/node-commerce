@@ -1,6 +1,6 @@
 {
   "name": "@agent-score/commerce",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Agent commerce SDK — identity middleware (Hono, Express, Fastify, Next.js, Web Fetch) + payment helpers + 402 builders + discovery + Stripe multichain. The full merchant-side toolkit for AgentScore-powered agent commerce.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -163,7 +163,7 @@
     "fastify": "^5.8.5",
     "hono": "^4.12.16",
     "lefthook": "^2.1.6",
-    "mppx": "^0.6.13",
+    "mppx": "^0.6.14",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.1",
