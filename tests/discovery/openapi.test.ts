@@ -4,6 +4,9 @@ import {
   agentscoreDenialSchemas,
   agentscorePaymentRequiredSchema,
   agentscoreOpenApiSnippets,
+  siwxSecurityScheme,
+  xPaymentInfoExtension,
+  xGuidanceExtension,
 } from '../../src/discovery/openapi';
 
 describe('agentscoreSecuritySchemes', () => {
@@ -11,6 +14,49 @@ describe('agentscoreSecuritySchemes', () => {
     const schemes = agentscoreSecuritySchemes();
     expect(schemes.OperatorToken).toMatchObject({ type: 'apiKey', in: 'header', name: 'X-Operator-Token' });
     expect(schemes.WalletAddress).toMatchObject({ type: 'apiKey', in: 'header', name: 'X-Wallet-Address' });
+  });
+
+  it('includes the x402scan-spec siwx scheme', () => {
+    const schemes = agentscoreSecuritySchemes();
+    expect(schemes.siwx).toMatchObject({ type: 'http', scheme: 'bearer', bearerFormat: 'SIWX' });
+  });
+});
+
+describe('siwxSecurityScheme', () => {
+  it('returns an http bearer scheme with bearerFormat=SIWX', () => {
+    const scheme = siwxSecurityScheme();
+    expect(scheme).toMatchObject({ type: 'http', scheme: 'bearer', bearerFormat: 'SIWX' });
+  });
+});
+
+describe('xPaymentInfoExtension', () => {
+  it('emits fixed-mode price wrapped under x-payment-info', () => {
+    const ext = xPaymentInfoExtension({
+      price: { mode: 'fixed', currency: 'USD', amount: '0.10' },
+      protocols: [{ x402: {} }],
+    });
+    expect(ext['x-payment-info'].price).toEqual({ mode: 'fixed', currency: 'USD', amount: '0.10' });
+    expect(ext['x-payment-info'].protocols).toEqual([{ x402: {} }]);
+  });
+
+  it('emits dynamic-mode price + multi-protocol entries', () => {
+    const ext = xPaymentInfoExtension({
+      price: { mode: 'dynamic', currency: 'USD', min: '0.01', max: '5.00' },
+      protocols: [
+        { x402: {} },
+        { mpp: { method: 'tempo/charge', intent: 'pay', currency: 'USD' } },
+      ],
+    });
+    expect(ext['x-payment-info'].price).toMatchObject({ mode: 'dynamic', min: '0.01', max: '5.00' });
+    expect(ext['x-payment-info'].protocols).toHaveLength(2);
+  });
+});
+
+describe('xGuidanceExtension', () => {
+  it('wraps a string under x-guidance', () => {
+    expect(xGuidanceExtension('Use POST /purchase with X-Operator-Token...')).toEqual({
+      'x-guidance': 'Use POST /purchase with X-Operator-Token...',
+    });
   });
 });
 
