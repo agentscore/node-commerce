@@ -24,7 +24,7 @@ npm install hono mppx @x402/core @x402/evm @x402/svm stripe   # whatever your st
 | Subpath | What it provides |
 |---|---|
 | `/identity/{hono,express,fastify,nextjs,web}` | Trust gate middleware: KYC, sanctions, age, jurisdiction. `agentscoreGate(...)`, `getAgentScoreData(c)`, `captureWallet(...)`, `verifyWalletSignerMatch(...)`. Plus shared denial helpers: `denialReasonStatus`, `denialReasonToBody`, `buildSignerMismatchBody`, `buildContactSupportNextSteps`, `verificationAgentInstructions`, `isFixableDenial`, `FIXABLE_DENIAL_REASONS`. |
-| `/payment` | `networks`, `USDC`, `rails` registries; `paymentDirective`, `buildPaymentDirective`, `wwwAuthenticateHeader`, `paymentRequiredHeader`, `aliasAmountFields` (v1↔v2 amount field shim — emits both `amount` and `maxAmountRequired` so v1-only x402 parsers like Coinbase awal can read v2 bodies), `settlementOverrideHeader`, `dispatchSettlementByNetwork`, `extractPaymentSigner` (returns `{address, network}`); `createX402Server`, `createMppxServer`; drop-in x402 helpers: `validateX402NetworkConfig` (boot-time guard), `verifyX402Request` (parse + validate inbound X-Payment), `processX402Settle` (verify-then-settle with one call). |
+| `/payment` | `networks`, `USDC`, `rails` registries; `paymentDirective`, `buildPaymentDirective`, `wwwAuthenticateHeader`, `paymentRequiredHeader`, `aliasAmountFields` (v1↔v2 amount field shim — emits both `amount` and `maxAmountRequired` so v1-only x402 parsers like Coinbase awal can read v2 bodies), `settlementOverrideHeader`, `dispatchSettlementByNetwork`, `extractPaymentSigner` (returns `{address, network}`); `createX402Server`, `createMppxServer`; drop-in x402 helpers: `validateX402NetworkConfig` (boot-time guard), `verifyX402Request` (parse + validate inbound X-Payment), `processX402Settle` (verify-then-settle with one call), `classifyX402SettleResult` (maps the tagged settle result to a recommended HTTP status / code / nextSteps so merchants stop string-sniffing facilitator error messages). |
 | `/discovery` | `isDiscoveryProbeRequest`, `buildDiscoveryProbeResponse` (with optional `x402Sample` for x402-aware crawlers — `awal x402 details` etc.), `sampleX402AcceptForNetwork` (USDC sample-accept builder for known CAIP-2 networks), `buildWellKnownMpp`, `buildLlmsTxt` + `llmsTxtIdentitySection` + `llmsTxtPaymentSection` (compact + verbose modes), `buildSkillMd` (Claude-Skill-compatible `/skill.md` agent-discovery manifest — strictly agent-facing data only, no internal posture), `agentscoreOpenApiSnippets`, `createBazaarDiscovery`, `noindexNonDiscoveryPaths` (Hono middleware that emits `X-Robots-Tag: noindex` on every path except the agent-discovery surfaces — defaults cover `/openapi.json`, `/llms.txt`, `/skill.md`, `/.well-known/{mpp.json,agent-card.json,ucp}`, `/favicon.{png,ico}`; pure helpers `isDiscoveryPath` + `defaultDiscoveryPaths` for non-Hono frameworks). |
 | `/challenge` | `build402Body`, `buildAcceptedMethods`, `buildIdentityMetadata`, `buildHowToPay`, `buildAgentInstructions` (auto-emits per-rail `compatible_clients` — smoke-verified CLIs the agent should use; vendor override supported), `buildPricingBlock`, `firstEncounterAgentMemory`, `OrderReceipt`; `respond402` — drop-in 402 emit that preserves mppx's `WWW-Authenticate` and layers x402's `PAYMENT-REQUIRED`. `buildValidationError` — structured 4xx body builder (`{error: {code, message}, required_fields?, example_body?, next_steps?, ...extra}`) so vendors compose body shapes by name instead of inlining at every validation site. |
 | `/stripe-multichain` | `createMultichainPaymentIntent`, `getDepositAddress`, `simulateCryptoDeposit`, `createMppxStripe`; `createPiCache` (TTL'd PI / deposit-address cache, Redis-backed when `redisUrl` set, in-memory otherwise), `simulateDepositIfTestMode` (gates on `sk_test_` and looks up the PI for you), `STRIPE_TEST_TX_HASH_SUCCESS` / `STRIPE_TEST_TX_HASH_FAILED` constants. Peer dep on `stripe`. |
@@ -236,6 +236,7 @@ await simulateDepositIfTestMode({
 
 ```typescript
 import {
+  classifyX402SettleResult,
   processX402Settle,
   validateX402NetworkConfig,
   verifyX402Request,
@@ -261,7 +262,13 @@ app.post("/purchase", async (c) => {
       resourceConfig: { scheme: "exact", network: verified.signedNetwork, price: `$${total}`, payTo: verified.signedPayTo, maxTimeoutSeconds: 300 },
       resourceMeta: { url: c.req.url, mimeType: "application/json" },
     });
-    if (!settle.success) return c.json({ error: { code: "payment_proof_invalid", phase: settle.phase } }, 400);
+    const classified = classifyX402SettleResult(settle);
+    if (classified) {
+      // Log raw `settle` server-side; return controlled phase-based response to the agent.
+      console.error("[x402-settle]", { phase: settle.success ? null : settle.phase, raw: settle });
+      return c.json({ error: { code: classified.code, message: classified.message }, next_steps: classified.nextSteps }, classified.status);
+    }
+    if (!settle.success) throw new Error("unreachable: classified covers every non-success phase");
 
     const headers: Record<string, string> = {};
     if (settle.paymentResponseHeader) headers["payment-response"] = settle.paymentResponseHeader;
