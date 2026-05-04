@@ -31,4 +31,39 @@ describe('createMppxServer', () => {
     });
     expect(server).toBeDefined();
   });
+
+  it('registers the solana mpp charge method (mainnet default, no signer)', async () => {
+    const server = await createMppxServer({
+      rails: { solana: { recipient: 'GEQg2TM4VL315Bd4LLkGrhBjdNfoatKjCJYHBDPM3D74' } },
+      secretKey: 'mpp_secret_xxx',
+    });
+    expect(server).toBeDefined();
+  });
+
+  it('registers the solana devnet mpp charge method', async () => {
+    const server = await createMppxServer({
+      rails: {
+        solana: {
+          recipient: 'GEQg2TM4VL315Bd4LLkGrhBjdNfoatKjCJYHBDPM3D74',
+          network: 'devnet',
+        },
+      },
+      secretKey: 'mpp_secret_xxx',
+    });
+    expect(server).toBeDefined();
+  });
+
+  it('forwards optional rpcUrl and tokenProgram fields when provided', async () => {
+    const server = await createMppxServer({
+      rails: {
+        solana: {
+          recipient: 'GEQg2TM4VL315Bd4LLkGrhBjdNfoatKjCJYHBDPM3D74',
+          rpcUrl: 'https://api.mainnet-beta.solana.com',
+          tokenProgram: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+        },
+      },
+      secretKey: 'mpp_secret_xxx',
+    });
+    expect(server).toBeDefined();
+  });
 });

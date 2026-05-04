@@ -32,7 +32,7 @@ Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framew
 | `examples/` | Runnable single-file Hono apps for each common scenario |
 | `tests/` | Vitest, one file per surface, ~360+ tests |
 
-Peer-dep pattern: payment/x402/mppx/stripe modules `dynamic import` at runtime — vendors install only what they use (`@x402/core`, `@x402/evm`, `@x402/svm`, `@coinbase/x402`, `mppx`, `stripe`). Missing peer dep throws a guiding error with the install command.
+Peer-dep pattern: payment/x402/mppx/stripe modules `dynamic import` at runtime — vendors install only what they use (`@x402/core`, `@x402/evm`, `@coinbase/x402`, `mppx`, `@solana/mpp`, `@solana/kit`, `stripe`). Missing peer dep throws a guiding error with the install command. x402 in this SDK is EVM-only; Solana SPL payments go through MPP `solana/charge` (`@solana/mpp/server`).
 
 ## Examples
 

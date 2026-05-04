@@ -4,11 +4,6 @@ import { registerX402SchemesV1V2 } from './x402';
 export type X402SymbolicRail =
   | 'x402-base-mainnet'
   | 'x402-base-sepolia'
-  | 'x402-solana-mainnet'
-  | 'x402-solana-devnet'
-  // Upto rails — pay UP TO a max amount via Permit2 (vs EIP-3009 fixed-amount). Use for
-  // variable-cost APIs (LLM tokens, bandwidth, etc.). Solana svm doesn't ship an upto
-  // scheme yet — only EVM rails support it.
   | 'x402-base-mainnet-upto'
   | 'x402-base-sepolia-upto';
 
@@ -25,7 +20,7 @@ export interface CreateX402ServerOptions {
   facilitator?: X402FacilitatorChoice;
   /**
    * Symbolic rail names to register schemes for. Each gets v1+v2 dual-register applied.
-   * Requires the corresponding peer dep installed (`@x402/evm` for base, `@x402/svm` for solana).
+   * Requires `@x402/evm` peer dep installed.
    */
   rails?: X402SymbolicRail[];
   /** Advanced: register custom {network, scheme} pairs (in addition to or instead of `rails`). */
@@ -58,7 +53,6 @@ interface X402CoreModule {
 
 interface SchemeModule {
   ExactEvmScheme?: new () => unknown;
-  ExactSvmScheme?: new () => unknown;
   UptoEvmScheme?: new () => unknown;
 }
 
@@ -80,18 +74,11 @@ interface BazaarModule {
  *
  *   const server = await createX402Server({
  *     facilitator: 'coinbase',
- *     rails: ['x402-base-mainnet', 'x402-solana-mainnet'],
+ *     rails: ['x402-base-mainnet'],
  *     bazaar: true,
  *   });
  */
 export async function createX402Server(opts: CreateX402ServerOptions = {}): Promise<X402Server> {
-  // Eager validation — surface bad rail combinations before paying for peer-dep resolution.
-  for (const rail of opts.rails ?? []) {
-    if (rail.startsWith('x402-solana') && rail.endsWith('-upto')) {
-      throw new Error(`Rail "${rail}" not supported — @x402/svm does not ship an upto scheme yet (EVM-only).`);
-    }
-  }
-
   const x402Core = (await dynamicImport<X402CoreModule>('@x402/core/server')) ?? null;
   /* v8 ignore start -- peer-dep-absence guard; @x402/core is installed in test env */
   if (!x402Core) {
@@ -122,7 +109,6 @@ export async function createX402Server(opts: CreateX402ServerOptions = {}): Prom
 
   let evmExactModule: SchemeModule | null = null;
   let evmUptoModule: SchemeModule | null = null;
-  let svmModule: SchemeModule | null = null;
   for (const rail of opts.rails ?? []) {
     const isUpto = rail.endsWith('-upto');
     if (rail.startsWith('x402-base')) {
@@ -146,18 +132,6 @@ export async function createX402Server(opts: CreateX402ServerOptions = {}): Prom
         /* v8 ignore stop */
         registerX402SchemesV1V2(server, network, new evmExactModule.ExactEvmScheme());
       }
-    } else if (rail.startsWith('x402-solana')) {
-      svmModule ??= await dynamicImport<SchemeModule>('@x402/svm/exact/server');
-      /* v8 ignore start -- peer-dep-absence guard; @x402/svm is installed in test env */
-      if (!svmModule?.ExactSvmScheme) {
-        throw new Error('@x402/svm not installed — `npm install @x402/svm` for x402 solana rails.');
-      }
-      /* v8 ignore stop */
-      const network =
-        rail === 'x402-solana-mainnet'
-          ? networks.solana.mainnet.caip2
-          : networks.solana.devnet.caip2;
-      registerX402SchemesV1V2(server, network, new svmModule.ExactSvmScheme());
     }
   }
 

@@ -7,7 +7,7 @@ describe('buildSkillMd', () => {
     description: 'Buy wine from Martin Estate via an AI agent',
     homepage: 'https://martin-estate.com',
     merchantName: 'Martin Estate',
-    acceptedRails: ['tempo_mpp', 'x402_base', 'x402_solana', 'stripe'] as const,
+    acceptedRails: ['tempo_mpp', 'x402_base', 'solana_mpp', 'stripe'] as const,
     endpoints: [
       { method: 'GET' as const, path: '/api/v1/wines', authRequired: false, description: 'Wine catalog' },
       { method: 'POST' as const, path: '/api/v1/orders', authRequired: true, description: 'Place order' },
@@ -200,7 +200,7 @@ describe('buildSkillMd', () => {
       expect(out).toContain('agentscore-pay, tempo request, x402-proxy');
       expect(out).toContain('**x402 on Base**');
       expect(out).toContain('agentscore-pay, x402-proxy, purl (omit --network flag)');
-      expect(out).toContain('**x402 on Solana**');
+      expect(out).toContain('**MPP on Solana**');
       expect(out).toContain('**Stripe Shared Payment Token**');
       expect(out).toContain('link-cli');
     });
@@ -208,7 +208,7 @@ describe('buildSkillMd', () => {
     it('omits rails not declared in acceptedRails', () => {
       const out = buildSkillMd({
         ...baseInput,
-        acceptedRails: ['tempo_mpp', 'x402_base', 'x402_solana'],
+        acceptedRails: ['tempo_mpp', 'x402_base', 'solana_mpp'],
       });
       expect(out).toContain('**MPP on Tempo**');
       expect(out).not.toContain('**Stripe Shared Payment Token**');

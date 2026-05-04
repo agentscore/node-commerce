@@ -60,7 +60,7 @@ export interface UCPCapability {
 }
 
 export interface UCPPaymentHandler {
-  /** Handler name — `stripe`, `tempo`, `x402-base`, `x402-solana`, etc. */
+  /** Handler name — `stripe`, `tempo`, `x402-base`, `solana`, etc. */
   name: string;
   /** Handler config — recipient address, profile id, etc. */
   config?: Record<string, unknown>;

@@ -30,13 +30,13 @@ describe('buildHowToPay', () => {
     expect(block.tempo!.alternative_command).toContain('tempo request');
   });
 
-  it('builds x402_base + x402_solana entries with --chain flags', () => {
+  it('builds x402_base + solana_mpp entries with --chain flags', () => {
     const block = buildHowToPay({
       ...baseInput,
-      rails: { x402_base: { recipient: '0xb' }, x402_solana: { recipient: 'sol1' } },
+      rails: { x402_base: { recipient: '0xb' }, solana_mpp: { recipient: 'sol1' } },
     });
     expect(block.x402_base!.command).toContain('--chain base');
-    expect(block.x402_solana!.command).toContain('--chain solana');
+    expect(block.solana_mpp!.command).toContain('--chain solana');
   });
 
   it('builds stripe entry with link-cli commands when profileId set + amount under cap', () => {

@@ -18,13 +18,27 @@ export interface X402MethodEntry {
   pay_to: string;
 }
 
+export interface SolanaMppMethodEntry {
+  method: 'solana/charge';
+  network: string;
+  token: string;
+  symbol: string;
+  decimals: number;
+  pay_to: string;
+  fee_payer_key?: string;
+}
+
 export interface StripeMethodEntry {
   method: 'stripe/charge';
   rails: ('card' | 'link' | 'shared_payment_token')[];
   profile_id: string | null;
 }
 
-export type AcceptedMethodEntry = TempoMethodEntry | X402MethodEntry | StripeMethodEntry;
+export type AcceptedMethodEntry =
+  | TempoMethodEntry
+  | X402MethodEntry
+  | SolanaMppMethodEntry
+  | StripeMethodEntry;
 
 export interface BuildAcceptedMethodsInput {
   tempo?: {
@@ -43,12 +57,13 @@ export interface BuildAcceptedMethodsInput {
     symbol?: string;
     decimals?: number;
   };
-  x402_solana?: {
+  solana_mpp?: {
     recipient: string;
     network?: string;
     token?: string;
     symbol?: string;
     decimals?: number;
+    feePayerKey?: string;
   };
   stripe?: {
     profileId?: string | null;
@@ -88,14 +103,15 @@ export function buildAcceptedMethods(input: BuildAcceptedMethodsInput): Accepted
     });
   }
 
-  if (input.x402_solana) {
+  if (input.solana_mpp) {
     out.push({
-      method: 'x402/exact',
-      network: input.x402_solana.network ?? 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
-      token: input.x402_solana.token ?? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-      symbol: input.x402_solana.symbol ?? 'USDC',
-      decimals: input.x402_solana.decimals ?? 6,
-      pay_to: input.x402_solana.recipient,
+      method: 'solana/charge',
+      network: input.solana_mpp.network ?? 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
+      token: input.solana_mpp.token ?? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+      symbol: input.solana_mpp.symbol ?? 'USDC',
+      decimals: input.solana_mpp.decimals ?? 6,
+      pay_to: input.solana_mpp.recipient,
+      ...(input.solana_mpp.feePayerKey ? { fee_payer_key: input.solana_mpp.feePayerKey } : {}),
     });
   }
 

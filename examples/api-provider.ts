@@ -9,19 +9,19 @@
  * Rails advertised:
  *   - **Tempo MPP** (`tempo/charge` intent)
  *   - **x402 USDC on Base** (EIP-3009)
- *   - **x402 USDC on Solana** (SPL Token)
+ *   - **MPP USDC on Solana** (`solana/charge` intent)
  *
  * The 402 lists all rails neutrally — the agent picks based on what their wallet supports.
  *
  * Peer deps to install:
- *   bun add @agent-score/commerce hono mppx @x402/core @x402/evm @x402/svm
+ *   bun add @agent-score/commerce hono mppx @x402/core @x402/evm @solana/mpp @solana/kit
  *   # @coinbase/x402 optional — only if you want the Coinbase CDP facilitator instead of HTTP
  *
  * Env vars:
- *   MPP_SECRET_KEY        — random base64 (mppx merchant secret)
- *   TEMPO_RECIPIENT       — your Tempo wallet for receiving USDC.e
- *   X402_BASE_RECIPIENT   — your Base wallet for receiving USDC
- *   X402_SOLANA_RECIPIENT — your Solana wallet for receiving USDC
+ *   MPP_SECRET_KEY      — random base64 (mppx merchant secret)
+ *   TEMPO_RECIPIENT     — your Tempo wallet for receiving USDC.e
+ *   X402_BASE_RECIPIENT — your Base wallet for receiving USDC
+ *   SOLANA_RECIPIENT    — your Solana wallet for receiving USDC (MPP solana/charge)
  *
  * Run: bun run examples/api-provider.ts
  */
@@ -46,13 +46,16 @@ const REALM = 'api.example.com';
 // ── Boot both rails — Tempo MPP + x402 ──────────────────────────────────────
 // One-call setup for each. Vendors who only support one rail can drop the other.
 await createMppxServer({
-  rails: { tempo: { recipient: process.env.TEMPO_RECIPIENT! } },
+  rails: {
+    tempo: { recipient: process.env.TEMPO_RECIPIENT! },
+    solana: { recipient: process.env.SOLANA_RECIPIENT! },
+  },
   secretKey: process.env.MPP_SECRET_KEY!,
 });
 
 await createX402Server({
   facilitator: 'http', // 'coinbase' if you have @coinbase/x402 installed
-  rails: ['x402-base-mainnet', 'x402-solana-mainnet'],
+  rails: ['x402-base-mainnet'],
 });
 
 const app = new Hono();
@@ -106,7 +109,7 @@ app.post('/search', async (c) => {
         request: '',
       }),
       paymentDirective({
-        rail: 'x402-solana-mainnet',
+        rail: 'mpp-solana-mainnet',
         id: `${challengeId}_solana`,
         realm: REALM,
         request: '',
@@ -119,14 +122,6 @@ app.post('/search', async (c) => {
         amount: String(PRICE_USDC * 1_000_000),
         asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
         payTo: process.env.X402_BASE_RECIPIENT,
-        extra: { decimals: 6 },
-      },
-      {
-        scheme: 'exact',
-        network: networks.solana.mainnet.caip2,
-        amount: String(PRICE_USDC * 1_000_000),
-        asset: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-        payTo: process.env.X402_SOLANA_RECIPIENT,
         extra: { decimals: 6 },
       },
     ];

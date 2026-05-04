@@ -2,20 +2,16 @@
  * Payment-signer extraction.
  *
  * Shared between merchants and the gate — both need to recover the on-chain signer from
- * a payment credential without duplicating code. Three rails carry a wallet signer:
+ * a payment credential without duplicating code. Two paths carry a recoverable wallet
+ * signer here:
  *
  *   - **Tempo MPP** — `Authorization: Payment <base64>` header; credential `source` is a DID
  *     of the form `did:pkh:eip155:<chain>:<address>`.
  *   - **x402 EIP-3009** (EVM, e.g. Base/Sepolia) — `payment-signature` / `x-payment` header;
  *     decoded payload carries `payload.authorization.from`.
- *   - **x402 SVM** (Solana) — same headers, but `payload.transaction` is a base64-encoded
- *     Solana transaction; the SPL Token TransferChecked instruction's source-account owner
- *     is the signer. Recovered via `@x402/svm`'s `decodeTransactionFromPayload` +
- *     `getTokenPayerFromTransaction`.
  *
- * `mppx` and `@x402/svm` are optional peer dependencies — we import them dynamically so
- * merchants who don't use those rails don't need to install them. The EVM x402 path is pure
- * JSON parsing with no external dep.
+ * `mppx` is an optional peer dependency — we import it dynamically so merchants who don't
+ * use MPP don't need to install it. The EVM x402 path is pure JSON parsing with no external dep.
  */
 
 export type SignerNetwork = 'evm' | 'solana';
@@ -62,44 +58,16 @@ export async function extractPaymentSigner(
     }
   }
 
-  // x402 — base64 JSON. Network identifier on `accepted.network` selects the extraction
-  // path: `eip155:*` → EIP-3009 `payload.authorization.from`; `solana:*` → SPL Token
-  // payer recovered from the encoded transaction.
+  // x402 — base64 JSON, EIP-3009 only. EVM `payload.authorization.from` is the signer.
   if (x402PaymentHeader) {
     try {
       const decoded = atob(x402PaymentHeader);
       const parsed = JSON.parse(decoded) as {
-        accepted?: { network?: string };
-        payload?: { authorization?: { from?: string }; transaction?: string };
+        payload?: { authorization?: { from?: string } };
       };
-      const network = parsed?.accepted?.network ?? '';
-
-      if (network.startsWith('eip155:')) {
-        const from = parsed?.payload?.authorization?.from;
-        if (typeof from === 'string' && /^0x[0-9a-fA-F]{40}$/.test(from)) {
-          return { address: from.toLowerCase(), network: 'evm' };
-        }
-      } else if (network.startsWith('solana:')) {
-        const transaction = parsed?.payload?.transaction;
-        if (typeof transaction === 'string') {
-          const moduleName = '@x402/svm';
-          const svm = (await import(moduleName).catch(() => null)) as {
-            decodeTransactionFromPayload?: (p: { transaction: string }) => unknown;
-            getTokenPayerFromTransaction?: (tx: unknown) => string | undefined;
-          } | null;
-          if (svm?.decodeTransactionFromPayload && svm.getTokenPayerFromTransaction) {
-            const tx = svm.decodeTransactionFromPayload({ transaction });
-            const payer = svm.getTokenPayerFromTransaction(tx);
-            if (typeof payer === 'string' && payer.length > 0) return { address: payer, network: 'solana' };
-          }
-        }
-      } else {
-        // Back-compat: a payload without an `accepted.network` field still uses EIP-3009
-        // shape if `payload.authorization.from` looks EVM. Older x402 clients emitted these.
-        const from = parsed?.payload?.authorization?.from;
-        if (typeof from === 'string' && /^0x[0-9a-fA-F]{40}$/.test(from)) {
-          return { address: from.toLowerCase(), network: 'evm' };
-        }
+      const from = parsed?.payload?.authorization?.from;
+      if (typeof from === 'string' && /^0x[0-9a-fA-F]{40}$/.test(from)) {
+        return { address: from.toLowerCase(), network: 'evm' };
       }
     } catch (err) {
       console.warn('[gate] x402 signer extraction failed:', err instanceof Error ? err.message : err);

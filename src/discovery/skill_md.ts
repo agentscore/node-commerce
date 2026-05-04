@@ -116,14 +116,14 @@ export interface BuildSkillMdInput {
 const RAIL_LABELS: Record<RailKey, string> = {
   tempo_mpp: 'MPP on Tempo',
   x402_base: 'x402 on Base',
-  x402_solana: 'x402 on Solana',
+  solana_mpp: 'MPP on Solana',
   stripe: 'Stripe Shared Payment Token',
 };
 
 const RAIL_NOTES: Record<RailKey, string> = {
   tempo_mpp: 'USDC. Use `agentscore-pay --chain tempo` (or `tempo request`); MPP credential goes in `Authorization: Payment`.',
   x402_base: 'USDC (EIP-3009). Use `agentscore-pay`; X-Payment header carries the signed credential.',
-  x402_solana: 'USDC (SPL). Use `agentscore-pay`; X-Payment header carries the signed credential.',
+  solana_mpp: 'USDC (SPL). Use `agentscore-pay --chain solana`; MPP credential goes in `Authorization: Payment`.',
   stripe: 'Card via Link wallet. Use `@stripe/link-cli` — `agentscore-pay` emits the handoff hint when this rail is picked.',
 };
 

@@ -14,11 +14,6 @@ describe('createX402Server', () => {
     expect(server).toBeDefined();
   });
 
-  it('registers ExactSvmScheme for x402 solana rails', async () => {
-    const server = await createX402Server({ rails: ['x402-solana-mainnet'], initialize: false });
-    expect(server).toBeDefined();
-  });
-
   it('registers UptoEvmScheme for upto rails', async () => {
     const server = await createX402Server({ rails: ['x402-base-mainnet-upto'], initialize: false });
     expect(server).toBeDefined();
@@ -48,9 +43,9 @@ describe('createX402Server', () => {
     expect(server).toBeDefined();
   });
 
-  it('registers multiple rails in one call (base + solana)', async () => {
+  it('registers multiple Base rails in one call (mainnet + sepolia)', async () => {
     const server = await createX402Server({
-      rails: ['x402-base-mainnet', 'x402-base-sepolia', 'x402-solana-mainnet', 'x402-solana-devnet'],
+      rails: ['x402-base-mainnet', 'x402-base-sepolia'],
       initialize: false,
     });
     expect(server).toBeDefined();

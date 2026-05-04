@@ -16,7 +16,7 @@ bun add @agent-score/commerce
 Framework + protocol packages are optional peer deps — install only what you use:
 
 ```bash
-npm install hono mppx @x402/core @x402/evm @x402/svm stripe   # whatever your stack needs
+npm install hono mppx @x402/core @x402/evm @solana/mpp @solana/kit stripe   # whatever your stack needs
 ```
 
 ## What's in the package
@@ -89,9 +89,9 @@ import {
 
 // Build paymentauth.org directives by symbolic rail name (decimals + currency from registry)
 const directives = [
-  buildPaymentDirective({ rail: "tempo-mainnet",       id: "chg_t", realm: "ex.com", recipient: TEMPO_ADDR, amountUsd: 0.01 }),
-  buildPaymentDirective({ rail: "x402-base-mainnet",   id: "chg_b", realm: "ex.com", recipient: BASE_ADDR,  amountUsd: 0.01 }),
-  buildPaymentDirective({ rail: "x402-solana-mainnet", id: "chg_s", realm: "ex.com", recipient: SOL_ADDR,   amountUsd: 0.01 }),
+  buildPaymentDirective({ rail: "tempo-mainnet",     id: "chg_t", realm: "ex.com", recipient: TEMPO_ADDR, amountUsd: 0.01 }),
+  buildPaymentDirective({ rail: "x402-base-mainnet", id: "chg_b", realm: "ex.com", recipient: BASE_ADDR,  amountUsd: 0.01 }),
+  buildPaymentDirective({ rail: "mpp-solana-mainnet", id: "chg_s", realm: "ex.com", recipient: SOL_ADDR,  amountUsd: 0.01 }),
 ];
 const wwwAuth = wwwAuthenticateHeader(directives);
 
@@ -106,12 +106,17 @@ import { createX402Server, createMppxServer } from "@agent-score/commerce/paymen
 
 const x402 = await createX402Server({
   facilitator: "coinbase",  // or "http", or pass a custom facilitator instance
-  rails: ["x402-base-mainnet", "x402-solana-mainnet", "x402-base-mainnet-upto"],
+  rails: ["x402-base-mainnet", "x402-base-mainnet-upto"],
 });
 
 const mppx = await createMppxServer({
   rails: {
     tempo: { recipient: process.env.TEMPO_RECIPIENT! },
+    solana: {
+      recipient: process.env.SOLANA_RECIPIENT!,
+      // Optional fee sponsor — pass any `TransactionPartialSigner` from `@solana/kit`.
+      // signer: solanaFeePayerSigner,
+    },
     stripe: { profileId: process.env.STRIPE_PROFILE_ID!, secretKey: process.env.STRIPE_SECRET_KEY! },
   },
   secretKey: process.env.MPP_SECRET_KEY!,
@@ -132,7 +137,7 @@ import {
 const acceptedMethods = buildAcceptedMethods({
   tempo: { recipient: TEMPO_ADDR },
   x402_base: { recipient: BASE_ADDR },
-  x402_solana: { recipient: SOL_ADDR },
+  solana_mpp: { recipient: SOL_ADDR, feePayerKey: SOLANA_FEE_PAYER },
   stripe: { profileId: STRIPE_PROFILE_ID },
 });
 
@@ -244,7 +249,7 @@ import {
 import { respond402 } from "@agent-score/commerce/challenge";
 
 // Boot-time guard — raises if a configured network isn't supported.
-validateX402NetworkConfig({ baseNetwork: X402_BASE, svmNetwork: X402_SVM });
+validateX402NetworkConfig({ baseNetwork: X402_BASE });
 
 app.post("/purchase", async (c) => {
   // Path A — agent presented an x402 X-Payment header
