@@ -50,7 +50,20 @@ export type ProcessX402SettleResult =
     }
   | { success: false; phase: 'no_requirements'; reason: string }
   | { success: false; phase: 'verify_failed'; verifyResult: unknown }
-  | { success: false; phase: 'settle_failed'; error: unknown; matchedRequirement: unknown };
+  | { success: false; phase: 'settle_failed'; error: unknown; matchedRequirement: unknown }
+  | {
+      success: false;
+      /** Facilitator threw an unexpected error during one of the verify-stage calls
+       *  (build requirements, extension enrich, or processPaymentRequest). Most common
+       *  cause: the facilitator client rejects the configured network — for example,
+       *  Coinbase's CDP facilitator throws on Solana devnet because it only supports
+       *  mainnet networks. The merchant should emit a 503 with diagnostic info so the
+       *  agent can pick a different rail or the operator can fix the deploy config. */
+      phase: 'facilitator_error';
+      /** Which verify-stage step threw. */
+      step: 'build_requirements' | 'enrich_extensions' | 'process_payment_request';
+      error: unknown;
+    };
 
 export async function processX402Settle(input: ProcessX402SettleInput): Promise<ProcessX402SettleResult> {
   const server = input.x402Server as unknown as {
@@ -65,7 +78,12 @@ export async function processX402Settle(input: ProcessX402SettleInput): Promise<
     settlePayment: (payload: unknown, requirement: unknown) => Promise<unknown>;
   };
 
-  const builtRequirements = await server.buildPaymentRequirements(input.resourceConfig);
+  let builtRequirements: unknown[];
+  try {
+    builtRequirements = await server.buildPaymentRequirements(input.resourceConfig);
+  } catch (err) {
+    return { success: false, phase: 'facilitator_error', step: 'build_requirements', error: err };
+  }
   const matchedRequirement = builtRequirements[0];
   if (!matchedRequirement) {
     return { success: false, phase: 'no_requirements', reason: 'x402Server.buildPaymentRequirements returned empty' };
@@ -76,16 +94,26 @@ export async function processX402Settle(input: ProcessX402SettleInput): Promise<
     return { method: 'POST', adapter: { getPath: () => path }, routePattern: path };
   })();
 
-  const enrichedExt = input.extension !== undefined
-    ? server.enrichExtensions(input.extension, transportContext)
-    : undefined;
+  let enrichedExt: unknown;
+  try {
+    enrichedExt = input.extension !== undefined
+      ? server.enrichExtensions(input.extension, transportContext)
+      : undefined;
+  } catch (err) {
+    return { success: false, phase: 'facilitator_error', step: 'enrich_extensions', error: err };
+  }
 
-  const verifyResult = await server.processPaymentRequest(
-    input.payload,
-    input.resourceConfig,
-    input.resourceMeta,
-    enrichedExt,
-  );
+  let verifyResult: { success: boolean; [key: string]: unknown };
+  try {
+    verifyResult = await server.processPaymentRequest(
+      input.payload,
+      input.resourceConfig,
+      input.resourceMeta,
+      enrichedExt,
+    );
+  } catch (err) {
+    return { success: false, phase: 'facilitator_error', step: 'process_payment_request', error: err };
+  }
 
   if (!verifyResult.success) {
     return { success: false, phase: 'verify_failed', verifyResult };
