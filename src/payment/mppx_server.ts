@@ -191,17 +191,23 @@ export async function createMppxServer(opts: CreateMppxServerOptions): Promise<u
       network === 'mainnet-beta' ? USDC.solana.mainnet.mint : USDC.solana.devnet.mint;
     const defaultDecimals =
       network === 'mainnet-beta' ? USDC.solana.mainnet.decimals : USDC.solana.devnet.decimals;
-    methods.push(
-      solanaMpp.charge({
-        recipient: s.recipient,
-        currency: s.currency ?? defaultMint,
-        decimals: s.decimals ?? defaultDecimals,
-        network,
-        ...(s.rpcUrl ? { rpcUrl: s.rpcUrl } : {}),
-        ...(s.signer ? { signer: s.signer } : {}),
-        ...(s.tokenProgram ? { tokenProgram: s.tokenProgram } : {}),
-      }),
-    );
+    const baseMethod = solanaMpp.charge({
+      recipient: s.recipient,
+      currency: s.currency ?? defaultMint,
+      decimals: s.decimals ?? defaultDecimals,
+      network,
+      ...(s.rpcUrl ? { rpcUrl: s.rpcUrl } : {}),
+      ...(s.signer ? { signer: s.signer } : {}),
+      ...(s.tokenProgram ? { tokenProgram: s.tokenProgram } : {}),
+    }) as SolanaChargeMethod;
+    const rpcUrl =
+      s.rpcUrl ??
+      (network === 'mainnet-beta'
+        ? 'https://api.mainnet-beta.solana.com'
+        : network === 'devnet'
+          ? 'https://api.devnet.solana.com'
+          : 'http://localhost:8899');
+    methods.push(wrapSolanaChargeWithFinalizedBlockhash(baseMethod, rpcUrl));
   }
 
   if (opts.rails?.stripe) {
@@ -218,4 +224,61 @@ async function dynamicImport<T>(moduleName: string): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+type SolanaChargeRequestArgs = { credential?: unknown; request?: unknown };
+type SolanaChargeMethod = {
+  request?: (args: SolanaChargeRequestArgs) => Promise<unknown>;
+} & Record<string, unknown>;
+
+/**
+ * Wraps `@solana/mpp.charge()`'s Method so the issued challenge carries a
+ * `finalized` blockhash instead of `confirmed`.
+ *
+ * `@solana/mpp` <= 0.5.2 fetches `getLatestBlockhash` with `commitment: 'confirmed'`
+ * but its broadcast `sendTransaction` sets `skipPreflight: false` without an
+ * overridden `preflightCommitment`. The RPC server's default preflight commitment
+ * is `finalized`, which rejects any blockhash that hasn't yet finalized with a
+ * "Blockhash not found" error. Handing the client a `finalized` blockhash up
+ * front sidesteps the mismatch.
+ *
+ * Trade-off: the signing window shrinks from ~58s (confirmed) to ~46s (finalized).
+ * Fine for agent-driven flows; manual signing flows still have plenty of margin.
+ */
+export function wrapSolanaChargeWithFinalizedBlockhash(
+  baseMethod: SolanaChargeMethod,
+  rpcUrl: string,
+): SolanaChargeMethod {
+  return {
+    ...baseMethod,
+    async request(args: SolanaChargeRequestArgs) {
+      const orig = (await baseMethod.request!(args)) as
+        | { methodDetails?: Record<string, unknown> }
+        | undefined;
+      if (args.credential || !orig || typeof orig !== 'object') return orig;
+      try {
+        const res = await fetch(rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: 1,
+            jsonrpc: '2.0',
+            method: 'getLatestBlockhash',
+            params: [{ commitment: 'finalized' }],
+          }),
+        });
+        const data = (await res.json()) as { result?: { value?: { blockhash?: string } } };
+        const finalized = data?.result?.value?.blockhash;
+        if (finalized) {
+          return {
+            ...orig,
+            methodDetails: { ...(orig.methodDetails ?? {}), recentBlockhash: finalized },
+          };
+        }
+      } catch {
+        /* fall back to upstream's confirmed blockhash */
+      }
+      return orig;
+    },
+  };
 }
