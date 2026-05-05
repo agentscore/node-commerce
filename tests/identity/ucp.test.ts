@@ -69,14 +69,14 @@ describe('buildUCPProfile', () => {
   it('passes through name + payment_handlers + extras', () => {
     const profile = buildUCPProfile({
       ...baseInput,
-      name: 'Martin Estate',
+      name: 'Example Merchant',
       payment_handlers: [
         { name: 'tempo', config: { recipient: '0xtempo' } },
         { name: 'stripe', config: { profile_id: 'prof_x' } },
       ],
       extras: { custom_field: 'custom_value' },
     });
-    expect(profile.name).toBe('Martin Estate');
+    expect(profile.name).toBe('Example Merchant');
     expect(profile.payment_handlers).toHaveLength(2);
     expect((profile as Record<string, unknown>).custom_field).toBe('custom_value');
   });

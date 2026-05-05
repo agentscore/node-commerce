@@ -110,10 +110,10 @@ describe('denialReasonToBody', () => {
   it('merges extra fields onto the body (createSessionOnMissing.onBeforeSession hook)', () => {
     const body = denialReasonToBody(reason({
       code: 'identity_verification_required',
-      extra: { order_id: 'ord_123', merchant_context: 'wine-purchase' },
+      extra: { order_id: 'ord_123', merchant_context: 'product-purchase' },
     }));
     expect(body.order_id).toBe('ord_123');
-    expect(body.merchant_context).toBe('wine-purchase');
+    expect(body.merchant_context).toBe('product-purchase');
   });
 
   it('injects canonical wallet_not_trusted agent_instructions when reason has none', () => {

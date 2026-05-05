@@ -104,7 +104,7 @@ describe('buildPaymentDirective (convenience)', () => {
     const directive = buildPaymentDirective({
       rail: 'tempo-mainnet',
       id: 'chg_001',
-      realm: 'martinestate.com',
+      realm: 'example.com',
       amountUsd: 2,
       recipient: '0xrecipient',
       expires: '2026-04-26T00:00:00.000Z',

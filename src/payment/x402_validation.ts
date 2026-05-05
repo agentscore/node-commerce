@@ -49,8 +49,8 @@ export interface VerifyX402RequestInput {
   /** The incoming Request — `verifyX402Request` reads the X-Payment / payment-signature header. */
   request: Request;
   /** Async lookup that returns true when the address was minted by this merchant
-   *  (typically `piCache.hasAddress`). The cache check defends against agents replaying
-   *  credentials against attacker-controlled deposit addresses. */
+   *  (typically `piCache.hasAddress`). The check validates that the credential's
+   *  deposit address matches one the merchant actually minted. */
   isCachedAddress: (address: string) => Promise<boolean>;
   /** The merchant's accepted Base network. CAIP-2, e.g. `'eip155:8453'`. */
   acceptedNetwork: string;
