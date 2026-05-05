@@ -115,6 +115,11 @@ app.post('/search', async (c) => {
         request: '',
       }),
     ];
+    // The minimal-example shape: a hand-rolled accept entry. Production code should
+    // use `buildX402AcceptsFor402(x402Server, {...})` from `@agent-score/commerce/payment`
+    // — the helper builds the requirement via the registered x402 scheme so `extra`
+    // (incl. the EIP-712 `name`/`version` for EVM USDC) is derived from the on-chain
+    // contract metadata rather than guessed. See `examples/multi-rail-merchant.ts`.
     const accepts = [
       {
         scheme: 'exact',

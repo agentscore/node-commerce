@@ -240,6 +240,21 @@ await simulateDepositIfTestMode({
 });
 ```
 
+### Build the x402 accepts entry for the 402 challenge
+
+```typescript
+import { buildX402AcceptsFor402 } from '@agent-score/commerce/payment';
+
+const x402Accepts = await buildX402AcceptsFor402(x402Server, {
+  network: X402_BASE,
+  price: `$${totalUsd}`,
+  payTo: process.env.TREASURY_BASE_RECIPIENT!,
+  maxTimeoutSeconds: 300,
+});
+```
+
+Returns a list of plain objects ready for the 402 body's `accepts[]`. `extra.name` is derived from the registered scheme metadata so the EIP-712 domain matches the on-chain USDC contract.
+
 ### Drop-in 402 + settle (x402)
 
 ```typescript

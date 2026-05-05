@@ -32,7 +32,11 @@ export function sampleX402AcceptForNetwork(
       asset: USDC.base.mainnet.address,
       payTo: ZERO_EVM_PAYTO,
       maxTimeoutSeconds: 300,
-      extra: { name: 'USDC', version: '2' },
+      // ``extra.name`` mirrors the on-chain USDC contract's ``name()`` because
+      // EIP-712 domain hashes include this string. Wrong name → every signed
+      // payload fails facilitator verify with ``invalid_exact_evm_payload_signature``.
+      // Base mainnet USDC returns "USD Coin"; base sepolia USDC returns "USDC".
+      extra: { name: 'USD Coin', version: '2' },
     };
   }
   if (caip2 === networks.base.sepolia.caip2) {

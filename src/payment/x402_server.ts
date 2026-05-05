@@ -157,6 +157,48 @@ export async function createX402Server(opts: CreateX402ServerOptions = {}): Prom
   return server;
 }
 
+export interface BuildX402AcceptsForOptions {
+  network: string;
+  price: string;
+  payTo: string;
+  scheme?: string;
+  maxTimeoutSeconds?: number;
+  extensions?: string[];
+}
+
+/**
+ * Build x402 `accepts[]` entries for a 402 challenge body.
+ *
+ * Wraps `server.buildPaymentRequirements(...)` so merchants don't have to:
+ *
+ * 1. Construct the resource-config object themselves
+ * 2. Remember to serialize each Pydantic-equivalent requirement back to a
+ *    plain object before stitching it into the 402 body
+ * 3. Hardcode `extra` (which differs by the actual on-chain contract — base
+ *    mainnet USDC has `name: "USD Coin"`, base sepolia USDC has `name: "USDC"`;
+ *    EIP-712 domain hashes differ, so getting this wrong silently breaks every
+ *    signature verify at the facilitator)
+ *
+ * Returns a list of plain objects in the shape that x402 expects on the wire —
+ * drop them straight into the `accepts` field of the 402 challenge body.
+ */
+export async function buildX402AcceptsFor402(
+  server: X402Server,
+  opts: BuildX402AcceptsForOptions,
+): Promise<unknown[]> {
+  const requirements = await server.buildPaymentRequirements(
+    {
+      scheme: opts.scheme ?? 'exact',
+      network: opts.network,
+      price: opts.price,
+      payTo: opts.payTo,
+      maxTimeoutSeconds: opts.maxTimeoutSeconds ?? 300,
+    },
+    opts.extensions,
+  );
+  return Array.isArray(requirements) ? requirements : [];
+}
+
 async function dynamicImport<T>(moduleName: string): Promise<T | null> {
   try {
     return (await import(moduleName)) as T;
