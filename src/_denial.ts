@@ -138,7 +138,7 @@ export function buildSignerMismatchBody(input: SignerMismatchBodyInput): Record<
  *   return c.json({
  *     error: { code: 'compliance_denied', message: '...' },
  *     reasons,
- *     next_steps: buildContactSupportNextSteps('support@martinestate.com'),
+ *     next_steps: buildContactSupportNextSteps('support@example.com'),
  *   }, 403);
  */
 export function buildContactSupportNextSteps(
