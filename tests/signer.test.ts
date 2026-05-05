@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { extractPaymentSignerAddress, readX402PaymentHeader } from '../src/signer';
 
+const SOLANA_GENESIS_MAINNET = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
+const SOLANA_SIGNER = 'GEQg2TM4VL315Bd4LLkGrhBjdNfoatKjCJYHBDPM3D74';
+
 const SIGNER_LOWER = '0xabcdef0123456789abcdef0123456789abcdef01';
 const SIGNER_MIXED = '0xABCDEF0123456789ABCDEF0123456789ABCDEF01';
 
@@ -105,6 +108,22 @@ describe('extractPaymentSignerAddress — MPP path', () => {
     const req = makeRequest({ authorization: 'Payment mpp-cred' });
     const result = await freshExtract(req);
     expect(result).toBe(SIGNER_LOWER);
+    vi.doUnmock('mppx');
+  });
+
+  it('extracts the base58 address from an MPP DID (did:pkh:solana:...) with network=solana', async () => {
+    vi.doMock('mppx', () => ({
+      Credential: {
+        extractPaymentScheme: () => true,
+        fromRequest: () => ({ source: `did:pkh:solana:${SOLANA_GENESIS_MAINNET}:${SOLANA_SIGNER}` }),
+      },
+    }));
+    const { extractPaymentSigner: freshExtract } = await import(
+      `../src/signer?mpp-solana=${freshImportKey()}`
+    );
+    const req = makeRequest({ authorization: 'Payment mpp-cred' });
+    const result = await freshExtract(req);
+    expect(result).toEqual({ address: SOLANA_SIGNER, network: 'solana' });
     vi.doUnmock('mppx');
   });
 

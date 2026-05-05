@@ -50,8 +50,11 @@ export async function extractPaymentSigner(
       if (mppx?.Credential?.extractPaymentScheme(authHeader)) {
         const credential = mppx.Credential.fromRequest(request);
         const source = (credential as { source?: string }).source;
-        const match = source?.match(/^did:pkh:eip155:\d+:(0x[0-9a-fA-F]{40})$/);
-        if (match) return { address: match[1]!.toLowerCase(), network: 'evm' };
+        const evmMatch = source?.match(/^did:pkh:eip155:\d+:(0x[0-9a-fA-F]{40})$/);
+        if (evmMatch) return { address: evmMatch[1]!.toLowerCase(), network: 'evm' };
+        // Solana CAIP-10: did:pkh:solana:<genesis-base58>:<address-base58>
+        const solMatch = source?.match(/^did:pkh:solana:[1-9A-HJ-NP-Za-km-z]{32,44}:([1-9A-HJ-NP-Za-km-z]{32,44})$/);
+        if (solMatch) return { address: solMatch[1]!, network: 'solana' };
       }
     } catch (err) {
       console.warn('[gate] MPP signer extraction failed:', err instanceof Error ? err.message : err);
