@@ -248,7 +248,7 @@ describe('Hono adapter — createSessionOnMissing', () => {
     const app = new Hono();
     app.use('*', agentscoreGate({
       apiKey: API_KEY,
-      createSessionOnMissing: { apiKey: API_KEY, context: 'wine-purchase' },
+      createSessionOnMissing: { apiKey: API_KEY, context: 'product-purchase' },
     }));
     app.get('/test', (c) => c.text('reached'));
 
@@ -269,7 +269,7 @@ describe('Hono adapter — createSessionOnMissing', () => {
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(fetchCall[0]).toContain('/v1/sessions');
     const postBody = JSON.parse(fetchCall[1].body as string);
-    expect(postBody.context).toBe('wine-purchase');
+    expect(postBody.context).toBe('product-purchase');
   });
 
   it('fixable wallet denial (kyc_required) bootstraps a session like missing_identity', async () => {
@@ -291,7 +291,7 @@ describe('Hono adapter — createSessionOnMissing', () => {
     app.use('*', agentscoreGate({
       apiKey: API_KEY,
       requireKyc: true,
-      createSessionOnMissing: { apiKey: API_KEY, context: 'wine-purchase' },
+      createSessionOnMissing: { apiKey: API_KEY, context: 'product-purchase' },
     }));
     app.get('/test', (c) => c.text('reached'));
 
@@ -318,7 +318,7 @@ describe('Hono adapter — createSessionOnMissing', () => {
     app.use('*', agentscoreGate({
       apiKey: API_KEY,
       requireKyc: true,
-      createSessionOnMissing: { apiKey: API_KEY, context: 'wine-purchase' },
+      createSessionOnMissing: { apiKey: API_KEY, context: 'product-purchase' },
     }));
     app.get('/test', (c) => c.text('reached'));
 
@@ -346,7 +346,7 @@ describe('Hono adapter — createSessionOnMissing', () => {
       apiKey: API_KEY,
       createSessionOnMissing: {
         apiKey: API_KEY,
-        context: 'wine-purchase',
+        context: 'product-purchase',
         productName: 'static fallback',
         getSessionOptions: (c) => ({ productName: c.get('productName' as never) as string }),
       },
@@ -357,7 +357,7 @@ describe('Hono adapter — createSessionOnMissing', () => {
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const postBody = JSON.parse(fetchCall[1].body as string);
     expect(postBody.product_name).toBe('dynamic Cabernet');
-    expect(postBody.context).toBe('wine-purchase');
+    expect(postBody.context).toBe('product-purchase');
   });
 
   it('getSessionOptions may be async', async () => {
