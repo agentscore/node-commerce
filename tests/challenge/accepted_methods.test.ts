@@ -12,15 +12,22 @@ describe('buildAcceptedMethods', () => {
     const methods = buildAcceptedMethods({
       tempo: { recipient: '0xt' },
       x402_base: { recipient: '0xb' },
-      x402_solana: { recipient: 'sol1' },
+      solana_mpp: { recipient: 'sol1', feePayerKey: 'sponsorPubkey' },
       stripe: { profileId: 'acct_test' },
     });
     expect(methods.map((m) => m.method)).toEqual([
       'tempo/charge',
       'x402/exact',
-      'x402/exact',
+      'solana/charge',
       'stripe/charge',
     ]);
+    expect(methods[2]).toMatchObject({ pay_to: 'sol1', fee_payer_key: 'sponsorPubkey' });
+  });
+
+  it('emits solana/charge without fee_payer_key when feePayerKey is omitted', () => {
+    const methods = buildAcceptedMethods({ solana_mpp: { recipient: 'sol1' } });
+    expect(methods[0]).toMatchObject({ method: 'solana/charge', pay_to: 'sol1' });
+    expect((methods[0] as { fee_payer_key?: string }).fee_payer_key).toBeUndefined();
   });
 
   it('omits rails the vendor did not pass', () => {

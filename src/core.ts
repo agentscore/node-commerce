@@ -347,8 +347,6 @@ interface AssessResult {
  */
 // Canonical production AgentScore API — used as the authoritative source for endpoint pointers
 // emitted to agent memory regardless of how a given merchant configured their gate's baseUrl.
-// Hardcoded so a malicious merchant can't set `baseUrl: "evil.com"` and phish agents into
-// sending their credentials to attacker-controlled endpoints.
 const CANONICAL_AGENTSCORE_API = 'https://api.agentscore.sh';
 
 // JSON-encoded action copy emitted on wallet-signer-match denials. Spread into 403 bodies

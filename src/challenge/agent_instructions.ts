@@ -17,6 +17,10 @@ export interface BuildAgentInstructionsInput {
   timeoutSeconds?: number;
   /** Warnings about common footguns. Defaults include tempo wallet transfer + raw on-chain x402 deposits. */
   warnings?: string[];
+  /** Additional warnings appended to the default protocol-footgun set. Use this when you want
+   *  to keep the SDK's protocol warnings AND add merchant-specific notes (e.g., a per-order
+   *  rail-availability message). Ignored when `warnings` is set explicitly. */
+  extraWarnings?: string[];
   /** Recommended rail (e.g., 'tempo', 'x402_base'). Surfaced for agents to default to. */
   recommended?: string;
   /** Per-rail list of client names the merchant has verified work end-to-end. Vendors set
@@ -39,29 +43,28 @@ export interface AgentInstructions {
 }
 
 const TEMPO_WARNING =
-  'Do NOT use `tempo wallet transfer` to pay to the address above. That moves USDC on-chain but does not notify this server, leaving your order in pending_identity state. Use `tempo request` instead — it performs the full MPP handshake (signs, submits Authorization: Payment, waits for server confirmation).';
+  'Do NOT use `tempo wallet transfer`. That moves USDC on-chain without completing the protocol handshake, so the order will not complete. Use `tempo request` instead.';
 
 const X402_WARNING =
-  'Do NOT send USDC manually to the x402 deposit addresses (e.g. via a bare wallet `transfer`). Use `agentscore-pay pay` so the X-Payment credential is signed and submitted; otherwise the order stays in pending_identity even though the deposit lands.';
+  'Do NOT send USDC manually to the deposit addresses. Use `agentscore-pay pay` so the credential is signed and submitted; otherwise the order will not complete even though the deposit lands.';
 
-const TEMPO_TOOL = '`tempo request` for Tempo USDC (installs via `tempo add request`)';
-const AGENTSCORE_PAY_TOOL =
-  '`agentscore-pay` (npm: `@agent-score/pay`) — single CLI for x402 on Base + Solana, also speaks tempo MPP via `--chain tempo`';
+const TEMPO_TOOL = '`tempo request` for Tempo USDC';
+const AGENTSCORE_PAY_TOOL = '`agentscore-pay` — Base + Solana + Tempo from one CLI';
 
 const DEFAULT_WALLET_COMPATIBILITY =
-  'No specific wallet stack required. The 402 challenge is rail-neutral: any client that can produce a valid MPP credential (Authorization: Payment) or x402 X-Payment header is accepted. The CLI commands above are the easiest path; sign-it-yourself is fine too.';
+  'Any client that can produce a valid MPP credential (Authorization: Payment) or x402 X-Payment header. Use the CLI commands above; sign-it-yourself is also fine.';
 
 function defaultRecommendedTools(howToPay: HowToPayBlock): string[] {
   const tools: string[] = [];
   if (howToPay.tempo) tools.push(TEMPO_TOOL);
-  if (howToPay.tempo || howToPay.x402_base || howToPay.x402_solana) tools.push(AGENTSCORE_PAY_TOOL);
+  if (howToPay.tempo || howToPay.x402_base || howToPay.solana_mpp) tools.push(AGENTSCORE_PAY_TOOL);
   return tools;
 }
 
 function defaultWarnings(howToPay: HowToPayBlock): string[] {
   const w: string[] = [];
   if (howToPay.tempo) w.push(TEMPO_WARNING);
-  if (howToPay.x402_base || howToPay.x402_solana) w.push(X402_WARNING);
+  if (howToPay.x402_base) w.push(X402_WARNING);
   return w;
 }
 
@@ -78,12 +81,12 @@ function defaultWarnings(howToPay: HowToPayBlock): string[] {
  */
 /** Symbolic rail keys agent-facing surfaces use to talk about a rail without spelling out
  *  network/scheme details. Same keys as `CompatibleClients` map keys. */
-export type RailKey = 'tempo_mpp' | 'x402_base' | 'x402_solana' | 'stripe';
+export type RailKey = 'tempo_mpp' | 'x402_base' | 'solana_mpp' | 'stripe';
 
 const RAIL_CLIENTS: Record<RailKey, readonly string[]> = {
   tempo_mpp: ['agentscore-pay', 'tempo request', 'x402-proxy'],
   x402_base: ['agentscore-pay', 'x402-proxy', 'purl (omit --network flag)'],
-  x402_solana: ['agentscore-pay'],
+  solana_mpp: ['agentscore-pay'],
   stripe: ['link-cli'],
 };
 
@@ -101,7 +104,7 @@ function defaultCompatibleClients(howToPay: HowToPayBlock): CompatibleClients | 
   const rails: RailKey[] = [];
   if (howToPay.tempo) rails.push('tempo_mpp');
   if (howToPay.x402_base) rails.push('x402_base');
-  if (howToPay.x402_solana) rails.push('x402_solana');
+  if (howToPay.solana_mpp) rails.push('solana_mpp');
   if (howToPay.stripe) rails.push('stripe');
   return compatibleClientsByRails(rails);
 }
@@ -111,8 +114,8 @@ function defaultCompatibleClients(howToPay: HowToPayBlock): CompatibleClients | 
  * recommended tools, warnings, wallet-compatibility note, and timeout.
  *
  * Defaults adapt to the rails declared in `howToPay`: only tempo-relevant warnings/tools
- * appear if `howToPay.tempo` is set, only x402-relevant ones if `x402_base`/`x402_solana`
- * are set. Stripe-only merchants get neither rail-specific warning. Vendors override
+ * appear if `howToPay.tempo` is set, only x402-relevant ones if `x402_base` is set.
+ * Stripe-only merchants get neither rail-specific warning. Vendors override
  * `warnings`/`recommendedTools` for full control.
  */
 export function buildAgentInstructions(input: BuildAgentInstructionsInput): AgentInstructions {
@@ -122,7 +125,7 @@ export function buildAgentInstructions(input: BuildAgentInstructionsInput): Agen
     recommended_tools: input.recommendedTools ?? defaultRecommendedTools(input.howToPay),
     wallet_compatibility: input.walletCompatibility ?? DEFAULT_WALLET_COMPATIBILITY,
     timeout_seconds: input.timeoutSeconds ?? 300,
-    warnings: input.warnings ?? defaultWarnings(input.howToPay),
+    warnings: input.warnings ?? [...defaultWarnings(input.howToPay), ...(input.extraWarnings ?? [])],
     ...(input.recommended ? { recommended: input.recommended } : {}),
     ...(compatibleClients ? { compatible_clients: compatibleClients } : {}),
     ...(input.extra ?? {}),

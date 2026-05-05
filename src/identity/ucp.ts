@@ -60,7 +60,7 @@ export interface UCPCapability {
 }
 
 export interface UCPPaymentHandler {
-  /** Handler name — `stripe`, `tempo`, `x402-base`, `x402-solana`, etc. */
+  /** Handler name — `stripe`, `tempo`, `x402-base`, `solana`, etc. */
   name: string;
   /** Handler config — recipient address, profile id, etc. */
   config?: Record<string, unknown>;
@@ -128,13 +128,13 @@ const AGENTSCORE_CAPABILITY_VERSION = '1';
  * app.get('/.well-known/ucp', async (c) => {
  *   const data = getAgentScoreData(c);
  *   return c.json(buildUCPProfile({
- *     name: 'Martin Estate',
- *     services: [{ type: 'rest', url: 'https://agents.martinestate.com' }],
+ *     name: 'Example Merchant',
+ *     services: [{ type: 'rest', url: 'https://agents.example.com' }],
  *     payment_handlers: [
  *       { name: 'tempo', config: { recipient: TEMPO_ADDR } },
  *       { name: 'stripe', config: { profile_id: STRIPE_PROFILE_ID } },
  *     ],
- *     signing_keys: [{ kid: 'me-2026-04', kty: 'EC', alg: 'ES256', crv: 'P-256', x: '...', y: '...' }],
+ *     signing_keys: [{ kid: 'merchant-2026-04', kty: 'EC', alg: 'ES256', crv: 'P-256', x: '...', y: '...' }],
  *     data,
  *   }));
  * });

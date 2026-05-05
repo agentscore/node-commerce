@@ -9,10 +9,10 @@ describe('llmsTxtIdentitySection', () => {
 
   it('returns the standard wallet vs operator-token explanation when enabled', () => {
     const section = llmsTxtIdentitySection({ agentscore: true });
-    expect(section).toContain('## Choose your identity header');
+    expect(section).toContain('## Identity');
     expect(section).toContain('X-Wallet-Address');
     expect(section).toContain('X-Operator-Token');
-    expect(section).toContain('cross-merchant');
+    expect(section).toContain('AgentScore');
   });
 
   it('appends compliance summary when provided', () => {
@@ -35,8 +35,17 @@ describe('llmsTxtPaymentSection', () => {
     });
     expect(section).toContain('Tempo USDC');
     expect(section).toContain('x402 USDC on Base');
-    expect(section).not.toContain('x402 USDC on Solana');
+    expect(section).not.toContain('USDC on Solana');
     expect(section).not.toContain('Stripe Shared Payment Token');
+  });
+
+  it('emits the Solana MPP rail line when mpp-solana-mainnet is configured', () => {
+    const section = llmsTxtPaymentSection({
+      rails: ['mpp-solana-mainnet'],
+      appUrl: 'https://merchant.example',
+    });
+    expect(section).toContain('USDC on Solana');
+    expect(section).toContain('--chain solana');
   });
 
   it('includes Stripe + link-cli when stripe-spt is configured', () => {
@@ -59,13 +68,13 @@ describe('llmsTxtPaymentSection', () => {
         tempoNetworkName: 'tempo-mainnet',
         tempoChainId: 4217,
       });
-      expect(section).toContain('### How to pay with Tempo');
+      expect(section).toContain('### Pay with Tempo');
       expect(section).toContain('curl -fsSL https://tempo.xyz/install');
       expect(section).toContain('tempo wallet login');
       expect(section).toContain('tempo wallet whoami');
-      expect(section).toContain('USDC.e on tempo-mainnet, chain 4217');
+      expect(section).toContain('USDC.e on tempo-mainnet (chain 4217)');
       expect(section).toContain('tempo request -X POST');
-      expect(section).toContain('### How to pay with x402');
+      expect(section).toContain('### Pay with Base');
       expect(section).toContain('npm install -g @agent-score/pay');
       expect(section).toContain('agentscore-pay wallet create');
       expect(section).toContain('https://my.merchant');
@@ -77,9 +86,10 @@ describe('llmsTxtPaymentSection', () => {
         appUrl: 'https://x',
         verbose: true,
       });
-      expect(section).toContain('Tempo USDC');
-      expect(section).not.toContain('### How to pay with x402');
-      expect(section).not.toContain('### How to pay with Stripe');
+      expect(section).toContain('USDC on Tempo');
+      expect(section).not.toContain('### Pay with Base');
+      expect(section).not.toContain('### Pay with Solana');
+      expect(section).not.toContain('### Pay with Stripe');
     });
 
     it('emits the exact-amount warning when x402 rails are configured', () => {
@@ -88,7 +98,7 @@ describe('llmsTxtPaymentSection', () => {
         appUrl: 'https://x',
         verbose: true,
       });
-      expect(section).toContain('exact amount specified in the 402 challenge');
+      expect(section).toContain('exact amount in the 402 challenge');
     });
 
     it('emits the Stripe SPT block when stripe-spt is configured', () => {
@@ -97,17 +107,17 @@ describe('llmsTxtPaymentSection', () => {
         appUrl: 'https://x',
         verbose: true,
       });
-      expect(section).toContain('### How to pay with Stripe SPT');
+      expect(section).toContain('### Pay with Stripe SPT');
       expect(section).toContain('SharedPaymentToken');
     });
 
-    it('handles solana-only without base', () => {
+    it('handles solana-only via mpp-solana-mainnet', () => {
       const section = llmsTxtPaymentSection({
-        rails: ['x402-solana-mainnet'],
+        rails: ['mpp-solana-mainnet'],
         appUrl: 'https://x',
         verbose: true,
       });
-      expect(section).toContain('### How to pay with x402 (Solana)');
+      expect(section).toContain('### Pay with Solana');
       expect(section).toContain('--chain solana');
       expect(section).not.toContain('--chain base');
     });
@@ -134,7 +144,7 @@ describe('buildLlmsTxt', () => {
       agentscoreIdentity: { agentscore: true },
       payment: { rails: ['tempo-mainnet'], appUrl: 'https://acme.example' },
     });
-    expect(doc).toContain('## Choose your identity header');
+    expect(doc).toContain('## Identity');
     expect(doc).toContain('## Payment');
   });
 });

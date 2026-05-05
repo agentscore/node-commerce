@@ -34,11 +34,11 @@ describe('buildPaymentHeaders', () => {
       realm: 'a.example',
       rails: [
         { rail: 'tempo-mainnet', amountUsd: 1, recipient: '0xa' },
-        { rail: 'x402-solana-mainnet', amountUsd: 1, recipient: '0xb' },
+        { rail: 'mpp-solana-mainnet', amountUsd: 1, recipient: 'GEQg2TM4VL315Bd4LLkGrhBjdNfoatKjCJYHBDPM3D74' },
       ],
     });
     expect(result['www-authenticate']).toContain('id="ord_3-tempo-mainnet"');
-    expect(result['www-authenticate']).toContain('id="ord_3-x402-solana-mainnet"');
+    expect(result['www-authenticate']).toContain('id="ord_3-mpp-solana-mainnet"');
   });
 
   it('emits PAYMENT-REQUIRED header when x402.accepts is provided', () => {

@@ -3,24 +3,24 @@ import { buildSkillMd } from '../../src/discovery/skill_md';
 
 describe('buildSkillMd', () => {
   const baseInput = {
-    name: 'martin-estate-wine-commerce',
-    description: 'Buy wine from Martin Estate via an AI agent',
+    name: 'example-merchant-commerce',
+    description: 'Buy from Example Merchant via an AI agent',
     homepage: 'https://martin-estate.com',
-    merchantName: 'Martin Estate',
-    acceptedRails: ['tempo_mpp', 'x402_base', 'x402_solana', 'stripe'] as const,
+    merchantName: 'Example Merchant',
+    acceptedRails: ['tempo_mpp', 'x402_base', 'solana_mpp', 'stripe'] as const,
     endpoints: [
       { method: 'GET' as const, path: '/api/v1/wines', authRequired: false, description: 'Wine catalog' },
       { method: 'POST' as const, path: '/api/v1/orders', authRequired: true, description: 'Place order' },
     ],
-    triggers: ['User wants to buy wine from Martin Estate'],
+    triggers: ['User wants to buy from Example Merchant'],
   };
 
   describe('frontmatter (agentskills.io spec)', () => {
     it('emits valid YAML frontmatter with name + quoted description + metadata', () => {
       const out = buildSkillMd(baseInput);
       expect(out.startsWith('---\n')).toBe(true);
-      expect(out).toContain('name: martin-estate-wine-commerce');
-      expect(out).toContain('description: "Buy wine from Martin Estate via an AI agent"');
+      expect(out).toContain('name: example-merchant-commerce');
+      expect(out).toContain('description: "Buy from Example Merchant via an AI agent"');
       expect(out).toContain('metadata:');
       expect(out).toContain('  version: "1"');
       expect(out).toContain('  homepage: "https://martin-estate.com"');
@@ -126,7 +126,7 @@ describe('buildSkillMd', () => {
   describe('title block', () => {
     it('renders merchant name as h1', () => {
       const out = buildSkillMd(baseInput);
-      expect(out).toContain('\n# Martin Estate\n');
+      expect(out).toContain('\n# Example Merchant\n');
     });
 
     it('renders title + tagline + intro with single blank line between each', () => {
@@ -135,17 +135,17 @@ describe('buildSkillMd', () => {
         tagline: 'A classic is forever',
         intro: 'Napa Valley winery, family-run.',
       });
-      expect(out).toContain('# Martin Estate\n\n_A classic is forever_\n\nNapa Valley winery, family-run.');
+      expect(out).toContain('# Example Merchant\n\n_A classic is forever_\n\nNapa Valley winery, family-run.');
     });
 
     it('renders tagline only when provided', () => {
       const out = buildSkillMd({ ...baseInput, tagline: 'A classic is forever' });
-      expect(out).toContain('# Martin Estate\n\n_A classic is forever_');
+      expect(out).toContain('# Example Merchant\n\n_A classic is forever_');
     });
 
     it('renders intro only when provided', () => {
       const out = buildSkillMd({ ...baseInput, intro: 'Napa Valley winery.' });
-      expect(out).toContain('# Martin Estate\n\nNapa Valley winery.');
+      expect(out).toContain('# Example Merchant\n\nNapa Valley winery.');
     });
   });
 
@@ -200,7 +200,7 @@ describe('buildSkillMd', () => {
       expect(out).toContain('agentscore-pay, tempo request, x402-proxy');
       expect(out).toContain('**x402 on Base**');
       expect(out).toContain('agentscore-pay, x402-proxy, purl (omit --network flag)');
-      expect(out).toContain('**x402 on Solana**');
+      expect(out).toContain('**MPP on Solana**');
       expect(out).toContain('**Stripe Shared Payment Token**');
       expect(out).toContain('link-cli');
     });
@@ -208,7 +208,7 @@ describe('buildSkillMd', () => {
     it('omits rails not declared in acceptedRails', () => {
       const out = buildSkillMd({
         ...baseInput,
-        acceptedRails: ['tempo_mpp', 'x402_base', 'x402_solana'],
+        acceptedRails: ['tempo_mpp', 'x402_base', 'solana_mpp'],
       });
       expect(out).toContain('**MPP on Tempo**');
       expect(out).not.toContain('**Stripe Shared Payment Token**');
@@ -362,10 +362,10 @@ describe('buildSkillMd', () => {
     it('emits each trigger as a bullet', () => {
       const out = buildSkillMd({
         ...baseInput,
-        triggers: ['Buy wine from Martin Estate', 'Check order status'],
+        triggers: ['Buy from Example Merchant', 'Check order status'],
       });
       expect(out).toContain('## Triggers');
-      expect(out).toContain('- Buy wine from Martin Estate');
+      expect(out).toContain('- Buy from Example Merchant');
       expect(out).toContain('- Check order status');
     });
 

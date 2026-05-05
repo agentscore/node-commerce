@@ -32,24 +32,18 @@ export function llmsTxtIdentitySection(input: LlmsTxtIdentitySectionInput = {}):
         .filter(Boolean)
         .join(', ')}.`
     : '';
-  return `## Choose your identity header
+  return `## Identity
 
-AgentScore provides cross-merchant identity — one KYC works for every AgentScore-gated endpoint, no re-verification per site. Pick the right header based on how you plan to pay:
+AgentScore identity is reusable across every AgentScore-gated merchant — one KYC, no re-verification per site. Pick a header:
 
-- **Wallet-auth** (preferred for agents with a stable crypto wallet): send \`X-Wallet-Address: 0x...\`. Only works on rails that carry a wallet signature — Tempo MPP and x402 EIP-3009. The wallet you claim MUST sign the payment; we verify that the payment signer resolves to the same operator as the claimed wallet. No TTL, no rotation.
-- **Operator-token** (works for every rail): send \`X-Operator-Token: opc_...\`. Required when paying with Stripe SPT or card (those rails have no wallet signer). Reusable across every AgentScore merchant until the token expires.
-- **Neither**: you'll get 403 with \`verify_url\` + \`poll_secret\` — complete the session flow once, then reuse the credential (or any wallet that pays under it) forever.
-
-If you reach another AgentScore-gated endpoint in the future, the same credential and/or any linked wallet already works — skip the session flow.
-
-## Memory contract
-
-First-encounter 403 responses (and the POST /v1/sessions success body) include an \`agent_memory\` block describing how AgentScore identity works across merchants. LLM-hosted agents should persist its contents (the pattern, never secrets) so subsequent AgentScore-gated endpoints become returning-customer encounters.${complianceNote}`;
+- **\`X-Wallet-Address: 0x...\` or base58** — works on signing rails (Tempo, x402, Solana MPP). The wallet you claim must sign the payment.
+- **\`X-Operator-Token: opc_...\`** — works on every rail, including Stripe SPT. Reusable across AgentScore merchants until expiry.
+- **Neither** — you get a 403 with \`verify_url\`. Complete the session flow once and reuse the resulting \`opc_...\` everywhere.${complianceNote}`;
 }
 
 export interface LlmsTxtPaymentSectionInput {
   /** Symbolic rail names supported. */
-  rails: ('tempo-mainnet' | 'tempo-testnet' | 'x402-base-mainnet' | 'x402-base-sepolia' | 'x402-solana-mainnet' | 'x402-solana-devnet' | 'stripe-spt' | string)[];
+  rails: ('tempo-mainnet' | 'tempo-testnet' | 'x402-base-mainnet' | 'x402-base-sepolia' | 'mpp-solana-mainnet' | 'mpp-solana-devnet' | 'stripe-spt' | string)[];
   /** Merchant URL — used in the example commands. */
   appUrl: string;
   /**
@@ -93,8 +87,8 @@ function llmsTxtPaymentSectionCompact(input: LlmsTxtPaymentSectionInput): string
   if (hasRailFamily(rails, 'x402-base-')) {
     lines.push('- **x402 USDC on Base** (EIP-3009) — `agentscore-pay pay POST ' + input.appUrl + ' --chain base -H "X-Operator-Token: opc_..." -d \'{...}\'`');
   }
-  if (hasRailFamily(rails, 'x402-solana-')) {
-    lines.push('- **x402 USDC on Solana** (SPL Token) — `agentscore-pay pay POST ' + input.appUrl + ' --chain solana -H "X-Operator-Token: opc_..." -d \'{...}\'`');
+  if (hasRailFamily(rails, 'mpp-solana-')) {
+    lines.push('- **USDC on Solana** — `agentscore-pay pay POST ' + input.appUrl + ' --chain solana -H "X-Operator-Token: opc_..." -d \'{...}\'`');
   }
   if (rails.includes('stripe-spt')) {
     lines.push('- **Stripe Shared Payment Token** — agent mints SPT (own Stripe account scoped to networkId, OR `link-cli spend-request create --credential-type shared_payment_token --network-id <profileId> ...`)');
@@ -111,77 +105,67 @@ function llmsTxtPaymentSectionVerbose(input: LlmsTxtPaymentSectionInput): string
   const tempoChain = input.tempoChainId ?? 4217;
   const hasTempo = hasRailFamily(rails, 'tempo-');
   const hasBase = hasRailFamily(rails, 'x402-base-');
-  const hasSolana = hasRailFamily(rails, 'x402-solana-');
+  const hasSolana = hasRailFamily(rails, 'mpp-solana-');
   const hasStripe = rails.includes('stripe-spt');
   const baseNetworkName = isTestnetRail(rails, 'x402-base-') ? 'Base Sepolia' : 'Base';
-  const solanaNetworkName = isTestnetRail(rails, 'x402-solana-') ? 'Solana devnet' : 'Solana';
+  const solanaNetworkName = isTestnetRail(rails, 'mpp-solana-') ? 'Solana devnet' : 'Solana';
 
   const lines: string[] = ['## Payment', ''];
-  lines.push('This is an agent-first API. All payments are initiated and completed by agents. The 402 challenge advertises:');
+  lines.push('Accepted rails:');
   lines.push('');
-  if (hasTempo) lines.push('- **Tempo USDC via MPP** (on-chain stablecoin)');
-  if (hasBase || hasSolana) {
-    const chains = [hasBase && `${baseNetworkName} (EIP-3009)`, hasSolana && `${solanaNetworkName} (SPL Token)`].filter(Boolean).join(' and ');
-    lines.push(`- **x402 USDC** on ${chains}, via the Coinbase facilitator`);
-  }
-  if (hasStripe) lines.push('- **Stripe Shared Payment Token** (agent mints SPT on their Stripe account scoped to our networkId in the challenge, submits it in the credential)');
+  if (hasTempo) lines.push('- **USDC on Tempo**');
+  if (hasBase) lines.push(`- **USDC on ${baseNetworkName}**`);
+  if (hasSolana) lines.push(`- **USDC on ${solanaNetworkName}**`);
+  if (hasStripe) lines.push('- **Stripe Shared Payment Token**');
   lines.push('');
 
   if (hasTempo) {
-    lines.push('### How to pay with Tempo');
+    lines.push('### Pay with Tempo');
     lines.push('');
-    lines.push('1. Install the Tempo CLI: curl -fsSL https://tempo.xyz/install | bash');
-    lines.push('2. Log in to your Tempo Wallet: tempo wallet login (passkey auth in browser)');
-    lines.push(`3. Confirm your balance: tempo wallet whoami (need USDC.e on ${tempoNetwork}, chain ${tempoChain})`);
-    lines.push('4. If balance is zero, fund it: tempo wallet fund');
-    lines.push('');
-    lines.push('Then use `tempo request` to make the paid purchase:');
+    lines.push('```bash');
+    lines.push('curl -fsSL https://tempo.xyz/install | bash');
+    lines.push('tempo wallet login');
+    lines.push(`tempo wallet whoami     # need USDC.e on ${tempoNetwork} (chain ${tempoChain})`);
+    lines.push('tempo wallet fund       # if zero');
     lines.push('');
     lines.push('tempo request -X POST \\');
-    lines.push('  -H "X-Operator-Token: opc_your_credential" \\');
-    lines.push('  -H "Content-Type: application/json" \\');
+    lines.push('  -H "X-Operator-Token: opc_..." \\');
     lines.push("  --json '{...}' \\");
     lines.push('  --max-spend N \\');
     lines.push(`  ${input.appUrl}`);
-    lines.push('');
-    lines.push(`\`tempo request\` handles the full MPP handshake: sends the POST, receives the 402 challenge, signs the payment on ${tempoNetwork}, submits the credential, and returns the completed order.`);
+    lines.push('```');
     lines.push('');
   }
 
   if (hasBase || hasSolana) {
     const chainsLabel = [hasBase && baseNetworkName, hasSolana && solanaNetworkName].filter(Boolean).join(' or ');
     const flags = [hasBase && '`--chain base`', hasSolana && '`--chain solana`'].filter(Boolean).join(' or ');
-    lines.push(`### How to pay with x402 (${chainsLabel})`);
+    lines.push(`### Pay with ${chainsLabel}`);
     lines.push('');
-    lines.push('1. Install the agentscore-pay CLI: npm install -g @agent-score/pay  (or: brew install agentscore/tap/agentscore-pay)');
-    lines.push(`2. Create a wallet on your chain of choice: agentscore-pay wallet create ${flags}`);
-    lines.push(`3. Fund the printed address with USDC on ${chainsLabel}`);
-    lines.push(`4. Confirm balance: agentscore-pay balance ${flags}`);
-    lines.push('');
-    lines.push('Then submit the paid purchase:');
+    lines.push('```bash');
+    lines.push('npm install -g @agent-score/pay');
+    lines.push(`agentscore-pay wallet create ${flags}`);
+    lines.push(`agentscore-pay balance ${flags}   # fund the printed address with USDC`);
     lines.push('');
     lines.push(`agentscore-pay pay POST ${input.appUrl} \\`);
     lines.push(`  ${hasBase ? '--chain base' : '--chain solana'} \\`);
-    lines.push('  -H "X-Operator-Token: opc_your_credential" \\');
-    lines.push('  -H "Content-Type: application/json" \\');
+    lines.push('  -H "X-Operator-Token: opc_..." \\');
     lines.push("  -d '{...}' \\");
     lines.push('  --max-spend N');
-    lines.push('');
-    const handshakeChains = [hasBase && 'EIP-3009 (Base)', hasSolana && 'SPL Token (Solana)'].filter(Boolean).join(' or ');
-    lines.push(`The CLI handles the full x402 handshake: hits the URL, parses the 402 challenge, signs the ${handshakeChains} transaction, submits via X-Payment header, and returns the completed order.`);
+    lines.push('```');
     lines.push('');
   }
 
   if (hasStripe) {
-    lines.push('### How to pay with Stripe SPT');
+    lines.push('### Pay with Stripe SPT');
     lines.push('');
-    lines.push('Mint a SharedPaymentToken scoped to the profile_id advertised in `accepted_methods.stripe.profile_id`, then submit via `Authorization: Payment` MPP header with `method=stripe/charge`. Either bring your own Stripe account or use `link-cli spend-request create --credential-type shared_payment_token --network-id <profileId> ...` for users with Stripe Link wallets.');
+    lines.push('Mint a SharedPaymentToken scoped to the `profile_id` from the 402 body, then submit via `Authorization: Payment` with `method=stripe/charge`. Either your own Stripe account or `link-cli spend-request create --credential-type shared_payment_token --network-id <profileId> ...` for Stripe Link wallets.');
     lines.push('');
   }
 
-  lines.push('IMPORTANT: Do NOT use `tempo wallet transfer` or send USDC manually to the x402 deposit addresses — those bypass the payment handshake and your order will stay in pending_identity.');
+  lines.push('IMPORTANT: Use the CLIs above. Raw on-chain transfers (e.g. `tempo wallet transfer`, sending USDC manually to deposit addresses) bypass the protocol handshake and the order will not complete.');
   if (hasBase || hasSolana) {
-    lines.push('IMPORTANT: x402 payments must be the exact amount specified in the 402 challenge. Overpayments and underpayments cannot be matched and funds may be unrecoverable.');
+    lines.push('IMPORTANT: Pay the exact amount in the 402 challenge. Overpayments and underpayments cannot be matched.');
   }
   lines.push('');
   return lines.join('\n');

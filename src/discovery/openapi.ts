@@ -9,6 +9,10 @@
 
 /**
  * Standard AgentScore identity security schemes. Plug into `components.securitySchemes`.
+ *
+ * Includes `siwx` (Sign-In With X) per the x402scan discovery spec so identity-gated
+ * operations can declare `security: [{ siwx: [] }]` and stay classified as identity-only,
+ * not paid.
  */
 export function agentscoreSecuritySchemes(): Record<string, unknown> {
   return {
@@ -26,6 +30,24 @@ export function agentscoreSecuritySchemes(): Record<string, unknown> {
       description:
         'Wallet-path identity (0x... or base58). Only works on rails that carry a wallet signature (Tempo MPP, x402 EIP-3009, x402 SPL Token). The wallet you claim MUST sign the payment.',
     },
+    siwx: siwxSecurityScheme(),
+  };
+}
+
+/**
+ * Sign-In With X security scheme entry, per the x402scan discovery spec.
+ *
+ * Reference it on identity-gated (but free) operations as
+ * `security: [{ siwx: [] }]`. Do NOT also attach `x-payment-info` to those routes,
+ * x402scan will misclassify them as paid.
+ */
+export function siwxSecurityScheme(): Record<string, unknown> {
+  return {
+    type: 'http',
+    scheme: 'bearer',
+    bearerFormat: 'SIWX',
+    description:
+      'Sign-In With X wallet authentication. Agent signs a challenge with their wallet (any supported chain) and presents the proof in the Authorization header. Used for identity-gated free endpoints; payment-required endpoints declare x-payment-info instead.',
   };
 }
 
@@ -110,6 +132,88 @@ export function agentscorePaymentRequiredSchema(): Record<string, unknown> {
       },
     },
   };
+}
+
+/**
+ * Per-operation `x-payment-info` extension, per the x402scan discovery spec.
+ *
+ * Every payment-required OpenAPI operation should carry this block alongside a
+ * 402 response. Tells discovery crawlers (x402scan, agent CLIs) the static price
+ * and which protocols the route accepts. Runtime 402 behavior is authoritative
+ * over this static metadata; the static side is for indexability.
+ *
+ * @example fixed price across x402 + MPP Tempo
+ * ```ts
+ * Object.assign(operation, {
+ *   ...xPaymentInfoExtension({
+ *     price: { mode: 'fixed', currency: 'USD', amount: '0.10' },
+ *     protocols: [
+ *       { x402: {} },
+ *       { mpp: { method: 'tempo/charge', intent: 'pay', currency: 'USD' } },
+ *     ],
+ *   }),
+ *   responses: {
+ *     '200': {...},
+ *     '402': { description: 'Payment Required' },
+ *   },
+ * });
+ * ```
+ */
+export interface XPaymentInfoFixedPrice {
+  mode: 'fixed';
+  currency: string;
+  amount: string;
+}
+
+export interface XPaymentInfoDynamicPrice {
+  mode: 'dynamic';
+  currency: string;
+  min: string;
+  max: string;
+}
+
+export type XPaymentInfoPrice = XPaymentInfoFixedPrice | XPaymentInfoDynamicPrice;
+
+export interface XPaymentInfoX402Protocol {
+  x402: Record<string, unknown>;
+}
+
+export interface XPaymentInfoMppProtocol {
+  mpp: { method: string; intent: string; currency: string };
+}
+
+export type XPaymentInfoProtocol = XPaymentInfoX402Protocol | XPaymentInfoMppProtocol;
+
+export interface XPaymentInfoInput {
+  price: XPaymentInfoPrice;
+  protocols: XPaymentInfoProtocol[];
+}
+
+export function xPaymentInfoExtension(
+  input: XPaymentInfoInput,
+): { 'x-payment-info': { price: XPaymentInfoPrice; protocols: XPaymentInfoProtocol[] } } {
+  return { 'x-payment-info': { price: input.price, protocols: input.protocols } };
+}
+
+/**
+ * `info.x-guidance` extension, per the x402scan discovery spec. Spread into your
+ * OpenAPI document's `info` block to give agents a high-level prose description
+ * of how to use the API. Discovery crawlers surface this on the listing page.
+ *
+ * @example
+ * ```ts
+ * const spec = {
+ *   openapi: '3.1.0',
+ *   info: {
+ *     title: 'My Merchant API',
+ *     version: '1.0',
+ *     ...xGuidanceExtension('Wine merchant. POST /purchase with a verified operator token...'),
+ *   },
+ * };
+ * ```
+ */
+export function xGuidanceExtension(text: string): { 'x-guidance': string } {
+  return { 'x-guidance': text };
 }
 
 export interface BuildAgentScoreOpenApiSnippetsInput {

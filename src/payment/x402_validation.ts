@@ -3,20 +3,18 @@
  *
  * Two layers of validation every x402-accepting merchant repeats:
  *
- *   - **Boot-time**: validate the configured `X402_BASE_NETWORK` + `X402_SVM_NETWORK`
- *     env vars are in the supported set, and aren't pointing at the same network
- *     family. Failing loud at boot is much better than per-request "unsupported
+ *   - **Boot-time**: validate the configured `X402_BASE_NETWORK` env var is in the
+ *     supported set. Failing loud at boot is much better than per-request "unsupported
  *     network" errors after a misconfigured deploy.
  *
- *   - **Per-request**: when an x402 X-Payment header arrives, parse the base64
- *     payload, extract the signed network + payTo, validate against the merchant's
- *     accepted networks, validate the payTo address shape per network family, and
- *     check that the payTo was minted by THIS merchant (cache hit). Each step has
- *     its own denial code and `next_steps` shape — getting the message right by
- *     hand across 4 conditions is fiddly.
+ *   - **Per-request**: when an x402 X-Payment header arrives, parse the base64 payload,
+ *     extract the signed network + payTo, validate against the merchant's accepted
+ *     network, validate the payTo address shape, and check that the payTo was minted by
+ *     THIS merchant (cache hit). Each step has its own denial code and `next_steps`
+ *     shape — getting the message right by hand across 4 conditions is fiddly.
  */
 
-import { networks, networkFamily } from './networks';
+import { networks } from './networks';
 
 /** CAIP-2 networks the commerce SDK supports for x402 Base (EVM USDC). */
 export const X402_SUPPORTED_BASE_NETWORKS = new Set<string>([
@@ -24,23 +22,14 @@ export const X402_SUPPORTED_BASE_NETWORKS = new Set<string>([
   networks.base.sepolia.caip2,
 ]);
 
-/** CAIP-2 networks the commerce SDK supports for x402 Solana (SPL Token USDC). */
-export const X402_SUPPORTED_SVM_NETWORKS = new Set<string>([
-  networks.solana.mainnet.caip2,
-  networks.solana.devnet.caip2,
-]);
-
 export interface ValidateX402NetworkConfigInput {
   /** CAIP-2 base network string (e.g. `'eip155:8453'`). */
   baseNetwork: string;
-  /** CAIP-2 SVM network string (e.g. `'solana:5eykt…'`). */
-  svmNetwork: string;
 }
 
 /**
- * Boot-time guard: throws if either network isn't supported, or if both point at the
- * same family (which would silently route Solana payments to the Base path or vice
- * versa). Call once at module init / server boot.
+ * Boot-time guard: throws if the base network isn't supported. Call once at module
+ * init / server boot.
  *
  * Throws `Error` with a message that names the unsupported value AND lists the valid
  * options — agents tracking down a misconfigured deploy don't need to grep for the
@@ -52,36 +41,19 @@ export function validateX402NetworkConfig(input: ValidateX402NetworkConfigInput)
       `X402_BASE_NETWORK=${input.baseNetwork} is not supported. Use one of: ${[...X402_SUPPORTED_BASE_NETWORKS].join(', ')}`,
     );
   }
-  if (!X402_SUPPORTED_SVM_NETWORKS.has(input.svmNetwork)) {
-    throw new Error(
-      `X402_SVM_NETWORK=${input.svmNetwork} is not supported. Use one of: ${[...X402_SUPPORTED_SVM_NETWORKS].join(', ')}`,
-    );
-  }
-  if (input.baseNetwork === input.svmNetwork) {
-    throw new Error(
-      `X402_BASE_NETWORK and X402_SVM_NETWORK must be different (both set to ${input.baseNetwork}).`,
-    );
-  }
 }
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
-const SOLANA_ADDRESS_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 export interface VerifyX402RequestInput {
   /** The incoming Request — `verifyX402Request` reads the X-Payment / payment-signature header. */
   request: Request;
   /** Async lookup that returns true when the address was minted by this merchant
-   *  (typically `piCache.hasAddress`). The cache check defends against agents replaying
-   *  credentials against attacker-controlled deposit addresses. */
+   *  (typically `piCache.hasAddress`). The check validates that the credential's
+   *  deposit address matches one the merchant actually minted. */
   isCachedAddress: (address: string) => Promise<boolean>;
-  /** The merchant's accepted networks per family. Both required — pass the same env
-   *  values you fed to `validateX402NetworkConfig`. */
-  acceptedNetworks: {
-    /** CAIP-2 base network — e.g. `'eip155:8453'`. */
-    base: string;
-    /** CAIP-2 SVM network — e.g. `'solana:5eykt…'`. */
-    svm: string;
-  };
+  /** The merchant's accepted Base network. CAIP-2, e.g. `'eip155:8453'`. */
+  acceptedNetwork: string;
 }
 
 export type VerifyX402RequestResult =
@@ -93,8 +65,6 @@ export type VerifyX402RequestResult =
       signedNetwork: string;
       /** The on-chain pay-to address the agent signed for (already validated). */
       signedPayTo: string;
-      /** True when the signed network is Solana — useful for routing settlement. */
-      isSolana: boolean;
     }
   | {
       ok: false;
@@ -115,7 +85,7 @@ export type VerifyX402RequestResult =
     };
 
 const REGENERATE_WARNING =
-  "If you're trying to pay with Tempo USDC, use `tempo request` (sends Authorization: Payment), not a manual X-Payment header. Do NOT use `tempo wallet transfer` — that sends USDC on-chain but will not complete the MPP handshake. For x402 on Base/Solana, use `agentscore-pay pay` so the X-Payment credential is signed and submitted; bare wallet transfers do not complete the handshake.";
+  'Use `agentscore-pay pay --chain base` (or `tempo request` for Tempo USDC) so the credential is signed and submitted via the protocol handshake. Do NOT use `tempo wallet transfer` — that sends USDC on-chain but does not complete the handshake.';
 
 function regenerateBody(message: string, userMessage: string) {
   return {
@@ -133,8 +103,8 @@ function regenerateBody(message: string, userMessage: string) {
  * confirm the address was minted by this merchant. One call replaces ~45 lines of
  * inline header decode + regex validation + cache lookup.
  *
- * Returns `{ok: true, payload, signedNetwork, signedPayTo, isSolana}` when valid; the
- * caller passes `payload` straight into `processX402Settle`.
+ * Returns `{ok: true, payload, signedNetwork, signedPayTo}` when valid; the caller
+ * passes `payload` straight into `processX402Settle`.
  *
  * Returns `{ok: false, body, status}` when invalid — the merchant just does
  * `return c.json(body, status)` (or framework equivalent).
@@ -174,21 +144,28 @@ export async function verifyX402Request(input: VerifyX402RequestInput): Promise<
   const signedNetwork = payload.accepted?.network;
   const signedPayTo = payload.accepted?.payTo;
 
-  if (!signedNetwork || (signedNetwork !== input.acceptedNetworks.base && signedNetwork !== input.acceptedNetworks.svm)) {
+  if (!signedNetwork || signedNetwork !== input.acceptedNetwork) {
+    if (signedNetwork && signedNetwork.toLowerCase().startsWith('solana:')) {
+      return {
+        ok: false,
+        status: 400,
+        body: regenerateBody(
+          `x402 on ${signedNetwork} is not accepted; Solana payments must use the \`solana/charge\` rail advertised in the 402 challenge. This server accepts x402 on ${input.acceptedNetwork} only.`,
+          'Solana payments are not accepted over x402 at this merchant. Pick the `solana/charge` rail from the 402 challenge and re-sign.',
+        ),
+      };
+    }
     return {
       ok: false,
       status: 400,
       body: regenerateBody(
-        `Unsupported x402 network ${signedNetwork ?? '<missing>'}; this server accepts ${input.acceptedNetworks.base} (Base) and ${input.acceptedNetworks.svm} (Solana)`,
-        'The credential signed for an unsupported network. Pick one of the accepted networks from the 402 challenge and re-sign.',
+        `Unsupported x402 network ${signedNetwork ?? '<missing>'}; this server accepts ${input.acceptedNetwork}.`,
+        'The credential signed for an unsupported network. Pick the accepted network from the 402 challenge and re-sign.',
       ),
     };
   }
 
-  const isSolana = networkFamily(signedNetwork) === 'solana';
-  const addressShapeOk = isSolana
-    ? typeof signedPayTo === 'string' && SOLANA_ADDRESS_RE.test(signedPayTo)
-    : typeof signedPayTo === 'string' && EVM_ADDRESS_RE.test(signedPayTo);
+  const addressShapeOk = typeof signedPayTo === 'string' && EVM_ADDRESS_RE.test(signedPayTo);
 
   if (!signedPayTo || !addressShapeOk) {
     return {
@@ -212,5 +189,5 @@ export async function verifyX402Request(input: VerifyX402RequestInput): Promise<
     };
   }
 
-  return { ok: true, payload, signedNetwork, signedPayTo, isSolana };
+  return { ok: true, payload, signedNetwork, signedPayTo };
 }

@@ -1,8 +1,10 @@
 import { createMppxStripe } from '../stripe-multichain/mppx_stripe';
 import { USDC } from './usdc';
 
+export type SolanaMppNetwork = 'mainnet-beta' | 'devnet' | 'localnet';
+
 export interface CreateMppxServerOptions {
-  /** Symbolic rail config — commerce wires the boilerplate (tempo.charge, mppStripe.charge, etc.). */
+  /** Symbolic rail config — commerce wires the boilerplate (tempo.charge, mppStripe.charge, solana.charge, etc.). */
   rails?: {
     /** One-shot Tempo USDC charge (intent: 'charge'). */
     tempo?: {
@@ -11,6 +13,38 @@ export interface CreateMppxServerOptions {
       currency?: string;
       /** Use Tempo testnet (Moderato). Default false. */
       testnet?: boolean;
+    };
+    /**
+     * Solana SPL charge (intent: 'charge'). Bakes createAssociatedTokenIdempotent
+     * into the buyer's tx so payments work against any payTo, fresh or warmed.
+     *
+     * Requires `@solana/mpp` + `@solana/kit` peer deps.
+     * Underlying spec: paymentauth.org/draft-solana-charge-00.
+     */
+    solana?: {
+      /** Base58-encoded Solana recipient public key. */
+      recipient: string;
+      /** SPL token mint (base58). Default: USDC for the selected network. */
+      currency?: string;
+      /** Token decimals. Default 6 (USDC). */
+      decimals?: number;
+      /** Solana network. Default 'mainnet-beta'. */
+      network?: SolanaMppNetwork;
+      /** Custom RPC URL. Default: public RPC for the network. */
+      rpcUrl?: string;
+      /**
+       * Optional fee-payer signer for server-side fee sponsorship. When provided,
+       * the server's pubkey is advertised as `feePayerKey` in the 402 challenge and
+       * the server co-signs settle txs as fee payer (so buyers don't need SOL, and
+       * ATA-creation rent is server-funded). Construct via
+       * `@solana/kit`'s `createKeyPairSignerFromBytes` or equivalent.
+       *
+       * Typed as `unknown` to avoid a hard dep on @solana/kit at this layer; pass any
+       * `TransactionPartialSigner` from `@solana/kit`.
+       */
+      signer?: unknown;
+      /** SPL token program hint (TOKEN_PROGRAM or TOKEN_2022_PROGRAM). Auto-detected when omitted. */
+      tokenProgram?: string;
     };
     /**
      * Tempo session (intent: 'session') — pay-as-you-go channel for repeated calls or
@@ -61,6 +95,18 @@ interface MppxModule {
       chains?: unknown;
     }) => unknown;
   };
+}
+
+interface SolanaMppModule {
+  charge?: (opts: {
+    recipient: string;
+    currency?: string;
+    decimals?: number;
+    network?: string;
+    rpcUrl?: string;
+    signer?: unknown;
+    tokenProgram?: string;
+  }) => unknown;
 }
 
 /**
@@ -128,6 +174,32 @@ export async function createMppxServer(opts: CreateMppxServerOptions): Promise<u
         store: s.store,
         testnet: s.testnet ?? false,
         ...(s.chains ? { chains: s.chains } : {}),
+      }),
+    );
+  }
+
+  if (opts.rails?.solana) {
+    const solanaMpp = await dynamicImport<SolanaMppModule>('@solana/mpp/server');
+    if (!solanaMpp?.charge) {
+      throw new Error(
+        '@solana/mpp not installed — `npm install @solana/mpp @solana/kit` to use the solana rail.',
+      );
+    }
+    const s = opts.rails.solana;
+    const network: SolanaMppNetwork = s.network ?? 'mainnet-beta';
+    const defaultMint =
+      network === 'mainnet-beta' ? USDC.solana.mainnet.mint : USDC.solana.devnet.mint;
+    const defaultDecimals =
+      network === 'mainnet-beta' ? USDC.solana.mainnet.decimals : USDC.solana.devnet.decimals;
+    methods.push(
+      solanaMpp.charge({
+        recipient: s.recipient,
+        currency: s.currency ?? defaultMint,
+        decimals: s.decimals ?? defaultDecimals,
+        network,
+        ...(s.rpcUrl ? { rpcUrl: s.rpcUrl } : {}),
+        ...(s.signer ? { signer: s.signer } : {}),
+        ...(s.tokenProgram ? { tokenProgram: s.tokenProgram } : {}),
       }),
     );
   }

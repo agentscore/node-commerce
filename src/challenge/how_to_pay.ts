@@ -18,7 +18,7 @@ export interface HowToPayStripeEntry {
 export interface HowToPayBlock {
   tempo?: HowToPayRailEntry;
   x402_base?: HowToPayRailEntry;
-  x402_solana?: HowToPayRailEntry;
+  solana_mpp?: HowToPayRailEntry;
   stripe?: HowToPayStripeEntry;
 }
 
@@ -33,7 +33,7 @@ export interface BuildHowToPayInput {
   rails: {
     tempo?: { recipient: string; networkName?: string; chainId?: number; recommend?: 'tempo' | 'agentscore-pay' | 'both' };
     x402_base?: { recipient: string; network?: string };
-    x402_solana?: { recipient: string; network?: string };
+    solana_mpp?: { recipient: string; network?: string };
     stripe?: { profileId?: string | null; productName?: string };
   };
   /** Placeholder text for the operator token in commands. Defaults to '<your_opc_token>'. */
@@ -89,7 +89,7 @@ export function buildHowToPay(input: BuildHowToPayInput): HowToPayBlock {
         : recommend === 'agentscore-pay'
           ? { alternative_command: tempoCommand }
           : {}),
-      what_it_does: `Hits this endpoint, receives this same 402, signs the MPP challenge on ${networkName}, and submits the credential back via Authorization: Payment. Either client (tempo request or agentscore-pay pay --chain tempo) works — both run the full MPP handshake.`,
+      what_it_does: `Pays via Tempo USDC on ${networkName}.`,
     };
   }
 
@@ -99,19 +99,17 @@ export function buildHowToPay(input: BuildHowToPayInput): HowToPayBlock {
       setup: PAY_SETUP_BASE,
       prerequisite: `Run \`agentscore-pay balance --chain base\` and confirm USDC balance on Base (${network}) is at least $${maxSpend}. If the CLI is not installed, run the setup commands above first.`,
       command: `agentscore-pay pay POST ${input.url} --chain base -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' -d '${input.retryBodyJson}' --max-spend ${maxSpend}`,
-      what_it_does:
-        'Hits this endpoint, receives this same 402, signs an EIP-3009 USDC TransferWithAuthorization on Base, submits via X-Payment header. Server verifies + settles via the Coinbase facilitator + returns 200 with the completed order.',
+      what_it_does: 'Pays via USDC on Base.',
     };
   }
 
-  if (input.rails.x402_solana) {
-    const network = input.rails.x402_solana.network ?? 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
-    block.x402_solana = {
+  if (input.rails.solana_mpp) {
+    const network = input.rails.solana_mpp.network ?? 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
+    block.solana_mpp = {
       setup: PAY_SETUP_SOLANA,
       prerequisite: `Run \`agentscore-pay balance --chain solana\` and confirm USDC balance on Solana (${network}) is at least $${maxSpend}. If the CLI is not installed, run the setup commands above first.`,
       command: `agentscore-pay pay POST ${input.url} --chain solana -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' -d '${input.retryBodyJson}' --max-spend ${maxSpend}`,
-      what_it_does:
-        'Hits this endpoint, receives this same 402, signs an SPL Token TransferChecked transaction on Solana, submits via X-Payment header. Server verifies + settles via the Coinbase facilitator + returns 200 with the completed order.',
+      what_it_does: 'Pays via USDC on Solana.',
     };
   }
 
@@ -138,7 +136,7 @@ export function buildHowToPay(input: BuildHowToPayInput): HowToPayBlock {
         `link-cli mpp pay ${input.url} --spend-request-id $SPEND_ID --method POST --data '${input.retryBodyJson}' --header 'X-Operator-Token: ${opToken}' --output-json`,
       ];
       stripe.what_it_does_link_cli =
-        'For users who have a Stripe Link wallet: step 1 mints a one-time-use SharedPaymentToken scoped to this purchase and pushes a notification to the user for approval (blocks until approved); step 2 submits the SPT via the MPP handshake along with your AgentScore operator credential.';
+        'Mints a one-time-use SharedPaymentToken scoped to this purchase (user approves in Link wallet), then submits it as the payment credential.';
     } else if (linkCliBlocked) {
       stripe.note = `link-cli SPT path not available for this purchase — Stripe link-cli caps spend requests at $500.00 ($50000 cents); your total is $${totalNum}. Use your own Stripe account with the SharedPaymentToken API instead.`;
     }

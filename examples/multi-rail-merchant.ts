@@ -2,7 +2,7 @@
  * Example: full multi-rail agent commerce merchant
  *
  * Scenario: you want to accept agent payments via every rail — Tempo MPP, x402 on
- * Base + Solana, AND Stripe SPT. Identity-gated for compliance.
+ * Base, MPP solana/charge on Solana, AND Stripe SPT. Identity-gated for compliance.
  *
  * The flow on each /purchase POST:
  *   1. Identity gate (agentscoreGate): KYC + age + jurisdiction + sanctions
@@ -16,7 +16,7 @@
  *
  * Peer deps to install:
  *   bun add @agent-score/commerce hono mppx stripe \\
- *           @x402/core @x402/evm @x402/svm @x402/extensions
+ *           @x402/core @x402/evm @x402/extensions @solana/mpp @solana/kit
  *
  * Env vars:
  *   AGENTSCORE_API_KEY    — your AgentScore API key
@@ -26,7 +26,7 @@
  *   STRIPE_PROFILE_ID     — your Stripe Connect profile id (for shared payment tokens)
  *   TEMPO_USDC_ADDRESS    — USDC token address on Tempo (mainnet or testnet)
  *   X402_BASE_NETWORK     — CAIP-2 (eip155:8453 mainnet, eip155:84532 sepolia)
- *   X402_SVM_NETWORK      — CAIP-2 (solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp mainnet, solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1 devnet)
+ *   SOLANA_NETWORK        — 'mainnet-beta' | 'devnet' (default 'mainnet-beta')
  *   REDIS_URL             — optional; in-memory PI cache otherwise
  *
  * Run: bun run examples/multi-rail-merchant.ts
@@ -62,11 +62,15 @@ import Stripe from 'stripe';
 
 const APP_URL = process.env.APP_URL!;
 const X402_BASE_NETWORK = process.env.X402_BASE_NETWORK ?? networks.base.mainnet.caip2;
-const X402_SVM_NETWORK = process.env.X402_SVM_NETWORK ?? networks.solana.mainnet.caip2;
+const SOLANA_NETWORK = (process.env.SOLANA_NETWORK ?? 'mainnet-beta') as
+  | 'mainnet-beta'
+  | 'devnet'
+  | 'localnet';
+const SOLANA_CAIP2 =
+  SOLANA_NETWORK === 'devnet' ? networks.solana.devnet.caip2 : networks.solana.mainnet.caip2;
 
-// Boot-time guard: validate the configured x402 networks are in the supported set.
-// Throws on misconfigured deploys before the first request.
-validateX402NetworkConfig({ baseNetwork: X402_BASE_NETWORK, svmNetwork: X402_SVM_NETWORK });
+// Boot-time guard: validate the configured x402 base network is in the supported set.
+validateX402NetworkConfig({ baseNetwork: X402_BASE_NETWORK });
 
 const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-11-20.acacia' as never });
 
@@ -75,11 +79,10 @@ const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2
 // falls back to in-process Map for single-instance dev.
 const piCache = createPiCache({ redisUrl: process.env.REDIS_URL });
 
-// ── Boot: x402 server with both EVM + SVM rails ─────────────────────────────
+// ── Boot: x402 server with Base rails ───────────────────────────────────────
 const x402Server = await createX402Server({
   facilitator: 'coinbase',
-  rails: [X402_BASE_NETWORK.includes('84532') ? 'x402-base-sepolia' : 'x402-base-mainnet',
-          X402_SVM_NETWORK.includes('EtWTRAB') ? 'x402-solana-devnet' : 'x402-solana-mainnet'],
+  rails: [X402_BASE_NETWORK.includes('84532') ? 'x402-base-sepolia' : 'x402-base-mainnet'],
   bazaar: true, // register the @x402/extensions bazaar discovery extension
 });
 
@@ -121,7 +124,7 @@ app.post('/purchase', async (c) => {
     const verified = await verifyX402Request({
       request: c.req.raw,
       isCachedAddress: piCache.hasAddress,
-      acceptedNetworks: { base: X402_BASE_NETWORK, svm: X402_SVM_NETWORK },
+      acceptedNetwork: X402_BASE_NETWORK,
     });
     if (!verified.ok) return c.json(verified.body, verified.status);
 
@@ -154,7 +157,7 @@ app.post('/purchase', async (c) => {
     await simulateDepositIfTestMode({
       getPaymentIntentId: piCache.getPaymentIntentId,
       depositAddress: verified.signedPayTo,
-      network: verified.isSolana ? 'solana' : 'base',
+      network: 'base',
       stripeSecretKey: process.env.STRIPE_SECRET_KEY!,
     });
 
@@ -184,6 +187,10 @@ app.post('/purchase', async (c) => {
         currency: process.env.TEMPO_USDC_ADDRESS!,
         testnet: process.env.TEMPO_USDC_ADDRESS === '0x20c0000000000000000000000000000000000000',
       },
+      solana: {
+        recipient: depositAddresses.solana,
+        network: SOLANA_NETWORK,
+      },
       stripe: {
         profileId: process.env.STRIPE_PROFILE_ID!,
         secretKey: process.env.STRIPE_SECRET_KEY!,
@@ -209,7 +216,7 @@ app.post('/purchase', async (c) => {
     const acceptedMethods = buildAcceptedMethods({
       tempo: { recipient: depositAddresses.tempo, network: 'tempo-mainnet', chainId: networks.tempo.mainnet.chainId },
       x402_base: { recipient: depositAddresses.base, network: X402_BASE_NETWORK },
-      x402_solana: { recipient: depositAddresses.solana, network: X402_SVM_NETWORK },
+      solana_mpp: { recipient: depositAddresses.solana, network: SOLANA_CAIP2 },
       ...(isWalletAuth ? {} : { stripe: { profileId: process.env.STRIPE_PROFILE_ID! } }),
     });
 
@@ -220,7 +227,7 @@ app.post('/purchase', async (c) => {
       rails: {
         tempo: { recipient: depositAddresses.tempo },
         x402_base: { recipient: depositAddresses.base },
-        x402_solana: { recipient: depositAddresses.solana },
+        solana_mpp: { recipient: depositAddresses.solana },
         stripe: { profileId: process.env.STRIPE_PROFILE_ID! },
       },
     });
@@ -251,14 +258,6 @@ app.post('/purchase', async (c) => {
             amount: String(Math.round(Number(totalUsd) * 1_000_000)),
             asset: USDC.base.mainnet.address,
             payTo: depositAddresses.base,
-            maxTimeoutSeconds: 300,
-          },
-          {
-            scheme: 'exact',
-            network: X402_SVM_NETWORK,
-            amount: String(Math.round(Number(totalUsd) * 1_000_000)),
-            asset: USDC.solana.mainnet.mint,
-            payTo: depositAddresses.solana,
             maxTimeoutSeconds: 300,
           },
         ],

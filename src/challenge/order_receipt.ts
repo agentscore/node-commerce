@@ -1,10 +1,9 @@
 /**
  * Canonical order-receipt shape returned to agents on the 200 after a successful settlement.
  *
- * Merchants own their order schema, but converging on this shape across every AgentScore-gated
- * merchant (Martin Estate today; Commerce7 / WooCommerce / Shopify plugins tomorrow) means
- * agents can render and post-process orders consistently. Lift this type, fill the fields you
- * care about, and ignore (or extend via `extras`) what you don't.
+ * Merchants own their order schema, but converging on this shape across AgentScore-gated
+ * merchants means agents can render and post-process orders consistently. Lift this type,
+ * fill the fields you care about, and ignore (or extend via `extras`) what you don't.
  *
  * All money fields are dollar-strings (e.g. `"250.00"`). Use `buildPricingBlock` from
  * `@agent-score/commerce/challenge` to compose the pricing fields from cents.

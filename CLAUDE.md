@@ -32,7 +32,7 @@ Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framew
 | `examples/` | Runnable single-file Hono apps for each common scenario |
 | `tests/` | Vitest, one file per surface, ~360+ tests |
 
-Peer-dep pattern: payment/x402/mppx/stripe modules `dynamic import` at runtime — vendors install only what they use (`@x402/core`, `@x402/evm`, `@x402/svm`, `@coinbase/x402`, `mppx`, `stripe`). Missing peer dep throws a guiding error with the install command.
+Peer-dep pattern: payment/x402/mppx/stripe modules `dynamic import` at runtime — vendors install only what they use (`@x402/core`, `@x402/evm`, `@coinbase/x402`, `mppx`, `@solana/mpp`, `@solana/kit`, `stripe`). Missing peer dep throws a guiding error with the install command. x402 in this SDK is EVM-only; Solana SPL payments go through MPP `solana/charge` (`@solana/mpp/server`).
 
 ## Examples
 
@@ -40,7 +40,7 @@ Peer-dep pattern: payment/x402/mppx/stripe modules `dynamic import` at runtime �
 
 | Example | Scenario |
 |---|---|
-| `api-provider.ts` | Per-call API billing on multiple rails: Tempo MPP + x402 (Base + Solana); no compliance gate |
+| `api-provider.ts` | Per-call API billing on multiple rails: Tempo MPP + x402 Base + Solana MPP; no compliance gate |
 | `identity-only.ts` | Compliance gate without payment (vendor handles their own) |
 | `multi-rail-merchant.ts` | Full agent-commerce: identity + Tempo MPP + x402 + Stripe SPT |
 | `stripe-multichain-merchant.ts` | Stripe-anchored multichain (PaymentIntent → tempo/base/solana deposit addresses) |
@@ -58,7 +58,7 @@ Denial reason codes: `missing_identity`, `identity_verification_required`, `toke
 
 Captured wallets: `captureWallet(ctx, { walletAddress, network, idempotencyKey })` is fire-and-forget — reads `operator_token` stashed during gating and POSTs to `/v1/credentials/wallets`. No-ops for wallet-authenticated requests.
 
-Wallet-signer-match: `verifyWalletSignerMatch(ctx, { signer, network })` makes a single `/v1/assess` call with `resolve_signer` set; the API resolves both wallets and emits a `signer_match` verdict in the same response — collapses the legacy 2 follow-up assess calls into one round trip. Repeat lookups for the same `(claimed, signer)` pair hit a per-cache-entry `signerMatchBySigner` sub-map and skip the API entirely. Falls back to a 2-resolve path when the API doesn't emit `signer_match` (canary rollout safety).
+Wallet-signer-match: `verifyWalletSignerMatch(ctx, { signer, network })` makes a single `/v1/assess` call with `resolve_signer` set; the API resolves both wallets and emits a `signer_match` verdict in the same response — collapses the legacy 2 follow-up assess calls into one round trip. Repeat lookups for the same `(claimed, signer)` pair hit a per-cache-entry `signerMatchBySigner` sub-map and skip the API entirely. Falls back to a 2-resolve path when the API doesn't emit `signer_match` (canary rollout safety). Signer recovery covers x402 EIP-3009 (EVM `from` address), Tempo MPP (`did:pkh:eip155` source), and Solana MPP `solana/charge` (via `did:pkh:solana` source when set, otherwise by decoding the credential's signed-tx payload to read the SPL `TransferChecked` authority — pull mode only, requires the `@solana/kit` optional peer).
 
 ### Fail-open (opt-in)
 

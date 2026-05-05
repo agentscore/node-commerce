@@ -20,14 +20,14 @@ const fullData: AgentScoreData = {
 describe('buildA2AAgentCard', () => {
   it('emits a card with identity claims when data is provided', () => {
     const card = buildA2AAgentCard({
-      name: 'Martin Estate',
-      url: 'https://agents.martinestate.com',
+      name: 'Example Merchant',
+      url: 'https://agents.example.com',
       data: fullData,
     });
     expect(card.protocol_version).toBe('1.0');
     expect(card.card_version).toBe(1);
-    expect(card.name).toBe('Martin Estate');
-    expect(card.url).toBe('https://agents.martinestate.com');
+    expect(card.name).toBe('Example Merchant');
+    expect(card.url).toBe('https://agents.example.com');
     expect(card.identity).not.toBeNull();
     expect(card.identity?.operator_id).toBe('op_abc');
     expect(card.identity?.kyc_level).toBe('enhanced');

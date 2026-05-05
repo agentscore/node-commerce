@@ -37,7 +37,7 @@ export interface SkillMdLink {
 export interface BuildSkillMdInput {
   /** Skill manifest identifier — kebab-case per agentskills.io spec: 1-64 chars, lowercase
    *  alphanumeric + hyphens, no leading/trailing/consecutive hyphens. Validated at build
-   *  time; invalid names throw. e.g. 'martin-estate-wine-commerce'. */
+   *  time; invalid names throw. e.g. 'example-merchant-commerce'. */
   name: string;
   /** Skill description — agentskills.io spec: 1-1024 chars, non-empty. Should describe both
    *  what the skill does AND when to use it; imperative phrasing recommended ("Use when…").
@@ -63,7 +63,7 @@ export interface BuildSkillMdInput {
    *  `metadata:`. Spec requires string values. */
   metadata?: Record<string, string | number>;
 
-  /** Human display name (e.g. "Martin Estate Winery"). */
+  /** Human display name (e.g. "Example Merchant"). */
   merchantName: string;
   /** Optional one-line tagline appearing under the title. */
   tagline?: string;
@@ -116,14 +116,14 @@ export interface BuildSkillMdInput {
 const RAIL_LABELS: Record<RailKey, string> = {
   tempo_mpp: 'MPP on Tempo',
   x402_base: 'x402 on Base',
-  x402_solana: 'x402 on Solana',
+  solana_mpp: 'MPP on Solana',
   stripe: 'Stripe Shared Payment Token',
 };
 
 const RAIL_NOTES: Record<RailKey, string> = {
   tempo_mpp: 'USDC. Use `agentscore-pay --chain tempo` (or `tempo request`); MPP credential goes in `Authorization: Payment`.',
   x402_base: 'USDC (EIP-3009). Use `agentscore-pay`; X-Payment header carries the signed credential.',
-  x402_solana: 'USDC (SPL). Use `agentscore-pay`; X-Payment header carries the signed credential.',
+  solana_mpp: 'USDC (SPL). Use `agentscore-pay --chain solana`; MPP credential goes in `Authorization: Payment`.',
   stripe: 'Card via Link wallet. Use `@stripe/link-cli` — `agentscore-pay` emits the handoff hint when this rail is picked.',
 };
 
