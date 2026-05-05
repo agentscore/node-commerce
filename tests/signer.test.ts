@@ -173,6 +173,100 @@ describe('extractPaymentSignerAddress — MPP path', () => {
     vi.doUnmock('@solana/kit');
   });
 
+  it('returns null when @solana/kit is unavailable (decode fallback skipped cleanly)', async () => {
+    vi.doMock('mppx', () => ({
+      Credential: {
+        extractPaymentScheme: () => true,
+        fromRequest: () => ({
+          payload: { transaction: 'AAAA', type: 'transaction' },
+        }),
+      },
+    }));
+    vi.doMock('@solana/kit', () => ({
+      // Stub missing the required exports → decode fallback returns null without throwing
+      getBase58Codec: () => ({ encode: () => new Uint8Array([0]) }),
+    }));
+    const { extractPaymentSigner: freshExtract } = await import(
+      `../src/signer?solana-no-kit=${freshImportKey()}`
+    );
+    const req = makeRequest({ authorization: 'Payment mpp-cred' });
+    expect(await freshExtract(req)).toBeNull();
+    vi.doUnmock('mppx');
+    vi.doUnmock('@solana/kit');
+  });
+
+  it('skips and warns when TransferChecked authority resolves through an address lookup table', async () => {
+    // staticAccounts has only 4 entries; instruction asks for index 99 (i.e. lookup-table-loaded).
+    // Path: bounds-check trips, console.warn, continue, no further match → null.
+    const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+    const fakeMessage = {
+      staticAccounts: [TOKEN_PROGRAM, 'a', 'b', 'c'],
+      instructions: [
+        {
+          programAddressIndex: 0,
+          accountIndices: [1, 2, 3, 99],  // authority idx 99 > staticAccounts.length
+          data: new Uint8Array([12, 0, 0, 0]),
+        },
+      ],
+    };
+    vi.doMock('mppx', () => ({
+      Credential: {
+        extractPaymentScheme: () => true,
+        fromRequest: () => ({
+          payload: { transaction: 'AAAA', type: 'transaction' },
+        }),
+      },
+    }));
+    vi.doMock('@solana/kit', () => ({
+      getBase64Codec: () => ({ encode: () => new Uint8Array([0]) }),
+      getTransactionDecoder: () => ({ decode: () => ({ messageBytes: new Uint8Array([0]) }) }),
+      getCompiledTransactionMessageDecoder: () => ({ decode: () => fakeMessage }),
+    }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { extractPaymentSigner: freshExtract } = await import(
+      `../src/signer?solana-lut=${freshImportKey()}`
+    );
+    const req = makeRequest({ authorization: 'Payment mpp-cred' });
+    expect(await freshExtract(req)).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('address lookup table'));
+    warn.mockRestore();
+    vi.doUnmock('mppx');
+    vi.doUnmock('@solana/kit');
+  });
+
+  it('returns null and logs when @solana/kit decoder throws', async () => {
+    vi.doMock('mppx', () => ({
+      Credential: {
+        extractPaymentScheme: () => true,
+        fromRequest: () => ({
+          payload: { transaction: 'AAAA', type: 'transaction' },
+        }),
+      },
+    }));
+    vi.doMock('@solana/kit', () => ({
+      getBase64Codec: () => ({ encode: () => new Uint8Array([0]) }),
+      getTransactionDecoder: () => ({
+        decode: () => {
+          throw new Error('malformed solana tx bytes');
+        },
+      }),
+      getCompiledTransactionMessageDecoder: () => ({ decode: () => ({}) }),
+    }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { extractPaymentSigner: freshExtract } = await import(
+      `../src/signer?solana-throw=${freshImportKey()}`
+    );
+    const req = makeRequest({ authorization: 'Payment mpp-cred' });
+    expect(await freshExtract(req)).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('Solana credential decode failed'),
+      expect.anything(),
+    );
+    warn.mockRestore();
+    vi.doUnmock('mppx');
+    vi.doUnmock('@solana/kit');
+  });
+
   it('returns null on push-mode Solana credentials (payload.type=signature, no tx to decode)', async () => {
     vi.doMock('mppx', () => ({
       Credential: {
