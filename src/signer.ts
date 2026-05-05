@@ -1,20 +1,81 @@
 /**
  * Payment-signer extraction.
  *
- * Shared between merchants and the gate — both need to recover the on-chain signer from
- * a payment credential without duplicating code. Two paths carry a recoverable wallet
- * signer here:
+ * Shared between merchants and the gate. Three paths recover a wallet signer:
  *
- *   - **Tempo MPP** — `Authorization: Payment <base64>` header; credential `source` is a DID
- *     of the form `did:pkh:eip155:<chain>:<address>`.
- *   - **x402 EIP-3009** (EVM, e.g. Base/Sepolia) — `payment-signature` / `x-payment` header;
+ *   - **Tempo MPP** — `Authorization: Payment <base64>`; credential `source` is a DID of the
+ *     form `did:pkh:eip155:<chain>:<address>`.
+ *   - **Solana MPP `solana/charge`** — `Authorization: Payment <base64>`; recovery via either
+ *     a `did:pkh:solana:<genesis>:<address>` source (when set by the client) or by decoding
+ *     the credential's signed-tx payload and reading the SPL `TransferChecked` authority
+ *     (pull mode only — `payload.type === 'transaction'`).
+ *   - **x402 EIP-3009 (EVM, e.g. Base/Sepolia)** — `payment-signature` / `x-payment`;
  *     decoded payload carries `payload.authorization.from`.
  *
- * `mppx` is an optional peer dependency — we import it dynamically so merchants who don't
- * use MPP don't need to install it. The EVM x402 path is pure JSON parsing with no external dep.
+ * Optional peer deps: `mppx` for MPP credentials, `@solana/kit` for the Solana tx-decode
+ * fallback. Both dynamic-imported; merchants who don't accept that rail don't need them.
  */
 
 export type SignerNetwork = 'evm' | 'solana';
+
+const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+const TRANSFER_CHECKED_DISCRIMINATOR = 12;
+
+interface SolanaKitMinimal {
+  getBase64Codec: () => { encode: (s: string) => Uint8Array };
+  getTransactionDecoder: () => { decode: (b: Uint8Array) => { messageBytes: Uint8Array } };
+  getCompiledTransactionMessageDecoder: () => {
+    decode: (b: Uint8Array) => {
+      staticAccounts: ReadonlyArray<string>;
+      instructions: ReadonlyArray<{
+        programAddressIndex: number;
+        accountIndices?: number[];
+        data?: Uint8Array;
+      }>;
+    };
+  };
+}
+
+/**
+ * Decode a Solana MPP `solana/charge` credential's `payload.transaction` (base64-encoded
+ * signed Solana tx) and return the SPL `TransferChecked` authority — the source-ATA owner,
+ * which is the buyer's wallet. Pull mode only (`payload.type === 'transaction'`); push mode
+ * (`payload.type === 'signature'`) returns null because recovery would require an RPC fetch.
+ */
+async function extractSolanaSignerFromCredential(credential: unknown): Promise<string | null> {
+  const payload = (credential as { payload?: { transaction?: string; type?: string } }).payload;
+  if (!payload?.transaction || payload.type !== 'transaction') return null;
+
+  const moduleName = '@solana/kit';
+  const kit = (await import(moduleName).catch(() => null)) as SolanaKitMinimal | null;
+  if (!kit?.getBase64Codec || !kit.getTransactionDecoder || !kit.getCompiledTransactionMessageDecoder) {
+    return null;
+  }
+
+  try {
+    const txBytes = kit.getBase64Codec().encode(payload.transaction);
+    const decoded = kit.getTransactionDecoder().decode(txBytes);
+    const message = kit.getCompiledTransactionMessageDecoder().decode(decoded.messageBytes);
+
+    for (const ix of message.instructions) {
+      const programId = message.staticAccounts[ix.programAddressIndex];
+      if (programId !== TOKEN_PROGRAM && programId !== TOKEN_2022_PROGRAM) continue;
+      const data = ix.data;
+      if (!data || data.length === 0 || data[0] !== TRANSFER_CHECKED_DISCRIMINATOR) continue;
+      // SPL TransferChecked accounts: [source ATA, mint, destination ATA, authority, ...signers]
+      const accountIndices = ix.accountIndices ?? [];
+      const authorityIndex = accountIndices[3];
+      if (authorityIndex === undefined) continue;
+      const authority = message.staticAccounts[authorityIndex];
+      if (authority) return authority;
+    }
+    return null;
+  } catch (err) {
+    console.warn('[gate] Solana credential decode failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
 
 export interface PaymentSigner {
   /** Recovered wallet address (EVM lowercased; Solana base58 preserved verbatim). */
@@ -55,6 +116,11 @@ export async function extractPaymentSigner(
         // Solana CAIP-10: did:pkh:solana:<genesis-base58>:<address-base58>
         const solMatch = source?.match(/^did:pkh:solana:[1-9A-HJ-NP-Za-km-z]{32,44}:([1-9A-HJ-NP-Za-km-z]{32,44})$/);
         if (solMatch) return { address: solMatch[1]!, network: 'solana' };
+        // Fallback: source not set by upstream client. Decode the credential's signed-tx
+        // payload to find the SPL TransferChecked authority (= source-ATA owner = buyer
+        // wallet). Pull mode only.
+        const solanaFromTx = await extractSolanaSignerFromCredential(credential);
+        if (solanaFromTx) return { address: solanaFromTx, network: 'solana' };
       }
     } catch (err) {
       console.warn('[gate] MPP signer extraction failed:', err instanceof Error ? err.message : err);

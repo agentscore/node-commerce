@@ -127,6 +127,69 @@ describe('extractPaymentSignerAddress — MPP path', () => {
     vi.doUnmock('mppx');
   });
 
+  it('falls back to decoding payload.transaction when source is unset (Solana pull mode)', async () => {
+    // Stand-in for @solana/kit. The extract path passes payload bytes through
+    // getBase64Codec → getTransactionDecoder → getCompiledTransactionMessageDecoder
+    // and then walks instructions for SPL TransferChecked. We hand it a fake
+    // compiled message whose 0th instruction is a TokenProgram TransferChecked
+    // with the authority at account index 3.
+    const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+    const fakeMessage = {
+      staticAccounts: [
+        TOKEN_PROGRAM,             // 0: program (referenced by programAddressIndex below)
+        'SrcATAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        'MintXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        'DstATAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        SOLANA_SIGNER,             // 4: authority
+      ],
+      instructions: [
+        {
+          programAddressIndex: 0,
+          accountIndices: [1, 2, 3, 4],
+          data: new Uint8Array([12, 0, 0, 0, 0, 0, 0, 0, 0, 6]),
+        },
+      ],
+    };
+    vi.doMock('mppx', () => ({
+      Credential: {
+        extractPaymentScheme: () => true,
+        fromRequest: () => ({
+          payload: { transaction: 'AAAA', type: 'transaction' },
+        }),
+      },
+    }));
+    vi.doMock('@solana/kit', () => ({
+      getBase64Codec: () => ({ encode: () => new Uint8Array([0]) }),
+      getTransactionDecoder: () => ({ decode: () => ({ messageBytes: new Uint8Array([0]) }) }),
+      getCompiledTransactionMessageDecoder: () => ({ decode: () => fakeMessage }),
+    }));
+    const { extractPaymentSigner: freshExtract } = await import(
+      `../src/signer?solana-tx=${freshImportKey()}`
+    );
+    const req = makeRequest({ authorization: 'Payment mpp-cred' });
+    const result = await freshExtract(req);
+    expect(result).toEqual({ address: SOLANA_SIGNER, network: 'solana' });
+    vi.doUnmock('mppx');
+    vi.doUnmock('@solana/kit');
+  });
+
+  it('returns null on push-mode Solana credentials (payload.type=signature, no tx to decode)', async () => {
+    vi.doMock('mppx', () => ({
+      Credential: {
+        extractPaymentScheme: () => true,
+        fromRequest: () => ({
+          payload: { signature: 'sigBytes', type: 'signature' },
+        }),
+      },
+    }));
+    const { extractPaymentSigner: freshExtract } = await import(
+      `../src/signer?solana-push=${freshImportKey()}`
+    );
+    const req = makeRequest({ authorization: 'Payment mpp-cred' });
+    expect(await freshExtract(req)).toBeNull();
+    vi.doUnmock('mppx');
+  });
+
   it('returns null when the MPP credential source is not a did:pkh:eip155 shape', async () => {
     vi.doMock('mppx', () => ({
       Credential: {
