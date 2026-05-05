@@ -257,7 +257,7 @@ app.post("/purchase", async (c) => {
     const verified = await verifyX402Request({
       request: c.req.raw,
       isCachedAddress: piCache.hasAddress,
-      acceptedNetworks: { base: X402_BASE, svm: X402_SVM },
+      acceptedNetwork: X402_BASE,
     });
     if (!verified.ok) return c.json(verified.body, verified.status);
 

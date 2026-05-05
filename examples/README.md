@@ -4,9 +4,9 @@ Runnable, copy-pasteable example integrations covering the most common merchant 
 
 | Example | Scenario | What it shows |
 |---|---|---|
-| [`api-provider.ts`](./api-provider.ts) | API provider (Exa-style) | Per-call billing on multiple rails: Tempo MPP + x402 (Base + Solana). No identity gate, no compliance — pay-or-fail. |
+| [`api-provider.ts`](./api-provider.ts) | API provider (Exa-style) | Per-call billing on multiple rails: Tempo MPP + x402 Base + Solana MPP. No identity gate, no compliance; pay-or-fail. |
 | [`identity-only.ts`](./identity-only.ts) | Compliance gate without payment | Wraps any endpoint with KYC + age + jurisdiction checks; vendor handles their own payment |
-| [`multi-rail-merchant.ts`](./multi-rail-merchant.ts) | Full agent-commerce merchant | Identity gate + Tempo MPP + x402 Base + x402 Solana + Stripe SPT, all rails accepted, full 402 builder |
+| [`multi-rail-merchant.ts`](./multi-rail-merchant.ts) | Full agent-commerce merchant | Identity gate + Tempo MPP + x402 Base + Solana MPP + Stripe SPT, all rails accepted, full 402 builder |
 | [`stripe-multichain-merchant.ts`](./stripe-multichain-merchant.ts) | Stripe-anchored multi-chain | Stripe PaymentIntent with deposit_options for tempo/base/solana; crypto deposits flow through Stripe |
 | [`variable-cost-merchant.ts`](./variable-cost-merchant.ts) | Pay-per-actual-usage (LLM, transcode, etc.) | Same use case on **two protocols**: x402 upto (Permit2 authorize-max → Settlement-Overrides settle-actual) AND MPP tempo session (channel + SSE + mid-stream vouchers). Vendor offers both so agents pick whichever their wallet supports. |
 | [`compliance-merchant.ts`](./compliance-merchant.ts) | Regulated-goods merchant (wine, cannabis, etc.) | Full compliance gate (KYC + sanctions + age + jurisdiction) + custom `onDenied` composing commerce helpers: `verificationAgentInstructions`, `isFixableDenial`, `buildContactSupportNextSteps`, `denialReasonToBody`/`denialReasonStatus`, `buildSignerMismatchBody`. Shows how vendors write only the business-specific branches and let commerce handle the rest. |

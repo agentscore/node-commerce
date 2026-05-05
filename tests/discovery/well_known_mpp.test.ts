@@ -33,7 +33,7 @@ describe('buildWellKnownMpp', () => {
       endpoints: {},
       purchase: {
         methods: ['tempo', 'x402', 'stripe'],
-        x402: { networks: ['base', 'solana'], scheme: 'exact', asset: 'USDC' },
+        x402: { networks: ['base'], scheme: 'exact', asset: 'USDC' },
         identity_paths: {
           wallet: { header: 'X-Wallet-Address', applies_to_rails: ['tempo', 'x402'] },
           operator_token: { header: 'X-Operator-Token', applies_to_rails: ['tempo', 'x402', 'stripe'] },
@@ -42,7 +42,7 @@ describe('buildWellKnownMpp', () => {
       },
     });
     const purchase = manifest.purchase as Record<string, unknown>;
-    expect(purchase.x402).toEqual({ networks: ['base', 'solana'], scheme: 'exact', asset: 'USDC' });
+    expect(purchase.x402).toEqual({ networks: ['base'], scheme: 'exact', asset: 'USDC' });
     expect(purchase.identity_paths).toBeDefined();
     expect(purchase.compliance).toEqual({ require_kyc: true, min_age: 21, allowed_jurisdictions: ['US'] });
   });

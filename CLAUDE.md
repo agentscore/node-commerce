@@ -40,7 +40,7 @@ Peer-dep pattern: payment/x402/mppx/stripe modules `dynamic import` at runtime â
 
 | Example | Scenario |
 |---|---|
-| `api-provider.ts` | Per-call API billing on multiple rails: Tempo MPP + x402 (Base + Solana); no compliance gate |
+| `api-provider.ts` | Per-call API billing on multiple rails: Tempo MPP + x402 Base + Solana MPP; no compliance gate |
 | `identity-only.ts` | Compliance gate without payment (vendor handles their own) |
 | `multi-rail-merchant.ts` | Full agent-commerce: identity + Tempo MPP + x402 + Stripe SPT |
 | `stripe-multichain-merchant.ts` | Stripe-anchored multichain (PaymentIntent â†’ tempo/base/solana deposit addresses) |
