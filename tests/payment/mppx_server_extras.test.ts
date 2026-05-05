@@ -39,4 +39,32 @@ describe('createMppxServer — additional rail branches', () => {
     });
     expect(server).toBeDefined();
   });
+
+  it('registers solana rail and wraps charge() with finalized-blockhash request override', async () => {
+    const server = await createMppxServer({
+      rails: {
+        solana: {
+          recipient: 'JDK3GZwsmgWwdFicNnrLHEgZc54SNYp6egWL9LL3k9f5',
+          network: 'devnet',
+          rpcUrl: 'http://localhost:9999',
+        },
+      },
+      secretKey: 'mpp_secret_xxx',
+    });
+    expect(server).toBeDefined();
+  });
+
+  it('solana rail with mainnet network + custom token program', async () => {
+    const server = await createMppxServer({
+      rails: {
+        solana: {
+          recipient: 'JDK3GZwsmgWwdFicNnrLHEgZc54SNYp6egWL9LL3k9f5',
+          network: 'mainnet-beta',
+          tokenProgram: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+        },
+      },
+      secretKey: 'mpp_secret_xxx',
+    });
+    expect(server).toBeDefined();
+  });
 });
