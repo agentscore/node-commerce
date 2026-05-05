@@ -58,15 +58,30 @@ async function extractSolanaSignerFromCredential(credential: unknown): Promise<s
     const decoded = kit.getTransactionDecoder().decode(txBytes);
     const message = kit.getCompiledTransactionMessageDecoder().decode(decoded.messageBytes);
 
+    // SPL TransferChecked accounts: [source ATA, mint, destination ATA, authority, ...signers].
+    // Returns the FIRST matched authority. For multi-recipient `splits` txs, the buyer
+    // signs ONE tx with N TransferChecked instructions all sharing the same authority,
+    // so first-match is correct; if a tx ever surfaces with mismatched authorities the
+    // first one wins (acceptable since both belong to whoever signed the tx).
     for (const ix of message.instructions) {
       const programId = message.staticAccounts[ix.programAddressIndex];
       if (programId !== TOKEN_PROGRAM && programId !== TOKEN_2022_PROGRAM) continue;
       const data = ix.data;
       if (!data || data.length === 0 || data[0] !== TRANSFER_CHECKED_DISCRIMINATOR) continue;
-      // SPL TransferChecked accounts: [source ATA, mint, destination ATA, authority, ...signers]
       const accountIndices = ix.accountIndices ?? [];
       const authorityIndex = accountIndices[3];
       if (authorityIndex === undefined) continue;
+      // v0 transactions can carry account indices that resolve via address lookup tables;
+      // staticAccounts only holds the static set. If the index is out of range, the
+      // authority sits in a lookup table we'd need RPC to resolve. Skip cleanly with a
+      // warning rather than returning the wrong address.
+      if (authorityIndex >= message.staticAccounts.length) {
+        console.warn(
+          '[gate] Solana TransferChecked authority resolves through an address lookup table; ' +
+            'signer-match recovery requires the static-account form. Skipping.',
+        );
+        continue;
+      }
       const authority = message.staticAccounts[authorityIndex];
       if (authority) return authority;
     }

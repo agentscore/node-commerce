@@ -58,7 +58,7 @@ Denial reason codes: `missing_identity`, `identity_verification_required`, `toke
 
 Captured wallets: `captureWallet(ctx, { walletAddress, network, idempotencyKey })` is fire-and-forget — reads `operator_token` stashed during gating and POSTs to `/v1/credentials/wallets`. No-ops for wallet-authenticated requests.
 
-Wallet-signer-match: `verifyWalletSignerMatch(ctx, { signer, network })` makes a single `/v1/assess` call with `resolve_signer` set; the API resolves both wallets and emits a `signer_match` verdict in the same response — collapses the legacy 2 follow-up assess calls into one round trip. Repeat lookups for the same `(claimed, signer)` pair hit a per-cache-entry `signerMatchBySigner` sub-map and skip the API entirely. Falls back to a 2-resolve path when the API doesn't emit `signer_match` (canary rollout safety).
+Wallet-signer-match: `verifyWalletSignerMatch(ctx, { signer, network })` makes a single `/v1/assess` call with `resolve_signer` set; the API resolves both wallets and emits a `signer_match` verdict in the same response — collapses the legacy 2 follow-up assess calls into one round trip. Repeat lookups for the same `(claimed, signer)` pair hit a per-cache-entry `signerMatchBySigner` sub-map and skip the API entirely. Falls back to a 2-resolve path when the API doesn't emit `signer_match` (canary rollout safety). Signer recovery covers x402 EIP-3009 (EVM `from` address), Tempo MPP (`did:pkh:eip155` source), and Solana MPP `solana/charge` (via `did:pkh:solana` source when set, otherwise by decoding the credential's signed-tx payload to read the SPL `TransferChecked` authority — pull mode only, requires the `@solana/kit` optional peer).
 
 ### Fail-open (opt-in)
 

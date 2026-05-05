@@ -95,7 +95,10 @@ const directives = [
 ];
 const wwwAuth = wwwAuthenticateHeader(directives);
 
-// Recover the on-chain signer from the inbound credential — returns {address, network}
+// Recover the on-chain signer from the inbound credential — returns {address, network}.
+// Covers x402 EIP-3009 (EVM `from` address), Tempo MPP (`did:pkh:eip155` source),
+// and Solana MPP `solana/charge` (via `did:pkh:solana` source when set, else by
+// decoding the credential's signed-tx payload — `@solana/kit` optional peer).
 const signer = await extractPaymentSigner(req, req.headers.get("x-payment") ?? undefined);
 ```
 
