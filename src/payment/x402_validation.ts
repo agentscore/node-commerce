@@ -145,7 +145,7 @@ export async function verifyX402Request(input: VerifyX402RequestInput): Promise<
   const signedPayTo = payload.accepted?.payTo;
 
   if (!signedNetwork || signedNetwork !== input.acceptedNetwork) {
-    if (signedNetwork && signedNetwork.startsWith('solana:')) {
+    if (signedNetwork && signedNetwork.toLowerCase().startsWith('solana:')) {
       return {
         ok: false,
         status: 400,
