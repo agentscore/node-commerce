@@ -145,6 +145,16 @@ export async function verifyX402Request(input: VerifyX402RequestInput): Promise<
   const signedPayTo = payload.accepted?.payTo;
 
   if (!signedNetwork || signedNetwork !== input.acceptedNetwork) {
+    if (signedNetwork && signedNetwork.startsWith('solana:')) {
+      return {
+        ok: false,
+        status: 400,
+        body: regenerateBody(
+          `x402 on ${signedNetwork} is not accepted; Solana payments must use the \`solana/charge\` rail advertised in the 402 challenge. This server accepts x402 on ${input.acceptedNetwork} only.`,
+          'Solana payments are not accepted over x402 at this merchant. Pick the `solana/charge` rail from the 402 challenge and re-sign.',
+        ),
+      };
+    }
     return {
       ok: false,
       status: 400,

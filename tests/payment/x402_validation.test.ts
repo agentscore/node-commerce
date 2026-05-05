@@ -109,7 +109,13 @@ describe('verifyX402Request', () => {
       acceptedNetwork,
     });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.body.error.message).toContain('Unsupported x402 network');
+    // Solana credentials get a behavior-only recovery hint pointing at the
+    // `solana/charge` rail. No internal terminology, no CLI vendor references.
+    if (!res.ok) {
+      expect(res.body.error.message).toContain('Solana');
+      expect(res.body.error.message).toContain('`solana/charge`');
+      expect(res.body.next_steps.user_message).toContain('solana/charge');
+    }
   });
 
   it('returns ok:false when payTo is malformed for EVM (wrong length)', async () => {

@@ -39,6 +39,25 @@ describe('buildAgentInstructions', () => {
     expect(stripeOnly.recommended_tools).toEqual([]);
   });
 
+  it('appends extraWarnings to defaults', () => {
+    const instructions = buildAgentInstructions({
+      howToPay: { tempo: { prerequisite: 'x', instructions: 'y' }, x402_base: { prerequisite: 'x', instructions: 'y' } },
+      extraWarnings: ['Solana unavailable for this order; use base or tempo.'],
+    });
+    expect(instructions.warnings.length).toBe(3);
+    expect(instructions.warnings[0]).toContain('tempo wallet transfer');
+    expect(instructions.warnings[2]).toContain('Solana unavailable');
+  });
+
+  it('extraWarnings is ignored when warnings is set explicitly', () => {
+    const instructions = buildAgentInstructions({
+      howToPay: { tempo: { prerequisite: 'x', instructions: 'y' } },
+      warnings: ['custom only'],
+      extraWarnings: ['ignored'],
+    });
+    expect(instructions.warnings).toEqual(['custom only']);
+  });
+
   it('overrides defaults when vendor passes them', () => {
     const instructions = buildAgentInstructions({
       howToPay: {},
