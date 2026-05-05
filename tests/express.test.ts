@@ -1184,7 +1184,7 @@ describe('agentscoreGate middleware — createSessionOnMissing', () => {
       apiKey: API_KEY,
       createSessionOnMissing: {
         apiKey: 'ask_session_key',
-        context: 'wine purchase',
+        context: 'product purchase',
         productName: 'Cabernet Reserve 2021',
       },
     });
@@ -1197,7 +1197,7 @@ describe('agentscoreGate middleware — createSessionOnMissing', () => {
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const body = JSON.parse(fetchCall[1].body as string);
     expect(body).toEqual({
-      context: 'wine purchase',
+      context: 'product purchase',
       product_name: 'Cabernet Reserve 2021',
     });
   });

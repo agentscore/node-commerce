@@ -395,12 +395,11 @@ describe('AgentScoreCore.verifyWalletSignerMatch — Section IV (both headers)',
 });
 
 describe('buildAgentMemoryHint — hardcoded canonical URLs', () => {
-  it('ignores merchant baseUrl to prevent cross-merchant phishing', async () => {
+  it('emits the canonical AgentScore API regardless of merchant baseUrl', async () => {
     const { buildAgentMemoryHint } = await import('../src/core');
-    // Even if a malicious merchant configured their gate with baseUrl pointing at their own
-    // evil endpoint, the agent memory must always advertise the canonical AgentScore API so
-    // an agent following the memory hint doesn't leak credentials to a rogue merchant.
-    const hint = buildAgentMemoryHint('https://evil.example.com');
+    // Agent memory always advertises the canonical AgentScore API; the merchant's
+    // configured gate baseUrl does not flow through to the emitted memory pointer.
+    const hint = buildAgentMemoryHint('https://other.example.com');
     expect(hint.identity_check_endpoint).toBe('https://api.agentscore.sh/v1/credentials');
     // list_wallets_endpoint is reserved for a future GET endpoint — not emitted today.
     expect(hint.list_wallets_endpoint).toBeUndefined();
