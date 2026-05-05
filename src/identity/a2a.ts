@@ -19,7 +19,7 @@ import type { AgentScoreData } from '../core';
 export interface A2AAgentCardCapabilities {
   /** Endpoints the agent exposes — `[{ name: "purchase", path: "/purchase", method: "POST" }, ...]`. */
   endpoints?: { name: string; path?: string; method?: string }[];
-  /** Free-form skill tags — `["wine-purchase", "regulated-commerce", ...]`. */
+  /** Free-form skill tags — `["product-purchase", "regulated-commerce", ...]`. */
   skills?: string[];
 }
 
@@ -62,7 +62,7 @@ export interface A2AAgentCard {
 }
 
 export interface BuildA2AAgentCardInput {
-  /** Display name for the agent — `"Martin Estate Wine Concierge"`, etc. */
+  /** Display name for the agent — e.g. a merchant brand or service name. */
   name: string;
   /** Optional one-line description. */
   description?: string;
@@ -100,12 +100,12 @@ const CARD_VERSION = 1;
  * app.get('/.well-known/agent-card', async (c) => {
  *   const data = getAgentScoreData(c);
  *   const card = buildA2AAgentCard({
- *     name: 'Martin Estate Wine Concierge',
- *     description: 'Buy regulated wines from Martin Estate via agent payments.',
- *     url: 'https://agents.martinestate.com',
+ *     name: 'Example Merchant Concierge',
+ *     description: 'Buy regulated goods via agent payments.',
+ *     url: 'https://agents.example.com',
  *     capabilities: {
  *       endpoints: [{ name: 'purchase', path: '/purchase', method: 'POST' }],
- *       skills: ['wine-purchase', 'regulated-commerce'],
+ *       skills: ['product-purchase', 'regulated-commerce'],
  *     },
  *     data,
  *   });

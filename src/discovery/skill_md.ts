@@ -37,7 +37,7 @@ export interface SkillMdLink {
 export interface BuildSkillMdInput {
   /** Skill manifest identifier — kebab-case per agentskills.io spec: 1-64 chars, lowercase
    *  alphanumeric + hyphens, no leading/trailing/consecutive hyphens. Validated at build
-   *  time; invalid names throw. e.g. 'martin-estate-wine-commerce'. */
+   *  time; invalid names throw. e.g. 'example-merchant-commerce'. */
   name: string;
   /** Skill description — agentskills.io spec: 1-1024 chars, non-empty. Should describe both
    *  what the skill does AND when to use it; imperative phrasing recommended ("Use when…").
@@ -63,7 +63,7 @@ export interface BuildSkillMdInput {
    *  `metadata:`. Spec requires string values. */
   metadata?: Record<string, string | number>;
 
-  /** Human display name (e.g. "Martin Estate Winery"). */
+  /** Human display name (e.g. "Example Merchant"). */
   merchantName: string;
   /** Optional one-line tagline appearing under the title. */
   tagline?: string;

@@ -163,7 +163,7 @@ function llmsTxtPaymentSectionVerbose(input: LlmsTxtPaymentSectionInput): string
     lines.push('');
   }
 
-  lines.push('IMPORTANT: Use the CLIs above. Raw on-chain transfers (e.g. `tempo wallet transfer`, sending USDC manually to deposit addresses) bypass the protocol handshake and the order stays in pending_identity.');
+  lines.push('IMPORTANT: Use the CLIs above. Raw on-chain transfers (e.g. `tempo wallet transfer`, sending USDC manually to deposit addresses) bypass the protocol handshake and the order will not complete.');
   if (hasBase || hasSolana) {
     lines.push('IMPORTANT: Pay the exact amount in the 402 challenge. Overpayments and underpayments cannot be matched.');
   }
