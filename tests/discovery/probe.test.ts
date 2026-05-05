@@ -103,7 +103,9 @@ describe('sampleX402AcceptForNetwork', () => {
       asset: USDC.base.mainnet.address,
       payTo: '0x0000000000000000000000000000000000000000',
       maxTimeoutSeconds: 300,
-      extra: { name: 'USDC', version: '2' },
+      // Base mainnet USDC contract returns ``name() == "USD Coin"``;
+      // ``extra.name`` mirrors that for EIP-712 domain-hash parity.
+      extra: { name: 'USD Coin', version: '2' },
     });
   });
 
@@ -112,6 +114,7 @@ describe('sampleX402AcceptForNetwork', () => {
     expect(a?.network).toBe(networks.base.sepolia.caip2);
     expect(a?.asset).toBe(USDC.base.sepolia.address);
     expect(a?.amount).toBe('500000');
+    // Base sepolia USDC returns ``name() == "USDC"`` (different from mainnet).
     expect(a?.extra).toEqual({ name: 'USDC', version: '2' });
   });
 

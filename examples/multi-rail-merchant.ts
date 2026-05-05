@@ -44,10 +44,10 @@ import {
 import { agentscoreGate, getAgentScoreData } from '@agent-score/commerce/identity/hono';
 import {
   createMppxServer,
+  buildX402AcceptsFor402,
   createX402Server,
   networks,
   processX402Settle,
-  USDC,
   validateX402NetworkConfig,
   verifyX402Request,
 } from '@agent-score/commerce/payment';
@@ -251,16 +251,16 @@ app.post('/purchase', async (c) => {
       },
       x402: {
         x402Version: 2,
-        accepts: [
-          {
-            scheme: 'exact',
-            network: X402_BASE_NETWORK,
-            amount: String(Math.round(Number(totalUsd) * 1_000_000)),
-            asset: USDC.base.mainnet.address,
-            payTo: depositAddresses.base,
-            maxTimeoutSeconds: 300,
-          },
-        ],
+        // Build the accept via the registered x402 scheme — fills in `extra` (incl.
+        // the network-correct USDC `name`) so agents can sign EIP-712 against the
+        // right domain. Hardcoding `extra` is the trap that breaks every signature
+        // verify on base mainnet (USDC contract returns "USD Coin", not "USDC").
+        accepts: await buildX402AcceptsFor402(x402Server, {
+          network: X402_BASE_NETWORK,
+          price: `$${totalUsd}`,
+          payTo: depositAddresses.base,
+          maxTimeoutSeconds: 300,
+        }),
         resource: { url: c.req.url, mimeType: 'application/json' },
       },
     });

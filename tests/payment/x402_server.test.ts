@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createX402Server } from '../../src/payment/x402_server';
+import { buildX402AcceptsFor402, createX402Server } from '../../src/payment/x402_server';
 
 describe('createX402Server', () => {
   it('returns an x402ResourceServer with HTTP facilitator by default', async () => {
@@ -49,5 +49,91 @@ describe('createX402Server', () => {
       initialize: false,
     });
     expect(server).toBeDefined();
+  });
+});
+
+describe('buildX402AcceptsFor402', () => {
+  it('passes the resource-config kwargs to server.buildPaymentRequirements and returns its array', async () => {
+    let captured: { config?: Record<string, unknown>; extensions?: unknown } = {};
+    const fakeServer = {
+      register: () => {},
+      registerExtension: () => {},
+      initialize: async () => {},
+      buildPaymentRequirements: async (config: Record<string, unknown>, extensions?: unknown) => {
+        captured = { config, extensions };
+        return [
+          {
+            scheme: 'exact',
+            network: config.network,
+            amount: '100000',
+            asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+            payTo: config.payTo,
+            maxTimeoutSeconds: config.maxTimeoutSeconds ?? 300,
+            extra: { name: 'USD Coin', version: '2' },
+          },
+        ];
+      },
+    } as never;
+
+    const accepts = await buildX402AcceptsFor402(fakeServer, {
+      network: 'eip155:8453',
+      price: '$0.10',
+      payTo: '0x000000000000000000000000000000000000dEaD',
+    });
+    // Defaults applied: scheme=exact, maxTimeoutSeconds=300
+    expect(captured.config).toEqual({
+      scheme: 'exact',
+      network: 'eip155:8453',
+      price: '$0.10',
+      payTo: '0x000000000000000000000000000000000000dEaD',
+      maxTimeoutSeconds: 300,
+    });
+    expect(captured.extensions).toBeUndefined();
+    expect(Array.isArray(accepts)).toBe(true);
+    expect(accepts).toHaveLength(1);
+    const accept = accepts[0] as Record<string, unknown>;
+    expect(accept.network).toBe('eip155:8453');
+    expect(accept.payTo).toBe('0x000000000000000000000000000000000000dEaD');
+    expect(accept.extra).toEqual({ name: 'USD Coin', version: '2' });
+  });
+
+  it('honours scheme + maxTimeoutSeconds + extensions when supplied', async () => {
+    let captured: { config?: Record<string, unknown>; extensions?: unknown } = {};
+    const fakeServer = {
+      register: () => {},
+      registerExtension: () => {},
+      initialize: async () => {},
+      buildPaymentRequirements: async (config: Record<string, unknown>, extensions?: unknown) => {
+        captured = { config, extensions };
+        return [];
+      },
+    } as never;
+
+    await buildX402AcceptsFor402(fakeServer, {
+      network: 'eip155:8453',
+      price: '$1.00',
+      payTo: '0xabc',
+      scheme: 'upto',
+      maxTimeoutSeconds: 600,
+      extensions: ['bazaar'],
+    });
+    expect(captured.config?.scheme).toBe('upto');
+    expect(captured.config?.maxTimeoutSeconds).toBe(600);
+    expect(captured.extensions).toEqual(['bazaar']);
+  });
+
+  it('returns an empty array when buildPaymentRequirements returns a non-array', async () => {
+    const fakeServer = {
+      register: () => {},
+      registerExtension: () => {},
+      initialize: async () => {},
+      buildPaymentRequirements: async () => null,
+    } as never;
+    const accepts = await buildX402AcceptsFor402(fakeServer, {
+      network: 'eip155:8453',
+      price: '$0.10',
+      payTo: '0xabc',
+    });
+    expect(accepts).toEqual([]);
   });
 });
