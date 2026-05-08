@@ -214,6 +214,12 @@ export async function signUCPProfile(
   const jose = await loadJose();
   const alg = opts.alg ?? 'EdDSA';
 
+  if (!ALLOWED_ALGS.includes(alg as AllowedAlg)) {
+    throw new Error(
+      `signUCPProfile: alg ${JSON.stringify(opts.alg)} is not in the supported set [${ALLOWED_ALGS.join(', ')}].`,
+    );
+  }
+
   // Sign-time kid sanity check: the profile's `signing_keys[]` MUST contain a
   // JWK with the matching kid; otherwise verifiers can't resolve the public
   // key and the profile is dead-on-arrival. Catch this at sign-time rather
@@ -255,6 +261,13 @@ export async function verifyUCPProfile(
   profile: SignedUCPProfile,
   jwks: JWKSResponse,
 ): Promise<boolean> {
+  if (profile === null || typeof profile !== 'object' || Array.isArray(profile)) {
+    throw new UCPVerificationError(
+      'no_signature',
+      `UCP profile must be a JSON object; got ${profile === null ? 'null' : Array.isArray(profile) ? 'array' : typeof profile}.`,
+    );
+  }
+
   const jose = await loadJose();
 
   // JWKS shape guard so a malformed argument emits a typed UCPVerificationError
@@ -302,9 +315,11 @@ export async function verifyUCPProfile(
             `UCP signature header kid must be a non-empty string; got ${kid === undefined ? 'undefined' : typeof kid}.`,
           );
         }
-        const matches = jwks.keys.filter((k) => (k as Record<string, unknown>).kid === kid);
-        if (matches.length === 0) throw new UCPVerificationError('kid_not_found', `No JWK in JWKS matching kid=${kid}.`);
-        if (matches.length > 1) throw new UCPVerificationError('duplicate_kid', `JWKS contains ${matches.length} keys with kid=${kid}; expected exactly one.`);
+        const matches = jwks.keys.filter(
+          (k) => k != null && typeof k === 'object' && (k as Record<string, unknown>).kid === kid,
+        );
+        if (matches.length === 0) throw new UCPVerificationError('kid_not_found', `No JWK in JWKS matching kid=${JSON.stringify(kid)}.`);
+        if (matches.length > 1) throw new UCPVerificationError('duplicate_kid', `JWKS contains ${matches.length} keys with kid=${JSON.stringify(kid)}; expected exactly one.`);
         // RFC 7517 §4.2: reject keys not intended for signature verification.
         const matchedKey = matches[0] as Record<string, unknown>;
         if (matchedKey.use !== undefined && matchedKey.use !== 'sig') {

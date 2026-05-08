@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildUCPProfile } from '../../src/identity/ucp';
+import { buildUCPProfile, ucpSigningKeyFromJWK } from '../../src/identity/ucp';
 import {
   buildJWKSResponse,
   generateUCPSigningKey,
@@ -360,5 +360,118 @@ describe('UCP signing — additional hardening', () => {
 
     await expect(verifyUCPProfile(signed as never, buildJWKSResponse([publicJWK])))
       .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'unrecognized_critical_header' });
+  });
+});
+
+describe('ucpSigningKeyFromJWK', () => {
+  it('round-trips an EdDSA public JWK from generateUCPSigningKey', async () => {
+    const { publicJWK } = await generateUCPSigningKey({ kid: 'rt-eddsa', alg: 'EdDSA' });
+    const result = ucpSigningKeyFromJWK(publicJWK as Record<string, unknown>);
+    const r = result as Record<string, unknown>;
+    expect(r.kid).toBe('rt-eddsa');
+    expect(r.kty).toBe('OKP');
+    expect(r.crv).toBe('Ed25519');
+    expect(r.alg).toBe('EdDSA');
+    expect(r.use).toBe('sig');
+    expect(typeof r.x).toBe('string');
+  });
+
+  it('round-trips an ES256 public JWK from generateUCPSigningKey', async () => {
+    const { publicJWK } = await generateUCPSigningKey({ kid: 'rt-es256', alg: 'ES256' });
+    const result = ucpSigningKeyFromJWK(publicJWK as Record<string, unknown>);
+    const r = result as Record<string, unknown>;
+    expect(r.kid).toBe('rt-es256');
+    expect(r.kty).toBe('EC');
+    expect(r.crv).toBe('P-256');
+    expect(r.alg).toBe('ES256');
+    expect(r.use).toBe('sig');
+    expect(typeof r.x).toBe('string');
+    expect(typeof r.y).toBe('string');
+  });
+
+  it('rejects symmetric oct keys', () => {
+    expect(() =>
+      ucpSigningKeyFromJWK({ kid: 'k', kty: 'oct', k: 'AAAA' }),
+    ).toThrow(/asymmetric/i);
+  });
+
+  it('rejects JWK missing kid', () => {
+    expect(() => ucpSigningKeyFromJWK({ kty: 'OKP' })).toThrow(/kid/);
+  });
+
+  it('rejects JWK missing kty', () => {
+    expect(() => ucpSigningKeyFromJWK({ kid: 'k' })).toThrow(/kty/);
+  });
+
+  it('rejects non-object inputs', () => {
+    expect(() => ucpSigningKeyFromJWK(null as never)).toThrow();
+    expect(() => ucpSigningKeyFromJWK('string' as never)).toThrow();
+    expect(() => ucpSigningKeyFromJWK(42 as never)).toThrow();
+  });
+});
+
+describe('UCP signing — round-4 hardening', () => {
+  it('rejects a JWK with use=enc as unusable_key', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'enc-key', alg: 'EdDSA' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'enc-key', alg: 'EdDSA' });
+    const badJWKS = { keys: [{ ...(publicJWK as Record<string, unknown>), use: 'enc' }] };
+    await expect(verifyUCPProfile(signed, badJWKS as never))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'unusable_key' });
+  });
+
+  it('rejects non-string signature values with no_signature', async () => {
+    const { publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    for (const badSig of [42, null, [], {}]) {
+      const tampered = { ...profile, signature: badSig as unknown as string };
+      await expect(verifyUCPProfile(tampered as never, buildJWKSResponse([publicJWK])))
+        .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'no_signature' });
+    }
+  });
+
+  it('returns kid_not_found when JWKS contains a null entry', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'real' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'real' });
+    const badJWKS = { keys: [null] };
+    await expect(verifyUCPProfile(signed, badJWKS as never))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'kid_not_found' });
+  });
+
+  it('returns kid_not_found when JWKS contains a string entry', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'real' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'real' });
+    const badJWKS = { keys: ['string-not-jwk'] };
+    await expect(verifyUCPProfile(signed, badJWKS as never))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'kid_not_found' });
+  });
+
+  it('rejects a JWS whose protected header decodes to a JSON array', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const { base64url } = await import('jose');
+    const { sign } = await import('node:crypto');
+
+    function ss(v: unknown): string {
+      if (v === null || typeof v !== 'object') return JSON.stringify(v);
+      if (Array.isArray(v)) return `[${v.map(ss).join(',')}]`;
+      const o = v as Record<string, unknown>;
+      return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${ss(o[k])}`).join(',')}}`;
+    }
+    const canonical = ss(profile);
+
+    const headerJson = JSON.stringify(['EdDSA', 'kid-x']);
+    const headerB64 = base64url.encode(new TextEncoder().encode(headerJson));
+    const payloadB64 = base64url.encode(new TextEncoder().encode(canonical));
+    const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+    const sigBytes = sign(null, data, privateKey as Parameters<typeof sign>[2]);
+    const sigB64 = base64url.encode(sigBytes);
+    const jws = `${headerB64}.${payloadB64}.${sigB64}`;
+    const signed = { ...profile, signature: jws };
+
+    await expect(verifyUCPProfile(signed as never, buildJWKSResponse([publicJWK])))
+      .rejects.toBeInstanceOf(UCPVerificationError);
   });
 });

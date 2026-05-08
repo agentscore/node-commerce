@@ -26,6 +26,7 @@ import {
   generateUCPSigningKey,
   signUCPProfile,
   type GeneratedUCPKey,
+  ucpSigningKeyFromJWK,
   UCPVerificationError,
   verifyUCPProfile,
 } from '@agent-score/commerce';
@@ -79,7 +80,7 @@ app.get('/.well-known/ucp', async (c) => {
     name: 'My Agent Service',
     services: [{ type: 'rest', url: 'https://agents.example.com' }],
     payment_handlers: [{ name: 'tempo', config: { recipient: '0xfeedface' } }],
-    signing_keys: [key.publicJWK],
+    signing_keys: [ucpSigningKeyFromJWK(key.publicJWK as Record<string, unknown>)],
   });
   const signed = await signUCPProfile(profile, {
     signingKey: key.privateKey,

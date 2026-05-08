@@ -210,7 +210,7 @@ const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: publ
 const jwks = buildJWKSResponse([publicJWK]);
 ```
 
-`verifyUCPProfile` enforces the JWS protected header `typ: "ucp-profile+jws"`, restricts `alg` to `EdDSA` / `ES256`, requires a `kid`, rejects duplicate kids in the JWKS, and compares the canonical body bytes against the JWS payload to catch swap-after-sign tampering. Failures throw `UCPVerificationError` with a discriminated `code` (`no_signature` / `missing_kid` / `kid_not_found` / `duplicate_kid` / `unsupported_alg` / `wrong_typ` / `signature_invalid` / `body_mismatch` / `malformed_jws`).
+`verifyUCPProfile` enforces the JWS protected header `typ: "ucp-profile+jws"`, restricts `alg` to `EdDSA` / `ES256`, requires a `kid`, rejects duplicate kids in the JWKS, and compares the canonical body bytes against the JWS payload to catch swap-after-sign tampering. Failures throw `UCPVerificationError` with a discriminated `code` (`no_signature` / `missing_kid` / `kid_not_found` / `duplicate_kid` / `unsupported_alg` / `wrong_typ` / `signature_invalid` / `body_mismatch` / `malformed_jws` / `malformed_jwks` / `unusable_key` / `unrecognized_critical_header`). `malformed_jwks` covers a JWKS argument that isn't a `{ keys: [...] }` document. `unusable_key` covers a matched JWK whose `use` is not `sig` (e.g. `enc`). `unrecognized_critical_header` covers a JWS whose `crit` header lists an extension the verifier doesn't understand (RFC 7515 §4.1.11).
 
 `signUCPProfile` rejects profiles containing non-integer `Number` values (cross-language float canonicalization is not stable; use decimal strings for monetary or fractional fields).
 
