@@ -199,15 +199,26 @@ const card = buildA2AAgentCard({ name, url, capabilities, data: assess });
 const profile = buildUCPProfile({ name, services, payment_handlers, signing_keys, data: assess });
 ```
 
-UCP §6 trust-mode requires profiles to carry a JWS signature backed by a JWKS at `/.well-known/jwks.json`. Sign + verify via the optional `jose` peer dep:
+UCP §6 trust-mode requires profiles to carry a JWS signature backed by a JWKS at `/.well-known/jwks.json`. Sign + verify via the optional `jose` peer dep (tested against jose v5.x; pin `jose@^5`):
 
 ```typescript
-import { buildJWKSResponse, generateUCPSigningKey, signUCPProfile, verifyUCPProfile } from "@agent-score/commerce";
+import { buildJWKSResponse, generateUCPSigningKey, signUCPProfile, verifyUCPProfile, UCPVerificationError } from "@agent-score/commerce";
 
 const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: "merchant-2026-05" });
+const profile = buildUCPProfile({ name, services, payment_handlers, signing_keys: [publicJWK] });
 const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: publicJWK.kid, alg: "EdDSA" });
 const jwks = buildJWKSResponse([publicJWK]);
 ```
+
+`verifyUCPProfile` enforces the JWS protected header `typ: "ucp-profile+jws"`, restricts `alg` to `EdDSA` / `ES256`, requires a `kid`, rejects duplicate kids in the JWKS, and compares the canonical body bytes against the JWS payload to catch swap-after-sign tampering. Failures throw `UCPVerificationError` with a discriminated `code` (`no_signature` / `missing_kid` / `kid_not_found` / `duplicate_kid` / `unsupported_alg` / `wrong_typ` / `signature_invalid` / `body_mismatch` / `malformed_jws`).
+
+`signUCPProfile` rejects profiles containing non-integer `Number` values (cross-language float canonicalization is not stable; use decimal strings for monetary or fractional fields).
+
+**HSM / KMS-backed signing.** `signingKey` accepts any `jose.KeyLike` — including remote signers wrapped via `createPrivateKey` from `node:crypto` for AWS KMS / GCP KMS asymmetric keys. The `signing_key` never has to leave the HSM.
+
+**Key rotation.** Mint a new key with a new `kid`, add the public JWK to your JWKS endpoint alongside the old one, then sign new profiles with the new key. Verifiers fetching the JWKS pick up both; any in-flight envelopes signed by the old key still verify until you remove that JWK from the JWKS. Drop the old JWK once your verifier-side cache TTL has elapsed.
+
+**Inline JWK in the profile vs separate JWKS endpoint.** UCP §6 mandates the separate `/.well-known/jwks.json` endpoint as the canonical trust source. The profile's `signing_keys[]` is informational; verifiers MUST resolve the kid against the JWKS (not the embedded copy), to prevent a swap-after-sign attack where a hostile actor replaces the inline key with their own.
 
 ACP (Stripe + OpenAI Agentic Commerce Protocol) is a transactional checkout protocol with no identity-publishing surface — ACP merchants integrate via the existing `build402Body` + `buildPaymentHeaders` + Stripe SPT rail.
 

@@ -4,6 +4,7 @@ import {
   buildJWKSResponse,
   generateUCPSigningKey,
   signUCPProfile,
+  UCPVerificationError,
   verifyUCPProfile,
 } from '../../src/identity/ucp-jwks';
 
@@ -129,5 +130,159 @@ describe('UCP signing — buildJWKSResponse', () => {
 
   it('handles empty key set', () => {
     expect(buildJWKSResponse([])).toEqual({ keys: [] });
+  });
+});
+
+describe('UCP signing — security: alg-confusion + typ + dup-kid', () => {
+  // RFC 8725 §3.1: a verifier MUST restrict accepted JWS algorithms to the
+  // set the application expects. A naive implementation that calls importJWK(jwk, header.alg)
+  // can be coerced into using HS256 (symmetric) with the public key as the secret —
+  // a hostile signing_keys[] entry then mints valid-looking signatures.
+  it('rejects HS256 signatures even when the JWKS contains an HS256 oct key', async () => {
+    const jose = await import('jose');
+    const sharedSecret = new Uint8Array(32).fill(0xab);
+    const ocJwk = {
+      kid: 'attacker',
+      kty: 'oct',
+      alg: 'HS256',
+      use: 'sig',
+      k: Buffer.from(sharedSecret).toString('base64url'),
+    };
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [ocJwk as never] });
+    const stripped = { ...profile } as Record<string, unknown>;
+    delete stripped.signature;
+    const sortedJson = (() => {
+      const sort = (v: unknown): unknown => {
+        if (v === null || typeof v !== 'object') return v;
+        if (Array.isArray(v)) return v.map(sort);
+        return Object.keys(v as Record<string, unknown>).sort().reduce<Record<string, unknown>>((acc, k) => {
+          acc[k] = sort((v as Record<string, unknown>)[k]);
+          return acc;
+        }, {});
+      };
+      return JSON.stringify(sort(stripped));
+    })();
+    const evilSig = await new jose.CompactSign(new TextEncoder().encode(sortedJson))
+      .setProtectedHeader({ alg: 'HS256', kid: 'attacker', typ: 'ucp-profile+jws' })
+      .sign(sharedSecret);
+    const tampered = { ...profile, signature: evilSig };
+    await expect(verifyUCPProfile(tampered as never, buildJWKSResponse([ocJwk as never])))
+      .rejects.toThrow(UCPVerificationError);
+  });
+
+  it('rejects a JWS with typ != "ucp-profile+jws"', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const jose = await import('jose');
+    const stripped = { ...profile } as Record<string, unknown>;
+    delete stripped.signature;
+    const sortedJson = (() => {
+      const sort = (v: unknown): unknown => {
+        if (v === null || typeof v !== 'object') return v;
+        if (Array.isArray(v)) return v.map(sort);
+        return Object.keys(v as Record<string, unknown>).sort().reduce<Record<string, unknown>>((acc, k) => {
+          acc[k] = sort((v as Record<string, unknown>)[k]);
+          return acc;
+        }, {});
+      };
+      return JSON.stringify(sort(stripped));
+    })();
+    const wrongTypSig = await new jose.CompactSign(new TextEncoder().encode(sortedJson))
+      .setProtectedHeader({ alg: 'EdDSA', kid: 'k', typ: 'JWT' })
+      .sign(privateKey as Parameters<typeof jose.CompactSign.prototype.sign>[0]);
+    await expect(
+      verifyUCPProfile({ ...profile, signature: wrongTypSig } as never, buildJWKSResponse([publicJWK])),
+    ).rejects.toThrow(/typ/);
+  });
+
+  it('rejects duplicate kids in the JWKS', async () => {
+    const a = await generateUCPSigningKey({ kid: 'dup' });
+    const b = await generateUCPSigningKey({ kid: 'dup' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [a.publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: a.privateKey, kid: 'dup' });
+    await expect(verifyUCPProfile(signed, buildJWKSResponse([a.publicJWK, b.publicJWK])))
+      .rejects.toThrow(/duplicate|2 keys/);
+  });
+
+  it('emits typed UCPVerificationError for body mismatch', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
+    const tampered = { ...signed, name: 'Different' };
+    await expect(verifyUCPProfile(tampered, buildJWKSResponse([publicJWK])))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'body_mismatch' });
+  });
+
+  it('emits typed UCPVerificationError for missing signature', async () => {
+    const { publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    await expect(verifyUCPProfile(profile as never, buildJWKSResponse([publicJWK])))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'no_signature' });
+  });
+
+  it('emits typed UCPVerificationError for kid not in JWKS', async () => {
+    const signer = await generateUCPSigningKey({ kid: 'signer' });
+    const other = await generateUCPSigningKey({ kid: 'other' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [signer.publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: signer.privateKey, kid: 'signer' });
+    await expect(verifyUCPProfile(signed, buildJWKSResponse([other.publicJWK])))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'kid_not_found' });
+  });
+
+  it('rejects malformed JWS (not three segments)', async () => {
+    const { publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const garbage = { ...profile, signature: 'not.a.jws' };
+    await expect(verifyUCPProfile(garbage as never, buildJWKSResponse([publicJWK])))
+      .rejects.toThrow();
+  });
+
+  it('rejects a tampered signature segment with valid header+payload', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
+    const segments = signed.signature.split('.');
+    // Flip last char of the signature segment.
+    const flipped = segments[2]!.slice(0, -1) + (segments[2]!.endsWith('A') ? 'B' : 'A');
+    const tampered = { ...signed, signature: `${segments[0]}.${segments[1]}.${flipped}` };
+    await expect(verifyUCPProfile(tampered, buildJWKSResponse([publicJWK])))
+      .rejects.toThrow();
+  });
+
+  it('signing twice with EdDSA is idempotent (deterministic signature)', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const a = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
+    const b = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
+    expect(a.signature).toBe(b.signature);
+  });
+
+  it('signing twice with ES256 produces different signatures but both verify', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k', alg: 'ES256' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const a = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k', alg: 'ES256' });
+    const b = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k', alg: 'ES256' });
+    expect(a.signature).not.toBe(b.signature);
+    expect(await verifyUCPProfile(a, buildJWKSResponse([publicJWK]))).toBe(true);
+    expect(await verifyUCPProfile(b, buildJWKSResponse([publicJWK]))).toBe(true);
+  });
+});
+
+describe('UCP signing — float canonicalization defense', () => {
+  it('throws when signing a profile that contains a non-integer Number anywhere', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    // Inject a float into extras-shaped data so the canonicalizer sees it.
+    (profile as unknown as Record<string, unknown>).extras = { rate: 0.0125 };
+    await expect(signUCPProfile(profile, { signingKey: privateKey, kid: 'k' }))
+      .rejects.toThrow(/non-integer Number/);
+  });
+
+  it('signing with integers + strings is fine', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    (profile as unknown as Record<string, unknown>).extras = { count: 7, label: 'wine' };
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
+    expect(await verifyUCPProfile(signed, buildJWKSResponse([publicJWK]))).toBe(true);
   });
 });

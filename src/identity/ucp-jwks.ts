@@ -58,7 +58,39 @@ export interface SignedUCPProfile extends UCPProfile {
   signature: string;
 }
 
-const JOSE_INSTALL_HINT = 'Install the optional peer dependency: `npm install jose@^5` (or `bun add jose`).';
+const JOSE_INSTALL_HINT = 'Install the optional peer dependency: `npm install jose@^5` (or `bun add jose`). Tested against jose v5.x.';
+
+/** UCP §6 + RFC 8725 §3.1 — restrict accepted JWS algorithms. Anything outside this
+ *  list (HS, RS, none, etc.) is rejected to prevent alg-confusion attacks where a
+ *  hostile JWK published in the profile's signing_keys[] is used with an unintended
+ *  algorithm. */
+const ALLOWED_ALGS = ['EdDSA', 'ES256'] as const;
+type AllowedAlg = (typeof ALLOWED_ALGS)[number];
+
+/** UCP §6.2 — JWS protected header `typ` value. Verifiers SHOULD enforce this to
+ *  prevent cross-protocol token reuse (RFC 8725 §3.11). */
+const UCP_TYP = 'ucp-profile+jws';
+
+/** Discriminated error class so consumers can branch on failure mode without
+ *  parsing message strings or importing jose internals. */
+export class UCPVerificationError extends Error {
+  constructor(
+    public readonly code:
+      | 'no_signature'
+      | 'missing_kid'
+      | 'kid_not_found'
+      | 'duplicate_kid'
+      | 'unsupported_alg'
+      | 'wrong_typ'
+      | 'signature_invalid'
+      | 'body_mismatch'
+      | 'malformed_jws',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'UCPVerificationError';
+  }
+}
 
 async function loadJose(): Promise<typeof import('jose')> {
   try {
@@ -86,8 +118,17 @@ function canonicalizeProfile(profile: UCPProfile): string {
   return stableStringify(stripped);
 }
 
-/** Deterministic JSON.stringify with lexicographic key ordering at every level. */
+/** Deterministic JSON.stringify with lexicographic key ordering at every level.
+ *  Throws on non-integer Number values — UCP profiles don't carry floats and
+ *  cross-language float canonicalization (RFC 8785 §3.2.2.3) would diverge between
+ *  Node's JSON.stringify and Python's json.dumps. Defensive: catch the
+ *  drift at sign-time rather than at verifier-time in production. */
 function stableStringify(value: unknown): string {
+  if (typeof value === 'number' && !Number.isInteger(value) && Number.isFinite(value)) {
+    throw new Error(
+      `UCP profile canonicalization rejects non-integer Number ${value}. Use a decimal string (e.g. "9.99") for monetary or fractional fields to preserve cross-language byte-parity.`,
+    );
+  }
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   const obj = value as Record<string, unknown>;
@@ -192,18 +233,48 @@ export async function verifyUCPProfile(
   const stripped = { ...profile } as Partial<SignedUCPProfile>;
   const sig = stripped.signature;
   delete stripped.signature;
-  if (!sig) throw new Error('UCP profile has no `signature` field; expected JWS Compact Serialization.');
+  if (!sig) throw new UCPVerificationError('no_signature', 'UCP profile has no `signature` field; expected JWS Compact Serialization.');
 
   const canonicalBody = canonicalizeProfile(stripped as UCPProfile);
   const expectedPayload = new TextEncoder().encode(canonicalBody);
 
-  const { payload: signedPayload } = await jose.compactVerify(sig, async (header) => {
-    const kid = header.kid;
-    if (!kid) throw new Error('UCP signature header missing `kid`.');
-    const jwk = jwks.keys.find((k) => (k as Record<string, unknown>).kid === kid);
-    if (!jwk) throw new Error(`No JWK in JWKS matching kid=${kid}.`);
-    return jose.importJWK(jwk as Parameters<typeof jose.importJWK>[0], header.alg);
-  });
+  let signedPayload: Uint8Array;
+  try {
+    const verified = await jose.compactVerify(
+      sig,
+      async (header) => {
+        // RFC 8725 §3.1 — restrict to allow-listed algorithms before key resolution
+        // so a hostile JWK can never be used with HS256/none/RS256/etc.
+        if (!ALLOWED_ALGS.includes(header.alg as AllowedAlg)) {
+          throw new UCPVerificationError('unsupported_alg', `UCP signing alg must be one of ${ALLOWED_ALGS.join(', ')}; got ${String(header.alg)}.`);
+        }
+        // RFC 8725 §3.11 — enforce expected typ to prevent cross-protocol token reuse.
+        if (header.typ !== UCP_TYP) {
+          throw new UCPVerificationError('wrong_typ', `UCP signature typ must be "${UCP_TYP}"; got ${String(header.typ)}.`);
+        }
+        const kid = header.kid;
+        if (!kid) throw new UCPVerificationError('missing_kid', 'UCP signature header missing `kid`.');
+        const matches = jwks.keys.filter((k) => (k as Record<string, unknown>).kid === kid);
+        if (matches.length === 0) throw new UCPVerificationError('kid_not_found', `No JWK in JWKS matching kid=${kid}.`);
+        if (matches.length > 1) throw new UCPVerificationError('duplicate_kid', `JWKS contains ${matches.length} keys with kid=${kid}; expected exactly one.`);
+        return jose.importJWK(matches[0] as Parameters<typeof jose.importJWK>[0], header.alg);
+      },
+      { algorithms: [...ALLOWED_ALGS] },
+    );
+    signedPayload = verified.payload;
+  } catch (err) {
+    if (err instanceof UCPVerificationError) throw err;
+    if (err instanceof Error && err.name === 'JOSEAlgNotAllowed') {
+      throw new UCPVerificationError('unsupported_alg', `UCP signing alg not allowed: ${err.message}`);
+    }
+    if (err instanceof Error && err.name === 'JWSSignatureVerificationFailed') {
+      throw new UCPVerificationError('signature_invalid', `UCP signature verification failed: ${err.message}`);
+    }
+    if (err instanceof Error && err.name === 'JWSInvalid') {
+      throw new UCPVerificationError('malformed_jws', `Malformed JWS: ${err.message}`);
+    }
+    throw err;
+  }
 
   // Compare the bytes that were actually signed against the canonical body of the
   // profile we received. `compactVerify` validates the JWS against the bytes embedded
@@ -211,7 +282,7 @@ export async function verifyUCPProfile(
   // signing while the JWS stayed unchanged. Body-vs-payload comparison closes that
   // gap.
   if (!constantTimeEqual(signedPayload, expectedPayload)) {
-    throw new Error('UCP profile body does not match the signed payload (tampered or non-canonical).');
+    throw new UCPVerificationError('body_mismatch', 'UCP profile body does not match the signed payload (tampered or non-canonical).');
   }
 
   return true;

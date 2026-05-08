@@ -48,6 +48,7 @@ export {
   type SignUCPProfileOptions,
   type SignedUCPProfile,
   signUCPProfile,
+  UCPVerificationError,
   verifyUCPProfile,
 } from './identity/ucp-jwks';
 export {
