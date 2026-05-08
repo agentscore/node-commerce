@@ -39,7 +39,8 @@ let cached: Promise<GeneratedUCPKey> | null = null;
 
 function loadSigningKey(): Promise<GeneratedUCPKey> {
   // Cache the in-flight Promise (not the resolved value) so two concurrent
-  // first-callers can't independently generate different keys.
+  // first-callers can't independently generate different keys. On rejection
+  // the cache clears so the next caller retries.
   if (cached) return cached;
   cached = (async () => {
     const envJwk = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
@@ -63,7 +64,10 @@ function loadSigningKey(): Promise<GeneratedUCPKey> {
     }
     console.warn('[ucp] UCP_SIGNING_KEY_JWK_PRIVATE not set — generating ephemeral key. Verifier caches will break across restarts.');
     return generateUCPSigningKey({ kid: KID, alg: ALG });
-  })();
+  })().catch((err) => {
+    cached = null;
+    throw err;
+  });
   return cached;
 }
 

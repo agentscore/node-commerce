@@ -84,7 +84,10 @@ export class UCPVerificationError extends Error {
       | 'wrong_typ'
       | 'signature_invalid'
       | 'body_mismatch'
-      | 'malformed_jws',
+      | 'malformed_jws'
+      | 'malformed_jwks'
+      | 'unrecognized_critical_header'
+      | 'unusable_key',
     message: string,
   ) {
     super(message);
@@ -119,15 +122,25 @@ function canonicalizeProfile(profile: UCPProfile): string {
 }
 
 /** Deterministic JSON.stringify with lexicographic key ordering at every level.
- *  Throws on non-integer Number values — UCP profiles don't carry floats and
- *  cross-language float canonicalization (RFC 8785 §3.2.2.3) would diverge between
- *  Node's JSON.stringify and Python's json.dumps. Defensive: catch the
- *  drift at sign-time rather than at verifier-time in production. */
+ *  Rejects ANY non-finite Number (NaN, Infinity, -Infinity) and any Number
+ *  whose value has a fractional part OR whose JSON representation may diverge
+ *  cross-language. Cross-language float canonicalization (RFC 8785 §3.2.2.3)
+ *  is not stable between Node's JSON.stringify and Python's json.dumps
+ *  (e.g. `1.0` → `1` vs `1.0`, `1e-7` → `1e-7` vs `1e-07`). UCP profiles
+ *  must use decimal strings for monetary or fractional fields to preserve
+ *  byte parity with the Python sibling. */
 function stableStringify(value: unknown): string {
-  if (typeof value === 'number' && !Number.isInteger(value) && Number.isFinite(value)) {
-    throw new Error(
-      `UCP profile canonicalization rejects non-integer Number ${value}. Use a decimal string (e.g. "9.99") for monetary or fractional fields to preserve cross-language byte-parity.`,
-    );
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new Error(
+        `UCP profile canonicalization rejects non-finite Number ${value}. Use a decimal string for any value that may be NaN/Infinity.`,
+      );
+    }
+    if (!Number.isInteger(value)) {
+      throw new Error(
+        `UCP profile canonicalization rejects non-integer Number ${value}. Use a decimal string (e.g. "9.99") for monetary or fractional fields to preserve cross-language byte-parity.`,
+      );
+    }
   }
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
@@ -148,7 +161,7 @@ function stableStringify(value: unknown): string {
  *
  * Example:
  * ```ts
- * import { generateUCPSigningKey } from '@agent-score/commerce/identity/ucp-jwks';
+ * import { generateUCPSigningKey } from '@agent-score/commerce';
  *
  * const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'merchant-2026-05' });
  * // Persist privateKey securely (env var, KMS, secret manager).
@@ -201,11 +214,22 @@ export async function signUCPProfile(
   const jose = await loadJose();
   const alg = opts.alg ?? 'EdDSA';
 
+  // Sign-time kid sanity check: the profile's `signing_keys[]` MUST contain a
+  // JWK with the matching kid; otherwise verifiers can't resolve the public
+  // key and the profile is dead-on-arrival. Catch this at sign-time rather
+  // than at verifier-time in production.
+  const kids = (profile.signing_keys ?? []).map((k) => (k as Record<string, unknown>).kid);
+  if (!kids.includes(opts.kid)) {
+    throw new Error(
+      `signUCPProfile: kid ${JSON.stringify(opts.kid)} is not present in profile.signing_keys[] (declared kids: ${JSON.stringify(kids)}). Verifiers will not find the key.`,
+    );
+  }
+
   const canonicalBody = canonicalizeProfile(profile);
   const payloadBytes = new TextEncoder().encode(canonicalBody);
 
   const signature = await new jose.CompactSign(payloadBytes)
-    .setProtectedHeader({ alg, kid: opts.kid, typ: 'ucp-profile+jws' })
+    .setProtectedHeader({ alg, kid: opts.kid, typ: UCP_TYP })
     .sign(opts.signingKey as Parameters<typeof jose.CompactSign.prototype.sign>[0]);
 
   return { ...profile, signature };
@@ -229,6 +253,15 @@ export async function verifyUCPProfile(
   jwks: JWKSResponse,
 ): Promise<boolean> {
   const jose = await loadJose();
+
+  // JWKS shape guard so a malformed argument emits a typed UCPVerificationError
+  // rather than a raw TypeError on `.filter is not a function`.
+  if (!jwks || typeof jwks !== 'object' || !Array.isArray((jwks as { keys?: unknown }).keys)) {
+    throw new UCPVerificationError(
+      'malformed_jwks',
+      `UCP verifier expected JWKS shape { keys: [...] }; got ${jwks === null ? 'null' : typeof jwks === 'object' ? 'object without keys[] array' : typeof jwks}.`,
+    );
+  }
 
   const stripped = { ...profile } as Partial<SignedUCPProfile>;
   const sig = stripped.signature;
@@ -257,6 +290,11 @@ export async function verifyUCPProfile(
         const matches = jwks.keys.filter((k) => (k as Record<string, unknown>).kid === kid);
         if (matches.length === 0) throw new UCPVerificationError('kid_not_found', `No JWK in JWKS matching kid=${kid}.`);
         if (matches.length > 1) throw new UCPVerificationError('duplicate_kid', `JWKS contains ${matches.length} keys with kid=${kid}; expected exactly one.`);
+        // RFC 7517 §4.2: reject keys not intended for signature verification.
+        const matchedKey = matches[0] as Record<string, unknown>;
+        if (matchedKey.use !== undefined && matchedKey.use !== 'sig') {
+          throw new UCPVerificationError('unusable_key', `JWK with kid=${kid} has use=${JSON.stringify(matchedKey.use)}; expected "sig".`);
+        }
         return jose.importJWK(matches[0] as Parameters<typeof jose.importJWK>[0], header.alg);
       },
       { algorithms: [...ALLOWED_ALGS] },
@@ -272,6 +310,12 @@ export async function verifyUCPProfile(
     }
     if (err instanceof Error && err.name === 'JWSInvalid') {
       throw new UCPVerificationError('malformed_jws', `Malformed JWS: ${err.message}`);
+    }
+    // RFC 7515 §4.1.11 / RFC 8725 §3.10: a verifier MUST reject any JWS whose
+    // `crit` header carries an extension the implementation doesn't understand.
+    // jose throws JOSENotSupported; wrap so callers see the typed error.
+    if (err instanceof Error && err.name === 'JOSENotSupported') {
+      throw new UCPVerificationError('unrecognized_critical_header', `UCP signing rejected unrecognized critical header: ${err.message}`);
     }
     throw err;
   }
@@ -303,7 +347,7 @@ function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
  *
  * Example:
  * ```ts
- * import { buildJWKSResponse } from '@agent-score/commerce/identity/ucp-jwks';
+ * import { buildJWKSResponse } from '@agent-score/commerce';
  *
  * app.get('/.well-known/jwks.json', (c) =>
  *   c.json(buildJWKSResponse([publicJWK]))

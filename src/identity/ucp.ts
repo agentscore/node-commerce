@@ -123,7 +123,7 @@ const AGENTSCORE_CAPABILITY_VERSION = '1';
  *
  * Example:
  * ```ts
- * import { buildUCPProfile } from '@agent-score/commerce/identity/hono';
+ * import { buildUCPProfile } from '@agent-score/commerce';
  *
  * app.get('/.well-known/ucp', async (c) => {
  *   const data = getAgentScoreData(c);

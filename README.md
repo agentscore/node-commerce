@@ -214,7 +214,7 @@ const jwks = buildJWKSResponse([publicJWK]);
 
 `signUCPProfile` rejects profiles containing non-integer `Number` values (cross-language float canonicalization is not stable; use decimal strings for monetary or fractional fields).
 
-**HSM / KMS-backed signing.** `signingKey` accepts any `jose.KeyLike` — including remote signers wrapped via `createPrivateKey` from `node:crypto` for AWS KMS / GCP KMS asymmetric keys. The `signing_key` never has to leave the HSM.
+**Persisting the private JWK.** Mint once via `generateUCPSigningKey()`, export with `jose.exportJWK(privateKey)` to get the JSON-serializable form, store in your secret manager (AWS Secrets Manager, GCP Secret Manager, etc.). On each container start, read the secret, `jose.importJWK(jwk, alg)` to re-hydrate. Remote-signer flows (KMS-backed asymmetric keys) require an adapter layer that exposes a `KeyLike` jose can call; `jose` does not natively wrap KMS endpoints.
 
 **Key rotation.** Mint a new key with a new `kid`, add the public JWK to your JWKS endpoint alongside the old one, then sign new profiles with the new key. Verifiers fetching the JWKS pick up both; any in-flight envelopes signed by the old key still verify until you remove that JWK from the JWKS. Drop the old JWK once your verifier-side cache TTL has elapsed.
 

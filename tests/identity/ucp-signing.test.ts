@@ -112,10 +112,15 @@ describe('UCP signing — canonicalization', () => {
     const profileA = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
     const signed = await signUCPProfile(profileA, { signingKey: privateKey, kid: 'k' });
 
-    // Re-construct the same profile with keys in different insertion order; should
-    // still verify because canonicalization sorts keys deterministically.
-    const reordered = JSON.parse(JSON.stringify(signed));
-    const ok = await verifyUCPProfile(reordered, buildJWKSResponse([publicJWK]));
+    // Hand-construct the same profile with keys in REVERSE insertion order so
+    // canonicalization actually has work to do. JSON.parse(JSON.stringify(x))
+    // preserves the source order, which is a vacuous round-trip — this version
+    // genuinely re-orders.
+    const reordered: Record<string, unknown> = {};
+    const sortedKeys = Object.keys(signed).sort().reverse();
+    for (const k of sortedKeys) reordered[k] = (signed as Record<string, unknown>)[k];
+    expect(Object.keys(reordered)[0]).not.toBe(Object.keys(signed).sort()[0]); // sanity: order really differs
+    const ok = await verifyUCPProfile(reordered as never, buildJWKSResponse([publicJWK]));
     expect(ok).toBe(true);
   });
 });
@@ -242,8 +247,11 @@ describe('UCP signing — security: alg-confusion + typ + dup-kid', () => {
     const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
     const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
     const segments = signed.signature.split('.');
-    // Flip last char of the signature segment.
-    const flipped = segments[2]!.slice(0, -1) + (segments[2]!.endsWith('A') ? 'B' : 'A');
+    // Flip a char near the start of the signature segment (NOT the last char,
+    // which is partial padding bits and may not affect the decoded signature).
+    const sig = segments[2]!;
+    const flippedChar = sig[0] === 'A' ? 'B' : 'A';
+    const flipped = flippedChar + sig.slice(1);
     const tampered = { ...signed, signature: `${segments[0]}.${segments[1]}.${flipped}` };
     await expect(verifyUCPProfile(tampered, buildJWKSResponse([publicJWK])))
       .rejects.toThrow();
@@ -272,10 +280,17 @@ describe('UCP signing — float canonicalization defense', () => {
   it('throws when signing a profile that contains a non-integer Number anywhere', async () => {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
     const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
-    // Inject a float into extras-shaped data so the canonicalizer sees it.
     (profile as unknown as Record<string, unknown>).extras = { rate: 0.0125 };
     await expect(signUCPProfile(profile, { signingKey: privateKey, kid: 'k' }))
       .rejects.toThrow(/non-integer Number/);
+  });
+
+  it('throws on NaN / Infinity', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    (profile as unknown as Record<string, unknown>).extras = { value: Number.POSITIVE_INFINITY };
+    await expect(signUCPProfile(profile, { signingKey: privateKey, kid: 'k' }))
+      .rejects.toThrow(/non-finite Number/);
   });
 
   it('signing with integers + strings is fine', async () => {
@@ -284,5 +299,66 @@ describe('UCP signing — float canonicalization defense', () => {
     (profile as unknown as Record<string, unknown>).extras = { count: 7, label: 'wine' };
     const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
     expect(await verifyUCPProfile(signed, buildJWKSResponse([publicJWK]))).toBe(true);
+  });
+});
+
+describe('UCP signing — additional hardening', () => {
+  it('signUCPProfile throws when kid is not in profile.signing_keys[]', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'real' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    await expect(signUCPProfile(profile, { signingKey: privateKey, kid: 'wrong' }))
+      .rejects.toThrow(/not present in profile.signing_keys/);
+  });
+
+  it('verifyUCPProfile rejects malformed JWKS shape (missing keys array)', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
+    await expect(verifyUCPProfile(signed, {} as never))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'malformed_jwks' });
+  });
+
+  it('verifyUCPProfile rejects null JWKS', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
+    await expect(verifyUCPProfile(signed, null as never))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'malformed_jwks' });
+  });
+
+  it('verifyUCPProfile rejects JWKS where keys is not an array', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
+    await expect(verifyUCPProfile(signed, { keys: 'not-an-array' } as never))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'malformed_jwks' });
+  });
+
+  it('verifyUCPProfile wraps unrecognized critical header into typed error', async () => {
+    const { generateUCPSigningKey, buildJWKSResponse, verifyUCPProfile } = await import('../../src/identity/ucp-jwks');
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+
+    // Hand-craft a JWS with a critical header that the verifier doesn't recognize.
+    const { base64url } = await import('jose');
+    const { sign } = await import('node:crypto');
+    function ss(v: unknown): string {
+      if (v === null || typeof v !== 'object') return JSON.stringify(v);
+      if (Array.isArray(v)) return `[${v.map(ss).join(',')}]`;
+      const o = v as Record<string, unknown>;
+      return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${ss(o[k])}`).join(',')}}`;
+    }
+    const canonical = ss(profile);
+    const headerJson = JSON.stringify({ alg: 'EdDSA', kid: 'k', typ: 'ucp-profile+jws', crit: ['fakething'], fakething: 'x' });
+    const headerB64 = base64url.encode(new TextEncoder().encode(headerJson));
+    const payloadB64 = base64url.encode(new TextEncoder().encode(canonical));
+    const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+    const sigBytes = sign(null, data, privateKey as Parameters<typeof sign>[2]);
+    const sigB64 = base64url.encode(sigBytes);
+    const jws = `${headerB64}.${payloadB64}.${sigB64}`;
+    const signed = { ...profile, signature: jws };
+
+    await expect(verifyUCPProfile(signed as never, buildJWKSResponse([publicJWK])))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'unrecognized_critical_header' });
   });
 });

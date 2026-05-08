@@ -38,10 +38,18 @@ describe('UCP signing — cross-language fixture corpus', () => {
     });
   }
 
-  it('corpus contains both Node and Python fixtures', () => {
+  it('corpus covers the canonical scenarios from both languages', () => {
+    const names = fixtures.map((f) => f.name);
     const generators = new Set(fixtures.map((f) => f.data.generator));
     expect(generators).toContain('node');
     expect(generators).toContain('python');
-    expect(fixtures.length).toBeGreaterThanOrEqual(6);
+
+    // Each language ships 6 scenarios so cross-lang verify exercises all of them.
+    for (const lang of ['node', 'py'] as const) {
+      for (const scenario of ['minimal', 'es256-rails', 'extras-int', 'capability', 'unicode', 'multikey'] as const) {
+        expect(names).toContain(`${lang}-${scenario}.json`);
+      }
+    }
+    expect(fixtures.length).toBe(12);
   });
 });
