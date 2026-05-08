@@ -218,6 +218,9 @@ export async function signUCPProfile(
   // JWK with the matching kid; otherwise verifiers can't resolve the public
   // key and the profile is dead-on-arrival. Catch this at sign-time rather
   // than at verifier-time in production.
+  if (typeof opts.kid !== 'string' || !opts.kid) {
+    throw new Error('signUCPProfile: opts.kid must be a non-empty string.');
+  }
   const kids = (profile.signing_keys ?? []).map((k) => (k as Record<string, unknown>).kid);
   if (!kids.includes(opts.kid)) {
     throw new Error(
@@ -266,7 +269,12 @@ export async function verifyUCPProfile(
   const stripped = { ...profile } as Partial<SignedUCPProfile>;
   const sig = stripped.signature;
   delete stripped.signature;
-  if (!sig) throw new UCPVerificationError('no_signature', 'UCP profile has no `signature` field; expected JWS Compact Serialization.');
+  if (typeof sig !== 'string' || !sig) {
+    throw new UCPVerificationError(
+      'no_signature',
+      `UCP profile signature must be a non-empty string; got ${sig === undefined ? 'undefined' : typeof sig}.`,
+    );
+  }
 
   const canonicalBody = canonicalizeProfile(stripped as UCPProfile);
   const expectedPayload = new TextEncoder().encode(canonicalBody);
@@ -286,7 +294,14 @@ export async function verifyUCPProfile(
           throw new UCPVerificationError('wrong_typ', `UCP signature typ must be "${UCP_TYP}"; got ${String(header.typ)}.`);
         }
         const kid = header.kid;
-        if (!kid) throw new UCPVerificationError('missing_kid', 'UCP signature header missing `kid`.');
+        // Strict string check — a non-string kid (number/bool/null) could
+        // accidentally match a JWK with an equal-typed kid and mask attacks.
+        if (typeof kid !== 'string' || !kid) {
+          throw new UCPVerificationError(
+            'missing_kid',
+            `UCP signature header kid must be a non-empty string; got ${kid === undefined ? 'undefined' : typeof kid}.`,
+          );
+        }
         const matches = jwks.keys.filter((k) => (k as Record<string, unknown>).kid === kid);
         if (matches.length === 0) throw new UCPVerificationError('kid_not_found', `No JWK in JWKS matching kid=${kid}.`);
         if (matches.length > 1) throw new UCPVerificationError('duplicate_kid', `JWKS contains ${matches.length} keys with kid=${kid}; expected exactly one.`);

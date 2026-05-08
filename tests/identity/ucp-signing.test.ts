@@ -102,7 +102,7 @@ describe('UCP signing — signUCPProfile / verifyUCPProfile round-trip', () => {
     const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
     await expect(
       verifyUCPProfile(profile as unknown as Awaited<ReturnType<typeof signUCPProfile>>, buildJWKSResponse([publicJWK])),
-    ).rejects.toThrow(/no `signature` field/);
+    ).rejects.toMatchObject({ name: 'UCPVerificationError', code: 'no_signature' });
   });
 });
 

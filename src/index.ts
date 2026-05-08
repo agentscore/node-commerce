@@ -39,6 +39,7 @@ export {
   type UCPProfile,
   type UCPService,
   type UCPSigningKey,
+  ucpSigningKeyFromJWK,
 } from './identity/ucp';
 export {
   buildJWKSResponse,

@@ -37,6 +37,38 @@ export interface UCPSigningKey {
   [k: string]: unknown;
 }
 
+/**
+ * Construct a UCPSigningKey from a public JWK dict (e.g. the `publicJWK`
+ * returned by `generateUCPSigningKey()`). Validates the JWK has required
+ * fields (`kid`, `kty`) and rejects symmetric (`oct`) keys, which can't
+ * publicly verify a JWS in trust-mode UCP.
+ *
+ * Symmetric to Python's `UCPSigningKey.from_jwk(public_jwk)` classmethod.
+ *
+ * Example:
+ * ```ts
+ * const { publicJWK } = await generateUCPSigningKey({ kid: 'merchant-2026-05' });
+ * const profile = buildUCPProfile({ ..., signing_keys: [ucpSigningKeyFromJWK(publicJWK)] });
+ * ```
+ */
+export function ucpSigningKeyFromJWK(jwk: Record<string, unknown>): UCPSigningKey {
+  if (!jwk || typeof jwk !== 'object') {
+    throw new Error(`ucpSigningKeyFromJWK expected a non-null object; got ${typeof jwk}.`);
+  }
+  if (typeof jwk.kid !== 'string' || !jwk.kid) {
+    throw new Error('ucpSigningKeyFromJWK: JWK missing required field `kid` (or non-string).');
+  }
+  if (typeof jwk.kty !== 'string' || !jwk.kty) {
+    throw new Error('ucpSigningKeyFromJWK: JWK missing required field `kty` (or non-string).');
+  }
+  if (jwk.kty !== 'OKP' && jwk.kty !== 'EC' && jwk.kty !== 'RSA') {
+    throw new Error(
+      `ucpSigningKeyFromJWK: kty=${JSON.stringify(jwk.kty)} is not a supported asymmetric key type (expected OKP, EC, or RSA). Symmetric \`oct\` keys are rejected because they cannot publicly verify a JWS in the trust-mode UCP flow.`,
+    );
+  }
+  return jwk as unknown as UCPSigningKey;
+}
+
 export interface UCPService {
   /** Transport binding — `rest` / `mcp` / `a2a` / `embedded`. */
   type: string;
@@ -177,7 +209,17 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
   };
 
   if (input.name !== undefined) profile.name = input.name;
-  if (input.extras) Object.assign(profile, input.extras);
+  if (input.extras) {
+    // Reserved-field collisions are rejected so a careless `extras: { signing_keys: [...] }`
+    // can't silently destroy the explicit field.
+    const RESERVED = new Set(['version', 'spec', 'services', 'capabilities', 'payment_handlers', 'signing_keys', 'name', 'signature']);
+    for (const k of Object.keys(input.extras)) {
+      if (RESERVED.has(k)) {
+        throw new Error(`buildUCPProfile: extras key "${k}" collides with a reserved profile field; rejected.`);
+      }
+    }
+    Object.assign(profile, input.extras);
+  }
 
   return profile;
 }
