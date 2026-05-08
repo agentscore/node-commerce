@@ -41,6 +41,16 @@ export {
   type UCPSigningKey,
 } from './identity/ucp';
 export {
+  buildJWKSResponse,
+  generateUCPSigningKey,
+  type GeneratedUCPKey,
+  type JWKSResponse,
+  type SignUCPProfileOptions,
+  type SignedUCPProfile,
+  signUCPProfile,
+  verifyUCPProfile,
+} from './identity/ucp-jwks';
+export {
   type EnforcementMode,
   type GateResult,
   type IdentityStatus,
