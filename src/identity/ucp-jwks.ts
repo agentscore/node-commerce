@@ -130,6 +130,20 @@ function canonicalizeProfile(profile: UCPProfile): string {
  *  must use decimal strings for monetary or fractional fields to preserve
  *  byte parity with the Python sibling. */
 function stableStringify(value: unknown): string {
+  if (value === undefined) {
+    throw new Error(
+      'stableStringify: undefined values are not allowed in canonicalized JSON. ' +
+        'Object fields with no value must be omitted.',
+    );
+  }
+  if (typeof value === 'function' || typeof value === 'symbol') {
+    throw new Error(`stableStringify: ${typeof value} values are not allowed in canonicalized JSON.`);
+  }
+  if (value instanceof Date) {
+    throw new Error(
+      'stableStringify: Date instances are not allowed; serialize to an ISO string before passing.',
+    );
+  }
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {
       throw new Error(
@@ -141,11 +155,25 @@ function stableStringify(value: unknown): string {
         `UCP profile canonicalization rejects non-integer Number ${value}. Use a decimal string (e.g. "9.99") for monetary or fractional fields to preserve cross-language byte-parity.`,
       );
     }
+    if (!Number.isSafeInteger(value)) {
+      throw new Error(
+        `stableStringify: integer ${value} exceeds Number.MAX_SAFE_INTEGER. ` +
+          'For values >2^53, use a decimal string to preserve cross-language byte parity.',
+      );
+    }
   }
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
+  const keys = Object.keys(obj).sort((a, b) => {
+    const aPoints = [...a].map((c) => c.codePointAt(0)!);
+    const bPoints = [...b].map((c) => c.codePointAt(0)!);
+    const len = Math.min(aPoints.length, bPoints.length);
+    for (let i = 0; i < len; i += 1) {
+      if (aPoints[i] !== bPoints[i]) return aPoints[i] - bPoints[i];
+    }
+    return aPoints.length - bPoints.length;
+  });
   const pairs = keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`);
   return `{${pairs.join(',')}}`;
 }
@@ -324,6 +352,13 @@ export async function verifyUCPProfile(
         const matchedKey = matches[0] as Record<string, unknown>;
         if (matchedKey.use !== undefined && matchedKey.use !== 'sig') {
           throw new UCPVerificationError('unusable_key', `JWK with kid=${kid} has use=${JSON.stringify(matchedKey.use)}; expected "sig".`);
+        }
+        // RFC 7517 §4.4: a JWK with a declared `alg` field constrains its use to that algorithm.
+        if (matchedKey.alg !== undefined && matchedKey.alg !== header.alg) {
+          throw new UCPVerificationError(
+            'unusable_key',
+            `JWK alg ${JSON.stringify(matchedKey.alg)} does not match JWS header alg ${JSON.stringify(header.alg)}.`,
+          );
         }
         return jose.importJWK(matches[0] as Parameters<typeof jose.importJWK>[0], header.alg);
       },

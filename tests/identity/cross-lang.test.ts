@@ -44,12 +44,15 @@ describe('UCP signing — cross-language fixture corpus', () => {
     expect(generators).toContain('node');
     expect(generators).toContain('python');
 
-    // Each language ships 6 scenarios so cross-lang verify exercises all of them.
+    // Each language ships its base scenarios so cross-lang verify exercises all of them.
+    // `i18n-keys` exercises non-ASCII object keys (BMP + non-BMP); both languages must
+    // sort by Unicode codepoint to maintain byte parity. Node's lang prefix is `node`,
+    // python's is `py`.
     for (const lang of ['node', 'py'] as const) {
       for (const scenario of ['minimal', 'es256-rails', 'extras-int', 'capability', 'unicode', 'multikey'] as const) {
         expect(names).toContain(`${lang}-${scenario}.json`);
       }
     }
-    expect(fixtures.length).toBe(12);
+    expect(names).toContain('node-i18n-keys.json');
   });
 });

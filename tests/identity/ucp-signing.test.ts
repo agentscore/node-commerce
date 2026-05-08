@@ -410,6 +410,83 @@ describe('ucpSigningKeyFromJWK', () => {
   });
 });
 
+describe('UCP signing — JCS-incompatible value rejection', () => {
+  // Probe the internal stableStringify by signing a profile that holds the
+  // offending value. The signer canonicalizes via stableStringify, so any
+  // rejection there bubbles up through signUCPProfile.
+  async function signWith(extras: unknown): Promise<void> {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    (profile as unknown as Record<string, unknown>).extras = extras;
+    await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
+  }
+
+  it('rejects undefined values in objects', async () => {
+    await expect(signWith({ a: undefined })).rejects.toThrow(/undefined values are not allowed/);
+  });
+
+  it('rejects undefined values inside arrays', async () => {
+    await expect(signWith([1, undefined, 3])).rejects.toThrow(/undefined values are not allowed/);
+  });
+
+  it('rejects function values', async () => {
+    await expect(signWith({ a: () => {} })).rejects.toThrow(/function values are not allowed/);
+  });
+
+  it('rejects Symbol values', async () => {
+    await expect(signWith({ a: Symbol('x') })).rejects.toThrow(/symbol values are not allowed/);
+  });
+
+  it('rejects Date instances', async () => {
+    await expect(signWith({ a: new Date() })).rejects.toThrow(/Date instances are not allowed/);
+  });
+});
+
+describe('UCP signing — integer overflow defense', () => {
+  async function signWith(extras: unknown): Promise<Awaited<ReturnType<typeof signUCPProfile>>> {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    (profile as unknown as Record<string, unknown>).extras = extras;
+    return signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
+  }
+
+  it('accepts Number.MAX_SAFE_INTEGER (2^53 - 1)', async () => {
+    await expect(signWith({ n: 9007199254740991 })).resolves.toBeDefined();
+  });
+
+  it('rejects 2^53 (boundary, ambiguous in IEEE 754)', async () => {
+    await expect(signWith({ n: 9007199254740992 })).rejects.toThrow(/MAX_SAFE_INTEGER/);
+  });
+
+  it('rejects 2^53 + 1 as lossy', async () => {
+    await expect(signWith({ n: Number.MAX_SAFE_INTEGER + 2 })).rejects.toThrow(/MAX_SAFE_INTEGER/);
+  });
+
+  it('rejects -(2^53 + 1) as lossy', async () => {
+    await expect(signWith({ n: -(Number.MAX_SAFE_INTEGER + 2) })).rejects.toThrow(/MAX_SAFE_INTEGER/);
+  });
+
+  it('accepts Number.MAX_SAFE_INTEGER', async () => {
+    await expect(signWith({ n: Number.MAX_SAFE_INTEGER })).resolves.toBeDefined();
+  });
+
+  it('rejects Number.MAX_SAFE_INTEGER + 1', async () => {
+    await expect(signWith({ n: Number.MAX_SAFE_INTEGER + 1 })).rejects.toThrow(/MAX_SAFE_INTEGER/);
+  });
+});
+
+describe('UCP signing — JWK alg / header alg consistency', () => {
+  it('rejects when matched JWK alg does not match JWS header alg', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'mismatch', alg: 'EdDSA' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'mismatch', alg: 'EdDSA' });
+    const lyingJWK = { ...(publicJWK as Record<string, unknown>), alg: 'ES256' };
+    const badJWKS = { keys: [lyingJWK] };
+    await expect(verifyUCPProfile(signed, badJWKS as never))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'unusable_key' });
+  });
+});
+
 describe('UCP signing — round-4 hardening', () => {
   it('rejects a JWK with use=enc as unusable_key', async () => {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'enc-key', alg: 'EdDSA' });

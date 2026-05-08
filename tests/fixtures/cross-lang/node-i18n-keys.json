@@ -1,0 +1,48 @@
+{
+  "profile": {
+    "version": "2026-04-17",
+    "spec": "https://ucp.dev/",
+    "services": [
+      {
+        "type": "rest",
+        "url": "https://m.example.com"
+      }
+    ],
+    "capabilities": [],
+    "payment_handlers": [],
+    "signing_keys": [
+      {
+        "kid": "node-i18n-keys-EdDSA",
+        "alg": "EdDSA",
+        "use": "sig",
+        "crv": "Ed25519",
+        "kty": "OKP",
+        "x": "DzzfpM4ogPIGqyvOa-oHOpYuHK71xzg6YLmhN49xgQM"
+      }
+    ],
+    "name": "i18n Keys Merchant",
+    "extras": {
+      "café": "bmp-latin1",
+      "日本": "bmp-cjk",
+      "🍷": "non-bmp-supplementary",
+      "a": "ascii-low",
+      "z": "ascii-high"
+    },
+    "signature": "eyJhbGciOiJFZERTQSIsImtpZCI6Im5vZGUtaTE4bi1rZXlzLUVkRFNBIiwidHlwIjoidWNwLXByb2ZpbGUrandzIn0.eyJjYXBhYmlsaXRpZXMiOltdLCJleHRyYXMiOnsiYSI6ImFzY2lpLWxvdyIsImNhZsOpIjoiYm1wLWxhdGluMSIsInoiOiJhc2NpaS1oaWdoIiwi5pel5pysIjoiYm1wLWNqayIsIvCfjbciOiJub24tYm1wLXN1cHBsZW1lbnRhcnkifSwibmFtZSI6ImkxOG4gS2V5cyBNZXJjaGFudCIsInBheW1lbnRfaGFuZGxlcnMiOltdLCJzZXJ2aWNlcyI6W3sidHlwZSI6InJlc3QiLCJ1cmwiOiJodHRwczovL20uZXhhbXBsZS5jb20ifV0sInNpZ25pbmdfa2V5cyI6W3siYWxnIjoiRWREU0EiLCJjcnYiOiJFZDI1NTE5Iiwia2lkIjoibm9kZS1pMThuLWtleXMtRWREU0EiLCJrdHkiOiJPS1AiLCJ1c2UiOiJzaWciLCJ4IjoiRHp6ZnBNNG9nUElHcXl2T2Etb0hPcFl1SEs3MXh6ZzZZTG1oTjQ5eGdRTSJ9XSwic3BlYyI6Imh0dHBzOi8vdWNwLmRldi8iLCJ2ZXJzaW9uIjoiMjAyNi0wNC0xNyJ9.0SEYacPOx48si5D6ua4JbN51NNSeYZy2SDEnX2c7qN6b_xncr4kJlpdrEVgRH4cbMjWZq4CMD9DY0rHJ1QMPAQ"
+  },
+  "jwks": {
+    "keys": [
+      {
+        "kid": "node-i18n-keys-EdDSA",
+        "alg": "EdDSA",
+        "use": "sig",
+        "crv": "Ed25519",
+        "kty": "OKP",
+        "x": "DzzfpM4ogPIGqyvOa-oHOpYuHK71xzg6YLmhN49xgQM"
+      }
+    ]
+  },
+  "alg": "EdDSA",
+  "kid": "node-i18n-keys-EdDSA",
+  "generator": "node"
+}
