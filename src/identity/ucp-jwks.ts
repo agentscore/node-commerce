@@ -200,6 +200,18 @@ function stableStringify(value: unknown): string {
     }
     return aPoints.length - bPoints.length;
   });
+  // Cross-language byte parity: same rejection rationale as the string-value
+  // branch above. Object keys flow through JSON.stringify(k) at the pairs line
+  // below, so without this check a key carrying U+2028 / U+2029 would pass on
+  // modern V8 but Python's _reject_unsafe_numbers (which recurses into dict
+  // keys) would throw at verify time.
+  for (const k of keys) {
+    if (k.includes(' ') || k.includes(' ')) {
+      throw new Error(
+        'stableStringify: object keys containing U+2028 (LINE SEPARATOR) or U+2029 (PARAGRAPH SEPARATOR) are not allowed; cross-language byte parity (Node JSON.stringify on older V8 escapes them; Python json.dumps with ensure_ascii=False does not).',
+      );
+    }
+  }
   const pairs = keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`);
   return `{${pairs.join(',')}}`;
 }
@@ -417,12 +429,16 @@ export async function verifyUCPProfile(
         if (matches.length === 0) throw new UCPVerificationError('kid_not_found', `No JWK in JWKS matching kid=${JSON.stringify(kid)}.`);
         if (matches.length > 1) throw new UCPVerificationError('duplicate_kid', `JWKS contains ${matches.length} keys with kid=${JSON.stringify(kid)}; expected exactly one.`);
         // RFC 7517 §4.2: reject keys not intended for signature verification.
+        // `use` and `alg` are optional per RFC 7517; an explicit JSON null is
+        // out-of-spec but treat it as absent (skip-on-null) so a JWK with
+        // `"use": null` matches Python's `is not None` semantics in
+        // ucp_jwks.py and the two languages stay symmetric.
         const matchedKey = matches[0] as Record<string, unknown>;
-        if (matchedKey.use !== undefined && matchedKey.use !== 'sig') {
+        if (matchedKey.use != null && matchedKey.use !== 'sig') {
           throw new UCPVerificationError('unusable_key', `JWK with kid=${kid} has use=${JSON.stringify(matchedKey.use)}; expected "sig".`);
         }
         // RFC 7517 §4.4: a JWK with a declared `alg` field constrains its use to that algorithm.
-        if (matchedKey.alg !== undefined && matchedKey.alg !== h.alg) {
+        if (matchedKey.alg != null && matchedKey.alg !== h.alg) {
           throw new UCPVerificationError(
             'unusable_key',
             `JWK alg ${JSON.stringify(matchedKey.alg)} does not match JWS header alg ${JSON.stringify(h.alg)}.`,

@@ -778,4 +778,57 @@ describe('UCP signing — U+2028 / U+2029 rejection', () => {
     const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
     expect(await verifyUCPProfile(signed, buildJWKSResponse([publicJWK]))).toBe(true);
   });
+
+  // Object-key rejection: same cross-language byte-parity rationale as the
+  // value-side rejection above. Python's _reject_unsafe_numbers recurses into
+  // dict keys, so a Node-signed profile with U+2028 / U+2029 in an object key
+  // would canonicalize cleanly here but throw body_mismatch on Python verify.
+  it('rejects an object key containing U+2028 (LINE SEPARATOR)', async () => {
+    await expect(signWith({ 'bad key': 'value' }))
+      .rejects.toThrow(/U\+2028/);
+  });
+
+  it('rejects a nested object key containing U+2029 (PARAGRAPH SEPARATOR)', async () => {
+    await expect(signWith({ outer: { 'bad key': 'value' } }))
+      .rejects.toThrow(/U\+2029/);
+  });
+
+  it('accepts an object key containing U+2027 (HYPHENATION POINT) as sanity case', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    (profile as unknown as Record<string, unknown>).extras = { 'fine‧key': 'value' };
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
+    expect(await verifyUCPProfile(signed, buildJWKSResponse([publicJWK]))).toBe(true);
+  });
+});
+
+describe('UCP signing — JWK use/alg null treated as absent', () => {
+  // RFC 7517 lists `use` and `alg` as optional. JSON null for these fields is
+  // out-of-spec but harmless; treat null as absent so the Node verifier
+  // matches Python's `is not None` semantics and a JWK with explicit nulls
+  // doesn't reject in one language and pass in the other.
+  it('verifies successfully when matched JWK has use=null', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'null-use' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'null-use' });
+    const jwksWithNullUse = { keys: [{ ...(publicJWK as Record<string, unknown>), use: null }] };
+    expect(await verifyUCPProfile(signed, jwksWithNullUse as never)).toBe(true);
+  });
+
+  it('verifies successfully when matched JWK has alg=null', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'null-alg', alg: 'EdDSA' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'null-alg', alg: 'EdDSA' });
+    const jwksWithNullAlg = { keys: [{ ...(publicJWK as Record<string, unknown>), alg: null }] };
+    expect(await verifyUCPProfile(signed, jwksWithNullAlg as never)).toBe(true);
+  });
+
+  it('still rejects use=enc with unusable_key (sanity: non-null wrong values still fail)', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'enc-sanity', alg: 'EdDSA' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'enc-sanity', alg: 'EdDSA' });
+    const badJWKS = { keys: [{ ...(publicJWK as Record<string, unknown>), use: 'enc' }] };
+    await expect(verifyUCPProfile(signed, badJWKS as never))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'unusable_key' });
+  });
 });
