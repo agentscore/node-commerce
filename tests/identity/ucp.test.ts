@@ -82,6 +82,19 @@ describe('buildUCPProfile', () => {
     expect((profile as Record<string, unknown>).custom_field).toBe('custom_value');
   });
 
+  // payment_handler.config is an optional TypeScript property: when the caller
+  // omits it the wire profile ships without the `config` key. Python's
+  // `UCPPaymentHandler.to_dict` omits empty configs to match this convention,
+  // so the same logical input produces the same canonical bytes across SDKs.
+  it('payment_handler omits config key when caller does not set it (cross-lang parity)', () => {
+    const profile = buildUCPProfile({
+      ...baseInput,
+      payment_handlers: [{ name: 'tempo' }],
+    });
+    expect(profile.payment_handlers).toEqual([{ name: 'tempo' }]);
+    expect('config' in (profile.payment_handlers[0] as object)).toBe(false);
+  });
+
   it('respects custom version override', () => {
     const profile = buildUCPProfile({ ...baseInput, version: '2026-12-31' });
     expect(profile.version).toBe('2026-12-31');
