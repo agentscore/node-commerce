@@ -328,36 +328,68 @@ export async function verifyUCPProfile(
     );
   }
 
-  // Run compactVerify (which fires header validation via the key-resolver
-  // callback: typ → alg → kid → JWK lookup) BEFORE canonicalizing the stripped
-  // profile body. Header-level violations therefore take precedence over body
-  // canonicalization errors, matching the Python sibling's _peek_jws_header
-  // ordering. Cross-language parity means a profile with both a malformed body
-  // AND a malformed JWS header surfaces the same `code` in both SDKs.
+  // Pre-decode the protected header so typ → alg → kid → crit checks run BEFORE
+  // jose's compactVerify. jose enforces `crit` internally ahead of the key-resolver
+  // callback, which would surface `unrecognized_critical_header` on a JWS that
+  // also has a wrong typ; the python-commerce sibling's `_peek_jws_header` decodes
+  // the header manually and checks typ first. Mirroring that ordering here means
+  // a JWS with multiple header faults emits the same `code` in both SDKs.
+  let header: { alg?: unknown; kid?: unknown; typ?: unknown; crit?: unknown };
+  try {
+    const protectedB64 = sig.split('.')[0];
+    if (!protectedB64) throw new Error('JWS protected header segment is empty.');
+    const headerJson = new TextDecoder().decode(jose.base64url.decode(protectedB64));
+    const parsed = JSON.parse(headerJson);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error('JWS protected header is not a JSON object.');
+    }
+    header = parsed as { alg?: unknown; kid?: unknown; typ?: unknown; crit?: unknown };
+  } catch (err) {
+    throw new UCPVerificationError(
+      'malformed_jws',
+      `JWS protected header is not valid base64url-encoded JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // Header check order is typ → alg → kid → crit to match the Python sibling's
+  // _peek_jws_header. RFC 8725 §3.11: enforce expected typ to prevent
+  // cross-protocol token reuse.
+  if (header.typ !== UCP_TYP) {
+    throw new UCPVerificationError('wrong_typ', `UCP signature typ must be "${UCP_TYP}"; got ${String(header.typ)}.`);
+  }
+  // RFC 8725 §3.1: restrict to allow-listed algorithms before key resolution
+  // so a hostile JWK can never be used with HS256/none/RS256/etc.
+  if (!ALLOWED_ALGS.includes(header.alg as AllowedAlg)) {
+    throw new UCPVerificationError('unsupported_alg', `UCP signing alg must be one of ${ALLOWED_ALGS.join(', ')}; got ${String(header.alg)}.`);
+  }
+  // Strict string check: a non-string kid (number/bool/null) could accidentally
+  // match a JWK with an equal-typed kid and mask attacks.
+  if (typeof header.kid !== 'string' || !header.kid) {
+    throw new UCPVerificationError(
+      'missing_kid',
+      `UCP signature header kid must be a non-empty string; got ${header.kid === undefined ? 'undefined' : typeof header.kid}.`,
+    );
+  }
+  // RFC 7515 §4.1.11 / RFC 8725 §3.10: reject any JWS whose `crit` header
+  // advertises an extension we don't understand. UCP defines no `crit` headers,
+  // so any non-empty `crit` array is unrecognized by definition.
+  if (Array.isArray(header.crit) && header.crit.length > 0) {
+    throw new UCPVerificationError(
+      'unrecognized_critical_header',
+      `JWS protected header advertises unrecognized crit headers: ${JSON.stringify(header.crit)}.`,
+    );
+  }
+
   let signedPayload: Uint8Array;
   try {
     const verified = await jose.compactVerify(
       sig,
-      async (header) => {
-        // Header check order is typ → alg → kid to match the Python sibling's
-        // _peek_jws_header. A profile with multiple header faults (e.g. typ=JWT
-        // AND alg=HS256) must surface the same `code` from both SDKs; the
-        // `algorithms` option on compactVerify is intentionally omitted because
-        // jose enforces it BEFORE invoking this resolver, which would short-circuit
-        // typ before we could check it. The callback covers the same RFC 8725 §3.1
-        // restriction below.
-        // RFC 8725 §3.11 — enforce expected typ to prevent cross-protocol token reuse.
-        if (header.typ !== UCP_TYP) {
-          throw new UCPVerificationError('wrong_typ', `UCP signature typ must be "${UCP_TYP}"; got ${String(header.typ)}.`);
-        }
-        // RFC 8725 §3.1 — restrict to allow-listed algorithms before key resolution
-        // so a hostile JWK can never be used with HS256/none/RS256/etc.
-        if (!ALLOWED_ALGS.includes(header.alg as AllowedAlg)) {
-          throw new UCPVerificationError('unsupported_alg', `UCP signing alg must be one of ${ALLOWED_ALGS.join(', ')}; got ${String(header.alg)}.`);
-        }
-        const kid = header.kid;
-        // Strict string check — a non-string kid (number/bool/null) could
-        // accidentally match a JWK with an equal-typed kid and mask attacks.
+      async (h) => {
+        // typ/alg/kid/crit were validated up-front against the pre-decoded header;
+        // this resolver only handles JWK lookup. Re-checking kid here keeps the
+        // jose API satisfied and provides defense-in-depth against any header
+        // re-parse divergence between this code path and jose's internals.
+        const kid = h.kid;
         if (typeof kid !== 'string' || !kid) {
           throw new UCPVerificationError(
             'missing_kid',
@@ -375,13 +407,13 @@ export async function verifyUCPProfile(
           throw new UCPVerificationError('unusable_key', `JWK with kid=${kid} has use=${JSON.stringify(matchedKey.use)}; expected "sig".`);
         }
         // RFC 7517 §4.4: a JWK with a declared `alg` field constrains its use to that algorithm.
-        if (matchedKey.alg !== undefined && matchedKey.alg !== header.alg) {
+        if (matchedKey.alg !== undefined && matchedKey.alg !== h.alg) {
           throw new UCPVerificationError(
             'unusable_key',
-            `JWK alg ${JSON.stringify(matchedKey.alg)} does not match JWS header alg ${JSON.stringify(header.alg)}.`,
+            `JWK alg ${JSON.stringify(matchedKey.alg)} does not match JWS header alg ${JSON.stringify(h.alg)}.`,
           );
         }
-        return jose.importJWK(matches[0] as Parameters<typeof jose.importJWK>[0], header.alg);
+        return jose.importJWK(matches[0] as Parameters<typeof jose.importJWK>[0], h.alg);
       },
     );
     signedPayload = verified.payload;

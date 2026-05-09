@@ -694,4 +694,36 @@ describe('UCP signing — error precedence parity (profile-first)', () => {
       verifyUCPProfile({ ...profile, signature: mixedSig } as never, buildJWKSResponse([publicJWK])),
     ).rejects.toMatchObject({ name: 'UCPVerificationError', code: 'wrong_typ' });
   });
+
+  it('mixed crit + wrong typ JWS emits wrong_typ (typ-first like Python)', async () => {
+    // Hand-craft a JWS whose protected header carries BOTH a wrong typ ("JWT")
+    // AND an unrecognized crit header ("fakething"). jose's compactVerify
+    // enforces `crit` BEFORE invoking the key-resolver callback, so without
+    // the pre-decode pass this would surface `unrecognized_critical_header`.
+    // Python's _peek_jws_header decodes manually and checks typ first; Node
+    // mirrors that ordering so the same input emits the same `code` in both
+    // SDKs.
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'real' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const { base64url } = await import('jose');
+    const { sign } = await import('node:crypto');
+    function ss(v: unknown): string {
+      if (v === null || typeof v !== 'object') return JSON.stringify(v);
+      if (Array.isArray(v)) return `[${v.map(ss).join(',')}]`;
+      const o = v as Record<string, unknown>;
+      return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${ss(o[k])}`).join(',')}}`;
+    }
+    const canonical = ss(profile);
+    const headerJson = JSON.stringify({ alg: 'EdDSA', typ: 'JWT', kid: 'real', crit: ['fakething'], fakething: 'x' });
+    const headerB64 = base64url.encode(new TextEncoder().encode(headerJson));
+    const payloadB64 = base64url.encode(new TextEncoder().encode(canonical));
+    const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+    const sigBytes = sign(null, data, privateKey as Parameters<typeof sign>[2]);
+    const sigB64 = base64url.encode(sigBytes);
+    const jws = `${headerB64}.${payloadB64}.${sigB64}`;
+    const signed = { ...profile, signature: jws };
+
+    await expect(verifyUCPProfile(signed as never, buildJWKSResponse([publicJWK])))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'wrong_typ' });
+  });
 });
