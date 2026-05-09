@@ -253,9 +253,11 @@ describe('UCP signing — security: alg-confusion + typ + dup-kid', () => {
     const flippedChar = sig[0] === 'A' ? 'B' : 'A';
     const flipped = flippedChar + sig.slice(1);
     const tampered = { ...signed, signature: `${segments[0]}.${segments[1]}.${flipped}` };
+    // JWSSignatureVerificationFailed → wraps to signature_invalid (line 465-466 in ucp-jwks.ts).
     await expect(verifyUCPProfile(tampered, buildJWKSResponse([publicJWK])))
-      .rejects.toThrow();
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'signature_invalid' });
   });
+
 
   it('signing twice with EdDSA is idempotent (deterministic signature)', async () => {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });

@@ -73,4 +73,59 @@ describe('buildA2AAgentCard', () => {
     expect(card.identity?.issuer).toBe('https://other.example');
     expect(card.identity?.verify_url).toBe('https://other.example/v');
   });
+
+  it('falls back to operator_verification fields when account_verification is absent', () => {
+    // Drives the `?? operatorVerification?.level` and `?? operatorVerification?.verified_at`
+    // branches plus the default `'unknown'` / `''` / `verify_url` fallbacks.
+    const card = buildA2AAgentCard({
+      name: 'X',
+      data: {
+        decision: 'allow',
+        decision_reasons: [],
+        resolved_operator: 'op_only_op_verif',
+        operator_verification: {
+          level: 'basic',
+          operator_type: 'agent',
+          verified_at: '2026-01-01T00:00:00Z',
+        },
+      },
+    });
+    expect(card.identity).not.toBeNull();
+    expect(card.identity?.kyc_level).toBe('basic');
+    expect(card.identity?.sanctions_clear).toBe(false);
+    expect(card.identity?.age_bracket).toBe('unknown');
+    expect(card.identity?.jurisdiction).toBe('');
+    expect(card.identity?.verified_at).toBe('2026-01-01T00:00:00Z');
+    expect(card.identity?.verify_url).toBe('https://agentscore.sh/verify');
+  });
+
+  it('falls back to default kyc_level "none" when neither verification block is present', () => {
+    // Drives the trailing `?? 'none'` fallback in the kyc_level chain plus the
+    // `?? null` fallback for verified_at.
+    const card = buildA2AAgentCard({
+      name: 'X',
+      data: {
+        decision: 'allow',
+        decision_reasons: [],
+        resolved_operator: 'op_no_verif',
+      },
+    });
+    expect(card.identity).not.toBeNull();
+    expect(card.identity?.kyc_level).toBe('none');
+    expect(card.identity?.verified_at).toBeNull();
+  });
+
+  it('reads verify_url from data when input.verifyUrl is absent', () => {
+    // Drives the `data.verify_url` branch of the verify_url ?? chain.
+    const card = buildA2AAgentCard({
+      name: 'X',
+      data: {
+        decision: 'allow',
+        decision_reasons: [],
+        resolved_operator: 'op_with_verify_url',
+        verify_url: 'https://from-data.example/verify',
+      },
+    });
+    expect(card.identity?.verify_url).toBe('https://from-data.example/verify');
+  });
 });

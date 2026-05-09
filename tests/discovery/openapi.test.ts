@@ -100,4 +100,22 @@ describe('agentscoreOpenApiSnippets', () => {
     expect(agentscoreOpenApiSnippets({ security: false }).securitySchemes).toBeUndefined();
     expect(agentscoreOpenApiSnippets({ denials: false, paymentRequired: false }).schemas).toBeUndefined();
   });
+
+  it('emits only paymentRequired schema when denials=false', () => {
+    // Drives the falsey side of `opts.denials !== false ? agentscoreDenialSchemas() : {}`.
+    const snippets = agentscoreOpenApiSnippets({ denials: false });
+    expect(snippets.schemas).toBeDefined();
+    expect(snippets.schemas).toHaveProperty('AgentScorePaymentRequired');
+    expect(snippets.schemas).not.toHaveProperty('AgentScoreDenialReason');
+    expect(snippets.schemas).not.toHaveProperty('AgentScoreDenialBody');
+  });
+
+  it('emits only denial schemas when paymentRequired=false', () => {
+    // Drives the falsey side of `opts.paymentRequired !== false ? agentscorePaymentRequiredSchema() : {}`.
+    const snippets = agentscoreOpenApiSnippets({ paymentRequired: false });
+    expect(snippets.schemas).toBeDefined();
+    expect(snippets.schemas).toHaveProperty('AgentScoreDenialReason');
+    expect(snippets.schemas).toHaveProperty('AgentScoreDenialBody');
+    expect(snippets.schemas).not.toHaveProperty('AgentScorePaymentRequired');
+  });
 });

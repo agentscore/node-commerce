@@ -311,6 +311,90 @@ describe('AgentScoreCore.verifyWalletSignerMatch — coverage paths', () => {
     });
     expect(result.kind).toBe('api_error');
   });
+
+  it('projects API-emitted signer_match wallet_auth_requires_wallet_signing verdict', async () => {
+    // Drives the `kind === 'wallet_auth_requires_wallet_signing'` branch in projectSignerMatch.
+    // The API itself decides to surface this verdict (e.g. server-side policy says wallet
+    // identity requires a wallet-signing rail even though a signer was provided).
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        decision: 'allow',
+        decision_reasons: [],
+        signer_match: {
+          kind: 'wallet_auth_requires_wallet_signing',
+          claimed_wallet: '0xaaa0000000000000000000000000000000000000',
+          agent_instructions: '{"recovery_action": "use_wallet_signing"}',
+        },
+      }),
+    } as unknown as Response);
+    const core = createAgentScoreCore({ apiKey: API_KEY });
+    const result = await core.verifyWalletSignerMatch({
+      claimedWallet: '0xaaa0000000000000000000000000000000000000',
+      signer: '0xbbb0000000000000000000000000000000000000',
+    });
+    expect(result.kind).toBe('wallet_auth_requires_wallet_signing');
+    if (result.kind === 'wallet_auth_requires_wallet_signing') {
+      expect(result.claimedWallet).toBe('0xaaa0000000000000000000000000000000000000');
+      expect(result.agentInstructions).toContain('use_wallet_signing');
+    }
+  });
+
+  it('falls back to api_error when fallback resolveWalletToOperator fails after missing signer_match', async () => {
+    // Drives the `if (!claimedResolve.ok || !signerResolve.ok)` branch in the legacy
+    // 2-resolve fallback path, plus the resolveWalletToOperator catch (line 850).
+    // Sequence: first assess succeeds with NO signer_match → fallback runs two
+    // resolveWalletToOperator calls; the second throws so we hit { ok: false }.
+    let callIdx = 0;
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (typeof url === 'string' && url.includes('/v1/assess')) {
+        callIdx++;
+        if (callIdx === 1) {
+          // Initial verifyWalletSignerMatch assess — server omitted signer_match.
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              decision: 'allow',
+              decision_reasons: [],
+              resolved_operator: 'op_claimed',
+            }),
+          } as unknown as Response;
+        }
+        if (callIdx === 2) {
+          // First fallback resolve (claimed) — succeeds.
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              decision: 'allow',
+              decision_reasons: [],
+              resolved_operator: 'op_claimed',
+            }),
+          } as unknown as Response;
+        }
+        // Second fallback resolve (signer) — fails, hits resolveWalletToOperator catch.
+        throw new Error('upstream resolve outage');
+      }
+      return { ok: true, status: 201, json: async () => ({}) } as unknown as Response;
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const core = createAgentScoreCore({ apiKey: API_KEY });
+    const result = await core.verifyWalletSignerMatch({
+      claimedWallet: '0xddd0000000000000000000000000000000000000',
+      signer: '0xeee0000000000000000000000000000000000000',
+    });
+    expect(result.kind).toBe('api_error');
+    if (result.kind === 'api_error') {
+      expect(result.claimedWallet).toBe('0xddd0000000000000000000000000000000000000');
+    }
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('resolveWalletToOperator failed'),
+      expect.anything(),
+    );
+    warn.mockRestore();
+  });
 });
 
 describe('AgentScoreCore.verifyWalletSignerMatch — telemetry', () => {

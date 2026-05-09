@@ -92,4 +92,47 @@ describe('buildPaymentHeaders', () => {
     expect(result['www-authenticate']).toContain('intent="session"');
     expect(result['www-authenticate']).toContain(`expires="${expires}"`);
   });
+
+  it('forwards optional chainId / currency / decimals / method overrides', () => {
+    // Drives the four conditional spreads on the per-rail directiveInput.
+    const result = buildPaymentHeaders({
+      orderId: 'ord_8',
+      realm: 'a.example',
+      rails: [{
+        rail: 'x402-base-mainnet',
+        amountUsd: 1,
+        recipient: '0xa',
+        chainId: 999,
+        currency: '0xCustomToken000000000000000000000000000000',
+        decimals: 8,
+        method: 'x402/exact-evm',
+      }],
+    });
+    const directive = result['www-authenticate'];
+    expect(directive).toContain('method="x402/exact-evm"');
+    const requestMatch = /request="([^"]+)"/.exec(directive);
+    expect(requestMatch).toBeTruthy();
+    const requestBlob = JSON.parse(
+      Buffer.from(requestMatch![1]!, 'base64url').toString(),
+    );
+    expect(requestBlob.currency).toBe('0xCustomToken000000000000000000000000000000');
+    expect(requestBlob.decimals).toBe(8);
+    expect(requestBlob.methodDetails?.chainId).toBe(999);
+  });
+
+  it('forwards optional x402.resource into the PAYMENT-REQUIRED header', () => {
+    // Drives the `...(input.x402.resource ? ... : {})` spread branch.
+    const result = buildPaymentHeaders({
+      orderId: 'ord_9',
+      realm: 'a.example',
+      rails: [{ rail: 'x402-base-mainnet', amountUsd: 1, recipient: '0xa' }],
+      x402: {
+        accepts: [{ scheme: 'exact', network: 'eip155:8453' }],
+        version: 1,
+        resource: { url: 'https://api.example/buy', mimeType: 'application/json' },
+      },
+    });
+    const decoded = JSON.parse(Buffer.from(result['PAYMENT-REQUIRED']!, 'base64').toString());
+    expect(decoded.resource).toEqual({ url: 'https://api.example/buy', mimeType: 'application/json' });
+  });
 });

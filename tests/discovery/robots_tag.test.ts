@@ -133,6 +133,18 @@ describe('noindexNonDiscoveryPathsExpress', () => {
     );
     expect(headers['X-Robots-Tag']).toBeUndefined();
   });
+
+  it('honors customPaths as additive discovery surfaces', () => {
+    // Drives the truthy `options?.customPaths` branch in Express.
+    const mw = noindexNonDiscoveryPathsExpress({ customPaths: ['/sitemap.xml'] });
+    const headers: Record<string, string> = {};
+    mw(
+      { path: '/sitemap.xml' },
+      { setHeader: (k, v) => { headers[k] = v; } },
+      () => {},
+    );
+    expect(headers['X-Robots-Tag']).toBeUndefined();
+  });
 });
 
 describe('noindexNonDiscoveryPathsFastify', () => {
@@ -165,6 +177,40 @@ describe('noindexNonDiscoveryPathsFastify', () => {
     );
     expect(discoveryHeaders['X-Robots-Tag']).toBeUndefined();
   });
+
+  it('honors customPaths and falls back to routerPath when url is absent', () => {
+    // Drives the truthy `options?.customPaths` branch in Fastify, plus the
+    // `req.url ?? req.routerPath` fallback when url is undefined.
+    let registeredHook: FastifyHook | undefined;
+    const fakeApp = {
+      addHook: (event: 'onRequest', handler: FastifyHook) => {
+        if (event === 'onRequest') registeredHook = handler;
+      },
+    };
+    noindexNonDiscoveryPathsFastify(
+      fakeApp,
+      { customPaths: ['/sitemap.xml'] },
+      () => {},
+    );
+
+    // url undefined → routerPath used; routerPath is in customPaths so noindex is SKIPPED.
+    const customHeaders: Record<string, string> = {};
+    registeredHook!(
+      { routerPath: '/sitemap.xml' } as { url?: string },
+      { header: (k: string, v: string) => { customHeaders[k] = v; } },
+      () => {},
+    );
+    expect(customHeaders['X-Robots-Tag']).toBeUndefined();
+
+    // Both url and routerPath undefined → empty path, not in defaults → noindex applied.
+    const emptyHeaders: Record<string, string> = {};
+    registeredHook!(
+      {} as { url?: string },
+      { header: (k: string, v: string) => { emptyHeaders[k] = v; } },
+      () => {},
+    );
+    expect(emptyHeaders['X-Robots-Tag']).toBe('noindex, nofollow, noarchive, nosnippet');
+  });
 });
 
 describe('wrapNoindexResponse / applyNoindexHeader (Web Fetch + Next.js)', () => {
@@ -183,5 +229,13 @@ describe('wrapNoindexResponse / applyNoindexHeader (Web Fetch + Next.js)', () =>
 
   it('applyNoindexHeader is the same helper (Next.js alias)', () => {
     expect(applyNoindexHeader).toBe(wrapNoindexResponse);
+  });
+
+  it('honors customPaths so a wrapped non-default path skips noindex', () => {
+    // Drives the truthy `options?.customPaths` branch in wrapNoindexResponse.
+    const original = Response.json({ ok: true });
+    const wrapped = wrapNoindexResponse('/sitemap.xml', original, { customPaths: ['/sitemap.xml'] });
+    expect(wrapped).toBe(original);
+    expect(wrapped.headers.get('x-robots-tag')).toBeNull();
   });
 });
