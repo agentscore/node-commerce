@@ -10,7 +10,8 @@ Runnable, copy-pasteable example integrations covering the most common merchant 
 | [`stripe-multichain-merchant.ts`](./stripe-multichain-merchant.ts) | Stripe-anchored multi-chain | Stripe PaymentIntent with deposit_options for tempo/base/solana; crypto deposits flow through Stripe |
 | [`variable-cost-merchant.ts`](./variable-cost-merchant.ts) | Pay-per-actual-usage (LLM, transcode, etc.) | Same use case on **two protocols**: x402 upto (Permit2 authorize-max → Settlement-Overrides settle-actual) AND MPP tempo session (channel + SSE + mid-stream vouchers). Vendor offers both so agents pick whichever their wallet supports. |
 | [`compliance-merchant.ts`](./compliance-merchant.ts) | Regulated-goods merchant (wine, cannabis, etc.) | Full compliance gate (KYC + sanctions + age + jurisdiction) + custom `onDenied` composing commerce helpers: `verificationAgentInstructions`, `isFixableDenial`, `buildContactSupportNextSteps`, `denialReasonToBody`/`denialReasonStatus`, `buildSignerMismatchBody`. Shows how vendors write only the business-specific branches and let commerce handle the rest. |
-| [`per-product-policy-merchant.ts`](./per-product-policy-merchant.ts) | Multi-product merchant with mixed compliance needs | One product hard-gates KYC + 21 + US-state allowlist (wine), one is anonymous (merch, ships anywhere), a third uses `enforcement: 'soft'` to request KYC as a fraud signal but accept anonymous sales — stamps `identity_status: 'unverified'` on the order. Uses `PolicyBlock`, `policyToGateOptions`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed`. |
+| [`per-product-policy-merchant.ts`](./per-product-policy-merchant.ts) | Multi-product merchant with mixed compliance needs | One product hard-gates KYC + 21 + US-state allowlist (wine), one is anonymous (merch, ships anywhere), a third uses `enforcement: 'soft'` to request KYC as a fraud signal but accept anonymous sales (stamps `identity_status: 'unverified'` on the order). Uses `PolicyBlock`, `policyToGateOptions`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed`. |
+| [`signed-ucp-merchant.ts`](./signed-ucp-merchant.ts) | Signed UCP profile + JWKS endpoint | Wires `/.well-known/ucp` (signed envelope) + `/.well-known/jwks.json` against a persistent signing key. UCP §6 trust-mode requires the JWS signature; this example shows ephemeral-for-dev / env-JWK-for-prod, key rotation, and `Cache-Control` posture on the JWKS endpoint. Uses `generateUCPSigningKey`, `signUCPProfile`, `buildJWKSResponse`, `ucpSigningKeyFromJWK`. |
 
 ## How to use
 
@@ -19,11 +20,11 @@ Runnable, copy-pasteable example integrations covering the most common merchant 
 3. Install peer deps mentioned at the top of the file (only what you actually need)
 4. Set the env vars listed at the top of the file
 5. Run with `bun run <file>` or `node` (after build)
-6. Iterate — these are templates, not frameworks
+6. Iterate; these are templates, not frameworks
 
 ## Patterns
 
-All seven examples follow the same rough shape:
+All examples follow the same rough shape:
 
 1. **Boot:** instantiate framework, identity gate (if any), x402/mppx servers (if any) via commerce factories
 2. **Discovery routes:** `/llms.txt` + `/.well-known/mpp.json` + `/openapi.json` (where applicable) using commerce/discovery helpers
@@ -39,6 +40,6 @@ These examples are intentionally thin on domain logic. Vendors plug in their own
 - Order storage (DB, durable queue, etc.)
 - Customer email / fulfillment notifications
 - Tax / shipping calculators
-- Frontend UI (none of these examples include one — they're agent-only APIs)
+- Frontend UI (none of these examples include one; they're agent-only APIs)
 
 AgentScore Commerce handles the agent commerce protocol layer; everything else is your business.
