@@ -211,8 +211,22 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
   if (input.name !== undefined) profile.name = input.name;
   if (input.extras) {
     // Reserved-field collisions are rejected so a careless `extras: { signing_keys: [...] }`
-    // can't silently destroy the explicit field.
-    const RESERVED = new Set(['version', 'spec', 'services', 'capabilities', 'payment_handlers', 'signing_keys', 'name', 'signature']);
+    // can't silently destroy the explicit field. `__proto__`, `constructor`, and `prototype`
+    // are reserved so vendor extras can't slip prototype-pollution payloads into the canonical
+    // body and surprise downstream consumers.
+    const RESERVED = new Set([
+      'version',
+      'spec',
+      'services',
+      'capabilities',
+      'payment_handlers',
+      'signing_keys',
+      'name',
+      'signature',
+      '__proto__',
+      'constructor',
+      'prototype',
+    ]);
     for (const k of Object.keys(input.extras)) {
       if (RESERVED.has(k)) {
         throw new Error(`buildUCPProfile: extras key "${k}" collides with a reserved profile field; rejected.`);

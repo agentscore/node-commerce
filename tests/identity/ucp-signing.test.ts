@@ -440,6 +440,34 @@ describe('UCP signing — JCS-incompatible value rejection', () => {
   it('rejects Date instances', async () => {
     await expect(signWith({ a: new Date() })).rejects.toThrow(/Date instances are not allowed/);
   });
+
+  it('rejects BigInt values', async () => {
+    await expect(signWith({ a: 1n })).rejects.toThrow(/BigInt values are not allowed/);
+  });
+
+  it('rejects Map values', async () => {
+    await expect(signWith({ a: new Map([['x', 1]]) })).rejects.toThrow(/Map values are not allowed/);
+  });
+
+  it('rejects Set values', async () => {
+    await expect(signWith({ a: new Set([1, 2]) })).rejects.toThrow(/Set values are not allowed/);
+  });
+
+  it('rejects WeakMap values', async () => {
+    await expect(signWith({ a: new WeakMap() })).rejects.toThrow(/WeakMap values are not allowed/);
+  });
+
+  it('rejects WeakSet values', async () => {
+    await expect(signWith({ a: new WeakSet() })).rejects.toThrow(/WeakSet values are not allowed/);
+  });
+
+  it('rejects typed arrays (Uint8Array)', async () => {
+    await expect(signWith({ a: new Uint8Array([1, 2, 3]) })).rejects.toThrow(/typed arrays are not allowed/);
+  });
+
+  it('rejects typed arrays (Int32Array)', async () => {
+    await expect(signWith({ a: new Int32Array([1, 2, 3]) })).rejects.toThrow(/typed arrays are not allowed/);
+  });
 });
 
 describe('UCP signing — integer overflow defense', () => {
@@ -458,12 +486,12 @@ describe('UCP signing — integer overflow defense', () => {
     await expect(signWith({ n: 9007199254740992 })).rejects.toThrow(/MAX_SAFE_INTEGER/);
   });
 
-  it('rejects 2^53 + 1 as lossy', async () => {
-    await expect(signWith({ n: Number.MAX_SAFE_INTEGER + 2 })).rejects.toThrow(/MAX_SAFE_INTEGER/);
+  it('rejects 2^60 as lossy (well above MAX_SAFE_INTEGER, distinct float from 2^53)', async () => {
+    await expect(signWith({ n: 2 ** 60 })).rejects.toThrow(/MAX_SAFE_INTEGER/);
   });
 
-  it('rejects -(2^53 + 1) as lossy', async () => {
-    await expect(signWith({ n: -(Number.MAX_SAFE_INTEGER + 2) })).rejects.toThrow(/MAX_SAFE_INTEGER/);
+  it('rejects -(2^60) as lossy', async () => {
+    await expect(signWith({ n: -(2 ** 60) })).rejects.toThrow(/MAX_SAFE_INTEGER/);
   });
 
   it('accepts Number.MAX_SAFE_INTEGER', async () => {

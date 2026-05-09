@@ -139,10 +139,21 @@ function stableStringify(value: unknown): string {
   if (typeof value === 'function' || typeof value === 'symbol') {
     throw new Error(`stableStringify: ${typeof value} values are not allowed in canonicalized JSON.`);
   }
+  if (typeof value === 'bigint') {
+    throw new Error('stableStringify: BigInt values are not allowed; use a decimal string.');
+  }
   if (value instanceof Date) {
     throw new Error(
       'stableStringify: Date instances are not allowed; serialize to an ISO string before passing.',
     );
+  }
+  if (value instanceof Map || value instanceof Set || value instanceof WeakMap || value instanceof WeakSet) {
+    throw new Error(
+      `stableStringify: ${value.constructor.name} values are not allowed; convert to a plain object/array first.`,
+    );
+  }
+  if (ArrayBuffer.isView(value)) {
+    throw new Error('stableStringify: typed arrays are not allowed; convert to a plain array first.');
   }
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {

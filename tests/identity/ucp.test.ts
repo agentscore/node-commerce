@@ -95,4 +95,25 @@ describe('buildUCPProfile', () => {
     const cap = profile.capabilities.find((c) => c.name === AGENTSCORE_UCP_CAPABILITY);
     expect(cap?.schema).toBe('https://custom.example/schema.json');
   });
+
+  it.each([
+    ['version'],
+    ['spec'],
+    ['services'],
+    ['capabilities'],
+    ['payment_handlers'],
+    ['signing_keys'],
+    ['name'],
+    ['signature'],
+    ['__proto__'],
+    ['constructor'],
+    ['prototype'],
+  ])('rejects extras key "%s" as a reserved-field collision', (k) => {
+    expect(() =>
+      buildUCPProfile({
+        ...baseInput,
+        extras: { [k]: 'attacker' },
+      }),
+    ).toThrow(/collides with a reserved profile field/);
+  });
 });
