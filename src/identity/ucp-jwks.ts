@@ -397,13 +397,22 @@ export async function verifyUCPProfile(
       `UCP signature header kid must be a non-empty string; got ${header.kid === undefined ? 'undefined' : typeof header.kid}.`,
     );
   }
-  // RFC 7515 §4.1.11 / RFC 8725 §3.10: reject any JWS whose `crit` header
-  // advertises an extension we don't understand. UCP defines no `crit` headers,
-  // so any non-empty `crit` array is unrecognized by definition.
-  if (Array.isArray(header.crit) && header.crit.length > 0) {
+  // RFC 7515 §4.1.11: `crit` MUST be a non-empty array of strings if present.
+  // Shape-check first (matches python-commerce's malformed_jws split) so that
+  // explicit `crit: null` / `crit: []` / `crit: "foo"` / `crit: [42]` aren't
+  // silently accepted; only well-formed crit arrays fall through to the
+  // unrecognized-extension check (RFC 8725 §3.10 — UCP defines no crit headers).
+  if ('crit' in header) {
+    const crit = (header as { crit?: unknown }).crit;
+    if (!Array.isArray(crit) || crit.length === 0 || !crit.every((c) => typeof c === 'string')) {
+      throw new UCPVerificationError(
+        'malformed_jws',
+        `JWS protected header crit must be a non-empty array of strings; got ${JSON.stringify(crit)}.`,
+      );
+    }
     throw new UCPVerificationError(
       'unrecognized_critical_header',
-      `JWS protected header advertises unrecognized crit headers: ${JSON.stringify(header.crit)}.`,
+      `JWS protected header advertises unrecognized crit headers: ${JSON.stringify(crit)}.`,
     );
   }
 

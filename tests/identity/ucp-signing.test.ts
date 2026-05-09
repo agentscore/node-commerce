@@ -361,6 +361,42 @@ describe('UCP signing — additional hardening', () => {
     await expect(verifyUCPProfile(signed as never, buildJWKSResponse([publicJWK])))
       .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'unrecognized_critical_header' });
   });
+
+  // RFC 7515 §4.1.11: crit MUST be a non-empty array of strings if present.
+  // The four cases below mirror python-commerce's malformed_jws parity tests so
+  // a malformed crit shape never silently falls through to the unrecognized
+  // branch (or worse, gets accepted) on either SDK.
+  it.each([
+    { label: 'null', crit: null as unknown },
+    { label: 'empty array', crit: [] as unknown },
+    { label: 'string (not array)', crit: 'fakething' as unknown },
+    { label: 'array with non-string element', crit: [42] as unknown },
+  ])('verifyUCPProfile rejects malformed crit ($label) with malformed_jws', async ({ crit }) => {
+    const { generateUCPSigningKey, buildJWKSResponse, verifyUCPProfile } = await import('../../src/identity/ucp-jwks');
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+
+    const { base64url } = await import('jose');
+    const { sign } = await import('node:crypto');
+    function ss(v: unknown): string {
+      if (v === null || typeof v !== 'object') return JSON.stringify(v);
+      if (Array.isArray(v)) return `[${v.map(ss).join(',')}]`;
+      const o = v as Record<string, unknown>;
+      return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${ss(o[k])}`).join(',')}}`;
+    }
+    const canonical = ss(profile);
+    const headerJson = JSON.stringify({ alg: 'EdDSA', kid: 'k', typ: 'ucp-profile+jws', crit });
+    const headerB64 = base64url.encode(new TextEncoder().encode(headerJson));
+    const payloadB64 = base64url.encode(new TextEncoder().encode(canonical));
+    const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+    const sigBytes = sign(null, data, privateKey as Parameters<typeof sign>[2]);
+    const sigB64 = base64url.encode(sigBytes);
+    const jws = `${headerB64}.${payloadB64}.${sigB64}`;
+    const signed = { ...profile, signature: jws };
+
+    await expect(verifyUCPProfile(signed as never, buildJWKSResponse([publicJWK])))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'malformed_jws' });
+  });
 });
 
 describe('ucpSigningKeyFromJWK', () => {
