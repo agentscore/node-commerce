@@ -22,14 +22,33 @@
 
 import type { AgentScoreData } from '../core';
 
+/**
+ * UCP per-element shape note (applies to UCPSigningKey, UCPService, UCPCapability):
+ *
+ * The Node interfaces accept canonical UCP fields plus arbitrary vendor extras
+ * flat in the same object via `[k: string]: unknown`. There is no separate
+ * `extras` slot per element. The python sibling models these as dataclasses
+ * with an explicit `extras: dict` field so callers can isolate canonical from
+ * vendor fields, and `to_dict()` rejects extras keys that collide with
+ * reserved canonical names. In Node, the canonical names (`kid` / `kty` for
+ * signing keys, `type` / `url` / `version` for services, `name` / `schema` /
+ * `version` for capabilities) are positional fields in the interface, so a
+ * caller that writes `{ name: 'checkout', name: 'attacker' }` produces a
+ * static type error or trivially overwrites itself in object-literal syntax;
+ * there is no separate map that could shadow a reserved key. The two designs
+ * therefore offer equivalent guarantees through different mechanisms; the
+ * top-level `BuildUCPProfileInput.extras` slot below DOES carry a runtime
+ * reserved-key guard because it is a dedicated map and can be populated by
+ * spreading, where the per-element shapes cannot.
+ */
 export interface UCPSigningKey {
   /** JWK kid (key id). */
   kid: string;
-  /** JWK kty (key type) — typically `EC`, `RSA`, or `OKP`. */
+  /** JWK kty (key type), typically `EC`, `RSA`, or `OKP`. */
   kty: string;
-  /** JWK alg (signing algorithm) — typically `ES256`, `RS256`, or `EdDSA`. */
+  /** JWK alg (signing algorithm), typically `ES256`, `RS256`, or `EdDSA`. */
   alg?: string;
-  /** JWK use — typically `sig`. */
+  /** JWK use, typically `sig`. */
   use?: string;
   /** JWK crv (curve) for EC / OKP keys. */
   crv?: string;
