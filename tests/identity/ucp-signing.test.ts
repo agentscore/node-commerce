@@ -580,3 +580,57 @@ describe('UCP signing — round-4 hardening', () => {
       .rejects.toBeInstanceOf(UCPVerificationError);
   });
 });
+
+describe('UCP signing — verifier-side canonicalize must not leak raw Error', () => {
+  async function makeSigned(): Promise<{
+    signed: Awaited<ReturnType<typeof signUCPProfile>>;
+    jwks: ReturnType<typeof buildJWKSResponse>;
+  }> {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
+    return { signed, jwks: buildJWKSResponse([publicJWK]) };
+  }
+
+  it('emits typed body_mismatch when received profile carries a non-integer Number', async () => {
+    const { signed, jwks } = await makeSigned();
+    const tampered = { ...signed, extras: { n: 1.5 } } as unknown as typeof signed;
+    await expect(verifyUCPProfile(tampered, jwks))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'body_mismatch' });
+  });
+
+  it('emits typed body_mismatch when received profile carries an unsafe-large Number', async () => {
+    const { signed, jwks } = await makeSigned();
+    const tampered = { ...signed, extras: { n: Number.MAX_SAFE_INTEGER + 1 } } as unknown as typeof signed;
+    await expect(verifyUCPProfile(tampered, jwks))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'body_mismatch' });
+  });
+
+  it('emits typed body_mismatch when received profile carries NaN', async () => {
+    const { signed, jwks } = await makeSigned();
+    const tampered = { ...signed, extras: { n: NaN } } as unknown as typeof signed;
+    await expect(verifyUCPProfile(tampered, jwks))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'body_mismatch' });
+  });
+
+  it('emits typed body_mismatch when received profile carries Infinity', async () => {
+    const { signed, jwks } = await makeSigned();
+    const tampered = { ...signed, extras: { n: Infinity } } as unknown as typeof signed;
+    await expect(verifyUCPProfile(tampered, jwks))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'body_mismatch' });
+  });
+
+  it('emits typed body_mismatch when received profile carries a BigInt', async () => {
+    const { signed, jwks } = await makeSigned();
+    const tampered = { ...signed, extras: { n: 1n } } as unknown as typeof signed;
+    await expect(verifyUCPProfile(tampered, jwks))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'body_mismatch' });
+  });
+});
+
+describe('UCP signing — error precedence parity (profile-first)', () => {
+  it('null profile + malformed JWKS returns no_signature (profile-first)', async () => {
+    await expect(verifyUCPProfile(null as never, 'not a jwks' as never))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'no_signature' });
+  });
+});

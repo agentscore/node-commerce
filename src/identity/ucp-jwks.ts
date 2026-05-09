@@ -328,7 +328,15 @@ export async function verifyUCPProfile(
     );
   }
 
-  const canonicalBody = canonicalizeProfile(stripped as UCPProfile);
+  let canonicalBody: string;
+  try {
+    canonicalBody = canonicalizeProfile(stripped as UCPProfile);
+  } catch (err) {
+    throw new UCPVerificationError(
+      'body_mismatch',
+      `Failed to canonicalize received profile for verification: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   const expectedPayload = new TextEncoder().encode(canonicalBody);
 
   let signedPayload: Uint8Array;
