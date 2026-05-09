@@ -339,14 +339,21 @@ export async function verifyUCPProfile(
     const verified = await jose.compactVerify(
       sig,
       async (header) => {
+        // Header check order is typ → alg → kid to match the Python sibling's
+        // _peek_jws_header. A profile with multiple header faults (e.g. typ=JWT
+        // AND alg=HS256) must surface the same `code` from both SDKs; the
+        // `algorithms` option on compactVerify is intentionally omitted because
+        // jose enforces it BEFORE invoking this resolver, which would short-circuit
+        // typ before we could check it. The callback covers the same RFC 8725 §3.1
+        // restriction below.
+        // RFC 8725 §3.11 — enforce expected typ to prevent cross-protocol token reuse.
+        if (header.typ !== UCP_TYP) {
+          throw new UCPVerificationError('wrong_typ', `UCP signature typ must be "${UCP_TYP}"; got ${String(header.typ)}.`);
+        }
         // RFC 8725 §3.1 — restrict to allow-listed algorithms before key resolution
         // so a hostile JWK can never be used with HS256/none/RS256/etc.
         if (!ALLOWED_ALGS.includes(header.alg as AllowedAlg)) {
           throw new UCPVerificationError('unsupported_alg', `UCP signing alg must be one of ${ALLOWED_ALGS.join(', ')}; got ${String(header.alg)}.`);
-        }
-        // RFC 8725 §3.11 — enforce expected typ to prevent cross-protocol token reuse.
-        if (header.typ !== UCP_TYP) {
-          throw new UCPVerificationError('wrong_typ', `UCP signature typ must be "${UCP_TYP}"; got ${String(header.typ)}.`);
         }
         const kid = header.kid;
         // Strict string check — a non-string kid (number/bool/null) could
@@ -376,7 +383,6 @@ export async function verifyUCPProfile(
         }
         return jose.importJWK(matches[0] as Parameters<typeof jose.importJWK>[0], header.alg);
       },
-      { algorithms: [...ALLOWED_ALGS] },
     );
     signedPayload = verified.payload;
   } catch (err) {

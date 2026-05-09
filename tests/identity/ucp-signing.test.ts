@@ -663,4 +663,35 @@ describe('UCP signing — error precedence parity (profile-first)', () => {
     await expect(verifyUCPProfile(tampered, buildJWKSResponse([publicJWK])))
       .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'wrong_typ' });
   });
+
+  it('mixed alg=HS256 + typ=JWT JWS emits wrong_typ (typ-first like Python)', async () => {
+    // Hand-craft a JWS whose protected header carries BOTH a wrong typ
+    // ("JWT") AND a disallowed alg ("HS256"). Python's _peek_jws_header
+    // checks typ before alg, so it surfaces wrong_typ; Node must do the
+    // same so cross-SDK error codes stay aligned for any caller routing
+    // on `code`.
+    const jose = await import('jose');
+    const { publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const stripped = { ...profile } as Record<string, unknown>;
+    delete stripped.signature;
+    const sortedJson = (() => {
+      const sort = (v: unknown): unknown => {
+        if (v === null || typeof v !== 'object') return v;
+        if (Array.isArray(v)) return v.map(sort);
+        return Object.keys(v as Record<string, unknown>).sort().reduce<Record<string, unknown>>((acc, k) => {
+          acc[k] = sort((v as Record<string, unknown>)[k]);
+          return acc;
+        }, {});
+      };
+      return JSON.stringify(sort(stripped));
+    })();
+    const sharedSecret = new Uint8Array(32).fill(0xab);
+    const mixedSig = await new jose.CompactSign(new TextEncoder().encode(sortedJson))
+      .setProtectedHeader({ alg: 'HS256', kid: 'k', typ: 'JWT' })
+      .sign(sharedSecret);
+    await expect(
+      verifyUCPProfile({ ...profile, signature: mixedSig } as never, buildJWKSResponse([publicJWK])),
+    ).rejects.toMatchObject({ name: 'UCPVerificationError', code: 'wrong_typ' });
+  });
 });
