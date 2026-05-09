@@ -60,6 +60,7 @@ describe('UCP signing — cross-language fixture corpus', () => {
         'unicode',
         'multikey',
         'emoji-keys',
+        'int-boundary',
       ] as const) {
         expect(names).toContain(`${lang}-${scenario}.json`);
       }
