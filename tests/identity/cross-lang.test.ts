@@ -61,6 +61,10 @@ describe('UCP signing — cross-language fixture corpus', () => {
         'multikey',
         'emoji-keys',
         'int-boundary',
+        // `data-driven-claims` is the only fixture in the corpus that exercises
+        // `buildUCPProfile` / `build_ucp_profile`'s data path (vs. hand-crafted
+        // capabilities). Catches drift in `account_verification` coalescing.
+        'data-driven-claims',
       ] as const) {
         expect(names).toContain(`${lang}-${scenario}.json`);
       }

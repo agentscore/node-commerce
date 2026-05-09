@@ -180,13 +180,17 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
     if (operatorId) {
       const operatorVerification = input.data.operator_verification;
       const accountVerification = input.data.account_verification;
+      // `||` (not `??`) coerces both null/undefined AND empty string to the default,
+      // matching the python sibling. The API can return `account_verification` with
+      // either null or `""` for un-set fields depending on the row state, and a
+      // profile signed in one language must verify in the other across both shapes.
       const claims: Record<string, unknown> = {
         operator_id: operatorId,
-        kyc_level: accountVerification?.kyc_level ?? operatorVerification?.level ?? 'none',
+        kyc_level: accountVerification?.kyc_level || operatorVerification?.level || 'none',
         sanctions_clear: accountVerification?.sanctions_clear === true,
-        age_bracket: accountVerification?.age_bracket ?? 'unknown',
-        jurisdiction: accountVerification?.jurisdiction ?? '',
-        verified_at: accountVerification?.verified_at ?? operatorVerification?.verified_at ?? null,
+        age_bracket: accountVerification?.age_bracket || 'unknown',
+        jurisdiction: accountVerification?.jurisdiction || '',
+        verified_at: accountVerification?.verified_at || operatorVerification?.verified_at || null,
         verify_url: input.data.verify_url ?? null,
         issuer: 'https://agentscore.sh',
       };

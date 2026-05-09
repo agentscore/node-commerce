@@ -116,4 +116,56 @@ describe('buildUCPProfile', () => {
       }),
     ).toThrow(/collides with a reserved profile field/);
   });
+
+  // Empty-string and null normalization: the API can emit
+  // `account_verification` with either null or `""` for un-set fields, and the
+  // node + python siblings must produce the SAME canonical claims block for
+  // either shape so a profile signed in one language verifies in the other.
+  describe('account_verification missing-value normalization (cross-lang parity)', () => {
+    const baseDataWithOp = {
+      decision: 'allow',
+      decision_reasons: [],
+      resolved_operator: 'op_abc',
+    };
+
+    const claimsOf = (av: AgentScoreData['account_verification']) => {
+      const profile = buildUCPProfile({
+        ...baseInput,
+        data: { ...baseDataWithOp, account_verification: av } as AgentScoreData,
+      });
+      const cap = profile.capabilities.find((c) => c.name === AGENTSCORE_UCP_CAPABILITY) as Record<
+        string,
+        unknown
+      >;
+      return cap.claims as Record<string, unknown>;
+    };
+
+    it('coerces empty-string kyc_level to "none"', () => {
+      expect(claimsOf({ kyc_level: '' }).kyc_level).toBe('none');
+    });
+
+    it('coerces null age_bracket to "unknown"', () => {
+      expect(claimsOf({ age_bracket: null as unknown as string }).age_bracket).toBe('unknown');
+    });
+
+    it('coerces empty-string age_bracket to "unknown"', () => {
+      expect(claimsOf({ age_bracket: '' }).age_bracket).toBe('unknown');
+    });
+
+    it('coerces null jurisdiction to ""', () => {
+      expect(claimsOf({ jurisdiction: null as unknown as string }).jurisdiction).toBe('');
+    });
+
+    it('coerces empty-string jurisdiction to ""', () => {
+      expect(claimsOf({ jurisdiction: '' }).jurisdiction).toBe('');
+    });
+
+    it('coerces null verified_at to null', () => {
+      expect(claimsOf({ verified_at: null }).verified_at).toBeNull();
+    });
+
+    it('coerces empty-string verified_at to null', () => {
+      expect(claimsOf({ verified_at: '' }).verified_at).toBeNull();
+    });
+  });
 });
