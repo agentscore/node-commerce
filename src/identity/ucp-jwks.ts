@@ -328,17 +328,12 @@ export async function verifyUCPProfile(
     );
   }
 
-  let canonicalBody: string;
-  try {
-    canonicalBody = canonicalizeProfile(stripped as UCPProfile);
-  } catch (err) {
-    throw new UCPVerificationError(
-      'body_mismatch',
-      `Failed to canonicalize received profile for verification: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  const expectedPayload = new TextEncoder().encode(canonicalBody);
-
+  // Run compactVerify (which fires header validation via the key-resolver
+  // callback: typ → alg → kid → JWK lookup) BEFORE canonicalizing the stripped
+  // profile body. Header-level violations therefore take precedence over body
+  // canonicalization errors, matching the Python sibling's _peek_jws_header
+  // ordering. Cross-language parity means a profile with both a malformed body
+  // AND a malformed JWS header surfaces the same `code` in both SDKs.
   let signedPayload: Uint8Array;
   try {
     const verified = await jose.compactVerify(
@@ -404,9 +399,20 @@ export async function verifyUCPProfile(
     throw err;
   }
 
+  let canonicalBody: string;
+  try {
+    canonicalBody = canonicalizeProfile(stripped as UCPProfile);
+  } catch (err) {
+    throw new UCPVerificationError(
+      'body_mismatch',
+      `Failed to canonicalize received profile for verification: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const expectedPayload = new TextEncoder().encode(canonicalBody);
+
   // Compare the bytes that were actually signed against the canonical body of the
   // profile we received. `compactVerify` validates the JWS against the bytes embedded
-  // in the JWS payload segment — but the profile body could have been swapped after
+  // in the JWS payload segment, but the profile body could have been swapped after
   // signing while the JWS stayed unchanged. Body-vs-payload comparison closes that
   // gap.
   if (!constantTimeEqual(signedPayload, expectedPayload)) {

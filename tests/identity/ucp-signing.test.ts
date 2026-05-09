@@ -633,4 +633,34 @@ describe('UCP signing — error precedence parity (profile-first)', () => {
     await expect(verifyUCPProfile(null as never, 'not a jwks' as never))
       .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'no_signature' });
   });
+
+  it('mixed body-malformed + wrong-typ JWS emits wrong_typ (header-first like Python)', async () => {
+    // Build a profile, sign it with the wrong typ (typ="JWT" instead of
+    // ucp-profile+jws) so header validation rejects, then mutate the body
+    // to also carry a non-integer Number that would fail canonicalize. The
+    // verifier must surface `wrong_typ` (header-first), matching the Python
+    // sibling's _peek_jws_header order.
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    const jose = await import('jose');
+    const stripped = { ...profile } as Record<string, unknown>;
+    delete stripped.signature;
+    const sortedJson = (() => {
+      const sort = (v: unknown): unknown => {
+        if (v === null || typeof v !== 'object') return v;
+        if (Array.isArray(v)) return v.map(sort);
+        return Object.keys(v as Record<string, unknown>).sort().reduce<Record<string, unknown>>((acc, k) => {
+          acc[k] = sort((v as Record<string, unknown>)[k]);
+          return acc;
+        }, {});
+      };
+      return JSON.stringify(sort(stripped));
+    })();
+    const wrongTypSig = await new jose.CompactSign(new TextEncoder().encode(sortedJson))
+      .setProtectedHeader({ alg: 'EdDSA', kid: 'k', typ: 'JWT' })
+      .sign(privateKey as Parameters<typeof jose.CompactSign.prototype.sign>[0]);
+    const tampered = { ...profile, signature: wrongTypSig, extras: { rate: 1.5 } } as never;
+    await expect(verifyUCPProfile(tampered, buildJWKSResponse([publicJWK])))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'wrong_typ' });
+  });
 });
