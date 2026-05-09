@@ -173,6 +173,21 @@ function stableStringify(value: unknown): string {
       );
     }
   }
+  if (typeof value === 'string') {
+    // Cross-language byte parity: pre-ES2019 V8 (and any environment whose
+    // JSON.stringify still escapes U+2028 / U+2029) emits \u2028 / \u2029
+    // for these codepoints, while Python's json.dumps with ensure_ascii=False
+    // emits them raw. A string carrying either would canonicalize to different
+    // bytes across the Node and Python siblings and break signature
+    // verification at the language boundary. Mirror the rejection in
+    // core/api/src/lib/canonicalize.ts so the contract stays symmetric.
+    if (value.includes('\u2028') || value.includes('\u2029')) {
+      throw new Error(
+        'stableStringify: strings containing U+2028 (LINE SEPARATOR) or U+2029 (PARAGRAPH SEPARATOR) are not allowed; cross-language byte parity requires neither be present (Node JSON.stringify on older V8 escapes them; Python json.dumps with ensure_ascii=False does not).',
+      );
+    }
+    return JSON.stringify(value);
+  }
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
   const obj = value as Record<string, unknown>;

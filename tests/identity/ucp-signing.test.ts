@@ -727,3 +727,55 @@ describe('UCP signing — error precedence parity (profile-first)', () => {
       .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'wrong_typ' });
   });
 });
+
+describe('UCP signing — U+2028 / U+2029 rejection', () => {
+  // Modern V8 emits U+2028 / U+2029 raw from JSON.stringify, so on today's Node
+  // the divergence with Python json.dumps(ensure_ascii=False) is theoretical.
+  // The rejection mirrors core/api/src/lib/canonicalize.ts so the contract
+  // stays symmetric for any pre-ES2019 verifier (older V8, browser-side
+  // verifier code) where JSON.stringify still escapes these codepoints.
+  async function signWith(extras: unknown): Promise<void> {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    (profile as unknown as Record<string, unknown>).extras = extras;
+    await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
+  }
+
+  it('rejects strings containing U+2028 (LINE SEPARATOR) at top level', async () => {
+    await expect(signWith({ note: 'before after' }))
+      .rejects.toThrow(/U\+2028/);
+  });
+
+  it('rejects strings containing U+2029 (PARAGRAPH SEPARATOR) at top level', async () => {
+    await expect(signWith({ note: 'before after' }))
+      .rejects.toThrow(/U\+2029/);
+  });
+
+  it('rejects U+2028 nested inside an array', async () => {
+    await expect(signWith({ items: ['ok', 'bad tail'] }))
+      .rejects.toThrow(/U\+2028/);
+  });
+
+  it('rejects U+2029 nested inside an array', async () => {
+    await expect(signWith({ items: ['ok', 'bad tail'] }))
+      .rejects.toThrow(/U\+2029/);
+  });
+
+  it('rejects U+2028 nested inside an object value', async () => {
+    await expect(signWith({ deep: { inner: 'before after' } }))
+      .rejects.toThrow(/U\+2028/);
+  });
+
+  it('rejects U+2029 nested inside an object value', async () => {
+    await expect(signWith({ deep: { inner: 'before after' } }))
+      .rejects.toThrow(/U\+2029/);
+  });
+
+  it('accepts U+2027 (HYPHENATION POINT) as sanity case — different codepoint, not a target', async () => {
+    const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+    (profile as unknown as Record<string, unknown>).extras = { note: 'before‧after' };
+    const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'k' });
+    expect(await verifyUCPProfile(signed, buildJWKSResponse([publicJWK]))).toBe(true);
+  });
+});
