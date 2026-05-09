@@ -61,10 +61,16 @@ describe('UCP signing — cross-language fixture corpus', () => {
         'multikey',
         'emoji-keys',
         'int-boundary',
-        // `data-driven-claims` is the only fixture in the corpus that exercises
-        // `buildUCPProfile` / `build_ucp_profile`'s data path (vs. hand-crafted
-        // capabilities). Catches drift in `account_verification` coalescing.
+        // `data-driven-claims` exercises the raw-dict fallback read path
+        // (`AssessResult(raw={"account_verification": {...}})`) that production
+        // callers populate. `typed-claims` exercises the typed field path
+        // (`AssessResult(account_verification={...}, raw=None)`) that
+        // hand-constructed callers use — Node's `buildUCPProfile` reads typed
+        // fields directly without consulting raw, so both paths must produce
+        // byte-identical canonical bytes across languages or cross-lang verify
+        // silently drifts.
         'data-driven-claims',
+        'typed-claims',
       ] as const) {
         expect(names).toContain(`${lang}-${scenario}.json`);
       }
