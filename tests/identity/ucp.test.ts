@@ -32,12 +32,13 @@ describe('buildUCPProfile', () => {
     expect(profile.payment_handlers).toEqual([]);
   });
 
-  it('appends agentscore-identity capability when data carries a resolved operator', () => {
+  it('appends sh.agentscore.identity capability when data carries a resolved operator', () => {
     const profile = buildUCPProfile({ ...baseInput, data: fullData });
     const cap = profile.capabilities.find((c) => c.name === AGENTSCORE_UCP_CAPABILITY);
     expect(cap).toBeDefined();
     expect(cap?.version).toBe('1');
-    expect(cap?.schema).toContain('agentscore-identity.v1.json');
+    expect(cap?.name).toBe('sh.agentscore.identity');
+    expect(cap?.schema).toContain('sh-agentscore-identity-v1.json');
     const claims = (cap as Record<string, unknown>).claims as Record<string, unknown>;
     expect(claims.operator_id).toBe('op_abc');
     expect(claims.kyc_level).toBe('enhanced');

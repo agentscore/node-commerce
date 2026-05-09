@@ -168,14 +168,14 @@ describe('UCP signing — security: alg-confusion + typ + dup-kid', () => {
       return JSON.stringify(sort(stripped));
     })();
     const evilSig = await new jose.CompactSign(new TextEncoder().encode(sortedJson))
-      .setProtectedHeader({ alg: 'HS256', kid: 'attacker', typ: 'ucp-profile+jws' })
+      .setProtectedHeader({ alg: 'HS256', kid: 'attacker', typ: 'agentscore-profile+jws' })
       .sign(sharedSecret);
     const tampered = { ...profile, signature: evilSig };
     await expect(verifyUCPProfile(tampered as never, buildJWKSResponse([ocJwk as never])))
       .rejects.toThrow(UCPVerificationError);
   });
 
-  it('rejects a JWS with typ != "ucp-profile+jws"', async () => {
+  it('rejects a JWS with typ != "agentscore-profile+jws"', async () => {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
     const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
     const jose = await import('jose');
@@ -351,7 +351,7 @@ describe('UCP signing — additional hardening', () => {
       return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${ss(o[k])}`).join(',')}}`;
     }
     const canonical = ss(profile);
-    const headerJson = JSON.stringify({ alg: 'EdDSA', kid: 'k', typ: 'ucp-profile+jws', crit: ['fakething'], fakething: 'x' });
+    const headerJson = JSON.stringify({ alg: 'EdDSA', kid: 'k', typ: 'agentscore-profile+jws', crit: ['fakething'], fakething: 'x' });
     const headerB64 = base64url.encode(new TextEncoder().encode(headerJson));
     const payloadB64 = base64url.encode(new TextEncoder().encode(canonical));
     const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
@@ -387,7 +387,7 @@ describe('UCP signing — additional hardening', () => {
       return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${ss(o[k])}`).join(',')}}`;
     }
     const canonical = ss(profile);
-    const headerJson = JSON.stringify({ alg: 'EdDSA', kid: 'k', typ: 'ucp-profile+jws', crit });
+    const headerJson = JSON.stringify({ alg: 'EdDSA', kid: 'k', typ: 'agentscore-profile+jws', crit });
     const headerB64 = base64url.encode(new TextEncoder().encode(headerJson));
     const payloadB64 = base64url.encode(new TextEncoder().encode(canonical));
     const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
@@ -674,7 +674,7 @@ describe('UCP signing — error precedence parity (profile-first)', () => {
 
   it('mixed body-malformed + wrong-typ JWS emits wrong_typ (header-first like Python)', async () => {
     // Build a profile, sign it with the wrong typ (typ="JWT" instead of
-    // ucp-profile+jws) so header validation rejects, then mutate the body
+    // agentscore-profile+jws) so header validation rejects, then mutate the body
     // to also carry a non-integer Number that would fail canonicalize. The
     // verifier must surface `wrong_typ` (header-first), matching the Python
     // sibling's _peek_jws_header order.

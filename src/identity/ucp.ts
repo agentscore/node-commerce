@@ -81,7 +81,7 @@ export interface UCPService {
 }
 
 export interface UCPCapability {
-  /** Capability name — `checkout`, `catalog`, `agentscore-identity`, etc. */
+  /** Capability name — `checkout`, `catalog`, `sh.agentscore.identity`, etc. */
   name: string;
   /** URL of the JSON Schema describing this capability's payload. */
   schema?: string;
@@ -128,13 +128,13 @@ export interface BuildUCPProfileInput {
   name?: string;
   /** Service transport bindings. At minimum, the agent's primary REST endpoint. */
   services: UCPService[];
-  /** Capabilities offered. AgentScore identity is auto-added as a capability when `data` is provided. */
+  /** Capabilities offered. AgentScore identity (vendor-namespaced as `sh.agentscore.identity`) is auto-added as a capability when `data` is provided. */
   capabilities?: UCPCapability[];
   /** Payment handlers — rails the merchant accepts. */
   payment_handlers?: UCPPaymentHandler[];
   /** JWKS — public keys the merchant signs requests with. REQUIRED by spec. */
   signing_keys: UCPSigningKey[];
-  /** AgentScore assess data — adds an `agentscore-identity` capability + claims block when present. */
+  /** AgentScore assess data — adds an `sh.agentscore.identity` capability + claims block when present. */
   data?: AgentScoreData | null;
   /** Optional override for the AgentScore capability schema URL. */
   agentscoreSchemaUrl?: string;
@@ -144,14 +144,18 @@ export interface BuildUCPProfileInput {
 
 const DEFAULT_VERSION = '2026-04-17';
 const SPEC_URL = 'https://ucp.dev/';
-const AGENTSCORE_CAPABILITY_NAME = 'agentscore-identity';
+// Reverse-DNS namespacing per UCP convention (`^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9_]*)+$`).
+// The bare `agentscore-identity` form fails the spec regex; vendor-namespacing under the
+// `sh.agentscore` authority is honest about the capability being our extension, not a
+// UCP-canonical slot.
+const AGENTSCORE_CAPABILITY_NAME = 'sh.agentscore.identity';
 const AGENTSCORE_CAPABILITY_VERSION = '1';
 
 /**
  * Compose a UCP profile body for `/.well-known/ucp` publication. Merges AgentScore
- * identity claims into the `capabilities` array as an `agentscore-identity` capability
- * so UCP-aware consumers can discover verified-buyer claims alongside the standard
- * UCP transport metadata.
+ * identity claims into the `capabilities` array as an `sh.agentscore.identity`
+ * capability so UCP-aware consumers can discover verified-buyer claims alongside the
+ * standard UCP transport metadata.
  *
  * Example:
  * ```ts
@@ -197,7 +201,7 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
       baseCapabilities.push({
         name: AGENTSCORE_CAPABILITY_NAME,
         version: AGENTSCORE_CAPABILITY_VERSION,
-        schema: input.agentscoreSchemaUrl ?? 'https://agentscore.sh/schemas/ucp/agentscore-identity.v1.json',
+        schema: input.agentscoreSchemaUrl ?? 'https://agentscore.sh/schemas/ucp/sh-agentscore-identity-v1.json',
         claims,
       });
     }

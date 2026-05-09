@@ -67,9 +67,11 @@ const JOSE_INSTALL_HINT = 'Install the optional peer dependency: `npm install jo
 const ALLOWED_ALGS = ['EdDSA', 'ES256'] as const;
 type AllowedAlg = (typeof ALLOWED_ALGS)[number];
 
-/** UCP §6.2 — JWS protected header `typ` value. Verifiers SHOULD enforce this to
- *  prevent cross-protocol token reuse (RFC 8725 §3.11). */
-const UCP_TYP = 'ucp-profile+jws';
+/** JWS protected header `typ` value. Vendor-namespaced because UCP §6 does not define
+ *  a profile-as-JWS typ; the value advertises that this signed envelope follows the
+ *  AgentScore extension semantics rather than a UCP-canonical signing convention.
+ *  Verifiers SHOULD enforce this to prevent cross-protocol token reuse (RFC 8725 §3.11). */
+const PROFILE_TYP = 'agentscore-profile+jws';
 
 /** Discriminated error class so consumers can branch on failure mode without
  *  parsing message strings or importing jose internals. */
@@ -304,7 +306,7 @@ export async function signUCPProfile(
   const payloadBytes = new TextEncoder().encode(canonicalBody);
 
   const signature = await new jose.CompactSign(payloadBytes)
-    .setProtectedHeader({ alg, kid: opts.kid, typ: UCP_TYP })
+    .setProtectedHeader({ alg, kid: opts.kid, typ: PROFILE_TYP })
     .sign(opts.signingKey as Parameters<typeof jose.CompactSign.prototype.sign>[0]);
 
   return { ...profile, signature };
@@ -381,8 +383,8 @@ export async function verifyUCPProfile(
   // Header check order is typ → alg → kid → crit to match the Python sibling's
   // _peek_jws_header. RFC 8725 §3.11: enforce expected typ to prevent
   // cross-protocol token reuse.
-  if (header.typ !== UCP_TYP) {
-    throw new UCPVerificationError('wrong_typ', `UCP signature typ must be "${UCP_TYP}"; got ${String(header.typ)}.`);
+  if (header.typ !== PROFILE_TYP) {
+    throw new UCPVerificationError('wrong_typ', `UCP signature typ must be "${PROFILE_TYP}"; got ${String(header.typ)}.`);
   }
   // RFC 8725 §3.1: restrict to allow-listed algorithms before key resolution
   // so a hostile JWK can never be used with HS256/none/RS256/etc.
