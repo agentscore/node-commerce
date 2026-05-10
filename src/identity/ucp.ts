@@ -299,6 +299,36 @@ const RESERVED_UCP_FIELDS = new Set([
  * ```
  */
 export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
+  // Per UCP spec service.json: rest/mcp/a2a transports REQUIRE endpoint;
+  // embedded does not. Validate caller-supplied services so a misconfigured
+  // profile fails locally instead of being rejected by spec-strict platforms.
+  for (const [name, bindings] of Object.entries(input.services ?? {})) {
+    for (const binding of bindings) {
+      if (
+        (binding.transport === 'rest' || binding.transport === 'mcp' || binding.transport === 'a2a')
+        && (binding.endpoint === undefined || binding.endpoint === null || binding.endpoint === '')
+      ) {
+        throw new Error(
+          `buildUCPProfile: service "${name}" transport=${binding.transport} requires \`endpoint\`. Per UCP spec service.json business_schema, rest/mcp/a2a bindings MUST carry an endpoint URL.`,
+        );
+      }
+    }
+  }
+
+  // Per UCP spec payment_handler.json: available_instruments has minItems:1.
+  // Deep-copy each binding and drop available_instruments when empty so a caller
+  // passing `[]` doesn't ship an invalid profile.
+  const paymentHandlers: Record<string, UCPPaymentHandlerBinding[]> = {};
+  for (const [name, bindings] of Object.entries(input.payment_handlers ?? {})) {
+    paymentHandlers[name] = bindings.map((binding) => {
+      if (Array.isArray(binding.available_instruments) && binding.available_instruments.length === 0) {
+        const { available_instruments: _drop, ...rest } = binding;
+        return rest as UCPPaymentHandlerBinding;
+      }
+      return binding;
+    });
+  }
+
   // Deep-clone the capabilities map so we can safely mutate (auto-add the AgentScore
   // identity capability) without altering the caller's input.
   const capabilities: Record<string, UCPCapabilityBinding[]> = {};
@@ -330,7 +360,7 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
     version: input.version ?? DEFAULT_VERSION,
     services: input.services ?? {},
     capabilities,
-    payment_handlers: input.payment_handlers ?? {},
+    payment_handlers: paymentHandlers,
   };
   if (input.name !== undefined) ucp.name = input.name;
   if (input.supported_versions !== undefined) ucp.supported_versions = input.supported_versions;

@@ -10,10 +10,28 @@ import {
 
 const baseInput = {
   name: 'Test Merchant',
-  services: [{ type: 'rest', url: 'https://agents.example.com' }],
-  payment_handlers: [
-    { name: 'tempo', config: { recipient: '0x1234' } },
-  ],
+  services: {
+    'dev.ucp.shopping': [
+      {
+        version: '2026-04-08',
+        spec: 'https://ucp.dev/2026-04-08/specification/overview',
+        transport: 'rest' as const,
+        endpoint: 'https://agents.example.com/api/ucp',
+        schema: 'https://ucp.dev/services/shopping/openrpc.json',
+      },
+    ],
+  },
+  payment_handlers: {
+    'sh.agentscore.payment.tempo': [
+      {
+        id: 'tempo',
+        version: '2026-04-08',
+        spec: 'https://agentscore.sh/specification/payment-handlers/tempo',
+        schema: 'https://agentscore.sh/schemas/payment-handlers/tempo.json',
+        config: { recipient: '0x1234' },
+      },
+    ],
+  },
 };
 
 describe('UCP signing — generateUCPSigningKey', () => {

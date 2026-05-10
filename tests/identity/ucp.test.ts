@@ -205,4 +205,60 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
       /collides with a reserved `ucp` field/,
     );
   });
+
+  it.each([['rest'], ['mcp'], ['a2a']])(
+    'rejects %s service binding when endpoint is missing (UCP spec service.json)',
+    (transport) => {
+      expect(() =>
+        buildUCPProfile({
+          ...baseInput,
+          services: {
+            'dev.ucp.shopping': [
+              {
+                version: '2026-04-08',
+                spec: 'https://ucp.dev/spec',
+                transport: transport as 'rest' | 'mcp' | 'a2a',
+              },
+            ],
+          },
+        }),
+      ).toThrow(/requires `endpoint`/);
+    },
+  );
+
+  it('accepts embedded service binding without endpoint', () => {
+    expect(() =>
+      buildUCPProfile({
+        ...baseInput,
+        services: {
+          'dev.ucp.shopping': [
+            {
+              version: '2026-04-08',
+              spec: 'https://ucp.dev/spec',
+              transport: 'embedded',
+              schema: 'https://ucp.dev/schemas/embedded.json',
+            },
+          ],
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it('drops empty available_instruments from payment handler binding (UCP spec minItems:1)', () => {
+    const profile = buildUCPProfile({
+      ...baseInput,
+      payment_handlers: {
+        'sh.agentscore.payment.tempo': [{
+          id: 'tempo',
+          version: '2026-04-08',
+          spec: 'https://x',
+          schema: 'https://x',
+          available_instruments: [],
+        }],
+      },
+    });
+    const handler = profile.ucp.payment_handlers['sh.agentscore.payment.tempo']?.[0];
+    expect(handler).toBeDefined();
+    expect('available_instruments' in (handler as object)).toBe(false);
+  });
 });

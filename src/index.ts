@@ -30,7 +30,9 @@ export {
   type A2AAgentCard,
   type A2AAgentCardCapabilities,
   type A2AAgentCardExtension,
-  type A2AAgentCardIdentity,
+  type A2AAgentInterface,
+  type A2AAgentProvider,
+  type A2AAgentSkill,
   type BuildA2AAgentCardInput,
 } from './identity/a2a';
 export {

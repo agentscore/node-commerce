@@ -1,191 +1,233 @@
 /**
- * Google A2A (Agent-to-Agent) Signed Agent Cards builder.
+ * Google A2A (Agent-to-Agent) v1.0 Agent Card builder.
  *
- * Compose the JSON payload for an A2A v1.0 Signed Agent Card that includes the
- * agent's AgentScore identity claims. Returned object is the unsigned card body —
- * the merchant (or agent) signs it with their wallet / signing key before publishing.
+ * Compose the JSON payload for an A2A v1.0 Agent Card per the canonical proto at
+ * https://github.com/a2aproject/A2A/blob/main/specification/a2a.proto. Returned object
+ * is the unsigned card body — wrap with an A2A `AgentCardSignature` (RFC 7515 JWS)
+ * to sign vendor-side before publishing at /.well-known/agent-card.json.
  *
- * Why publish: A2A is a Linux Foundation standard with 150+ orgs (Microsoft, AWS,
- * Salesforce in production). Signed Agent Cards let any A2A-compatible reader discover
- * an agent's verified-identity claims without per-platform integration. AgentScore
- * publishing operator identity in this format means our identity travels with the agent
- * across A2A-aware ecosystems.
+ * Why publish: A2A is a Linux Foundation standard. Signed Agent Cards let any
+ * A2A-compatible reader discover an agent's capabilities + protocol bindings without
+ * per-platform integration. Per UCP §A2A binding, agents serving UCP via the A2A
+ * transport MUST declare the canonical UCP extension URI in `capabilities.extensions[]`
+ * so platforms detect UCP support without re-fetching the profile.
  *
  * Spec reference: https://a2a-protocol.org/latest/
  */
 
-import type { AgentScoreData } from '../core';
+const PROTOCOL_VERSION = '1.0';
+const DEFAULT_PROTOCOL_BINDING = 'HTTP+JSON';
+const DEFAULT_INPUT_MODE = 'application/json';
+const DEFAULT_OUTPUT_MODE = 'application/json';
 
-export interface A2AAgentCardCapabilities {
-  /** Endpoints the agent exposes — `[{ name: "purchase", path: "/purchase", method: "POST" }, ...]`. */
-  endpoints?: { name: string; path?: string; method?: string }[];
-  /** Free-form skill tags — `["product-purchase", "regulated-commerce", ...]`. */
-  skills?: string[];
+/** Canonical UCP A2A extension URI — verifiers look for this exact URI in
+ *  `capabilities.extensions[]` to detect UCP support on the agent card. Pinned
+ *  to the 2026-04-08 spec snapshot. */
+export const UCP_A2A_EXTENSION_URI = 'https://ucp.dev/2026-04-08/specification/reference';
+
+/** Per spec §4.4.6. Each entry advertises one protocol binding the agent supports.
+ *  `supported_interfaces[0]` is the preferred binding (ordered list). */
+export interface A2AAgentInterface {
+  /** Interface URL (https in production). */
+  url: string;
+  /** Open string — core values are `JSONRPC`, `GRPC`, `HTTP+JSON`. */
+  protocol_binding: string;
+  /** A2A protocol version, e.g. `"1.0"`. Distinct from the agent's own version. */
+  protocol_version: string;
+  tenant?: string;
 }
 
-/** Per A2A v1.0: an entry in the card's top-level `extensions` array. UCP support
- *  is declared this way (UCP §A2A binding requires `https://ucp.dev/2026-04-08/specification/reference`). */
+/** Per spec §4.4.2. The org/service that provides the agent. */
+export interface A2AAgentProvider {
+  url: string;
+  organization: string;
+}
+
+/** Per spec §4.4.5. A distinct capability or function the agent performs.
+ *  Lives at the TOP LEVEL of AgentCard (not inside `capabilities`). */
+export interface A2AAgentSkill {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  examples?: string[];
+  input_modes?: string[];
+  output_modes?: string[];
+}
+
+/** Per spec §4.4.4. A protocol extension the agent supports.
+ *  Lives in `capabilities.extensions[]`. `description` and `required` are
+ *  spec-mandated fields, not optional. */
 export interface A2AAgentCardExtension {
-  /** Canonical extension URI — for UCP, `https://ucp.dev/2026-04-08/specification/reference`. */
   uri: string;
-  /** Extension-specific params. UCP places `{ capabilities: { "<reverse-dns>": [{ version: "..." }, ...] } }` here. */
+  description: string;
+  required: boolean;
   params?: Record<string, unknown>;
 }
 
-/** Canonical UCP A2A extension URI — verifiers look for this exact URI in `extensions[]`
- *  to detect UCP support on the agent card. Pinned to the 2026-04-08 spec snapshot. */
-export const UCP_A2A_EXTENSION_URI = 'https://ucp.dev/2026-04-08/specification/reference';
-
-/** Build the canonical UCP entry for an A2A agent card's `extensions[]` array.
+/** Build the canonical UCP entry for an A2A agent card's `capabilities.extensions[]`
+ *  array.
  *
  *  Per UCP §A2A binding: "Businesses supporting UCP must advertise the extension and
  *  any optional capabilities in their A2A Agent Card to allow platforms to activate
  *  the extension." Pass the `capabilities` map keyed by reverse-DNS service/capability
  *  name (e.g. `dev.ucp.shopping.checkout`), each value a list of `{ version }` records.
  *  Pass `{}` (or omit) when you serve UCP at the discovery layer but have no formal
- *  capability bindings yet — vendors that haven't implemented checkout/cart/etc. should
- *  declare the extension URI without claiming capabilities they don't service.
+ *  capability bindings yet.
+ *
+ *  `required: true` declares the platform must understand UCP to interoperate with
+ *  this agent. Default `false`: UCP is offered but not mandatory.
  */
 export function ucpA2AExtension(
   capabilities: Record<string, Array<{ version: string }>> = {},
+  options: { required?: boolean } = {},
 ): A2AAgentCardExtension {
   return {
     uri: UCP_A2A_EXTENSION_URI,
+    description: 'UCP support: this agent serves Universal Commerce Protocol bindings via the A2A transport.',
+    required: options.required ?? false,
     params: { capabilities },
   };
 }
 
-export interface A2AAgentCardIdentity {
-  /** Issuer of the identity claims — always `"https://agentscore.sh"` for the AgentScore-issued card. */
-  issuer: string;
-  /** Operator id under AgentScore. */
-  operator_id: string;
-  /** KYC tier. */
-  kyc_level: string;
-  /** Sanctions screening result. */
-  sanctions_clear: boolean;
-  /** Age bracket. */
-  age_bracket: string;
-  /** Jurisdiction (ISO-3166-1 alpha-2 or empty). */
-  jurisdiction: string;
-  /** ISO-8601 timestamp of last verification refresh. */
-  verified_at: string | null;
-  /** Verify URL where the identity was minted. */
-  verify_url: string;
+/** Per spec §4.4.3. Optional capabilities the agent supports.
+ *
+ *  Per the canonical proto, `capabilities` declares: streaming, push_notifications,
+ *  extensions (the protocol extensions the agent supports), and extended_agent_card.
+ *  REST-style endpoint metadata does NOT belong here — A2A uses `supported_interfaces`
+ *  on the AgentCard for protocol bindings, and `skills` (top-level) for capability
+ *  descriptions. */
+export interface A2AAgentCardCapabilities {
+  streaming?: boolean;
+  push_notifications?: boolean;
+  extensions?: A2AAgentCardExtension[];
+  extended_agent_card?: boolean;
 }
 
+/** Per spec §4.4.1. A2A v1.0 Agent Card body.
+ *
+ *  Identity claims live in a separate `AgentCardSignature` (RFC 7515 JWS) wrapping
+ *  the serialized card, NOT in the card body itself. Per-vendor identity attestation
+ *  can be expressed via a vendor extension entry inside `capabilities.extensions[]`. */
 export interface A2AAgentCard {
-  /** A2A protocol version. v1.0 was donated to Linux Foundation. */
-  protocol_version: string;
-  /** Card schema version (this builder emits v1). */
-  card_version: number;
-  /** Agent's display name. */
   name: string;
-  /** One-line description shown to A2A consumers. */
-  description?: string;
-  /** Agent's canonical URL (homepage, Discord, repo, etc.). */
-  url?: string;
-  /** Agent capabilities — endpoints + skills. */
-  capabilities?: A2AAgentCardCapabilities;
-  /** A2A v1.0 extensions array. Use `ucpA2AExtension()` to add the UCP entry. */
-  extensions?: A2AAgentCardExtension[];
-  /** AgentScore identity claims. Empty `null` when no identity is available (pre-KYC). */
-  identity: A2AAgentCardIdentity | null;
-  /** Vendor-specific extras merged at the top level. */
-  extras?: Record<string, unknown>;
+  description: string;
+  /** Ordered; first entry is preferred. */
+  supported_interfaces: A2AAgentInterface[];
+  /** Agent's own version, e.g. `"1.0.0"`. Distinct from the A2A protocol version,
+   *  which lives on each `A2AAgentInterface.protocol_version`. */
+  version: string;
+  capabilities: A2AAgentCardCapabilities;
+  default_input_modes: string[];
+  default_output_modes: string[];
+  provider?: A2AAgentProvider;
+  documentation_url?: string;
+  skills?: A2AAgentSkill[];
+  security_schemes?: Record<string, unknown>;
+  security_requirements?: unknown[];
+  /** Vendor-specific extras merged at top level. */
+  [k: string]: unknown;
 }
 
 export interface BuildA2AAgentCardInput {
-  /** Display name for the agent — e.g. a merchant brand or service name. */
+  /** Agent display name. REQUIRED. */
   name: string;
-  /** Optional one-line description. */
-  description?: string;
-  /** Agent's canonical URL. */
-  url?: string;
-  /** Capabilities — endpoints exposed + skill tags. */
-  capabilities?: A2AAgentCardCapabilities;
-  /** A2A v1.0 extensions to declare on the card. Build the UCP entry with
-   *  `ucpA2AExtension()`. Other A2A extensions can be added the same way. */
+  /** Agent purpose/description. REQUIRED per spec. */
+  description: string;
+  /** The primary interface URL — becomes `supported_interfaces[0].url` (with
+   *  `protocol_binding=HTTP+JSON`, `protocol_version=1.0` by default). For
+   *  multi-binding agents, construct `A2AAgentCard` directly. */
+  url: string;
+  /** Agent's own version, e.g. `"1.0.0"`. Distinct from the A2A protocol version. */
+  version?: string;
+  /** Top-level skill declarations — what the agent can do. */
+  skills?: A2AAgentSkill[];
+  /** A2A v1.0 capability extensions. Build the UCP entry with `ucpA2AExtension()`. */
   extensions?: A2AAgentCardExtension[];
-  /** AgentScore assess data — what `getAgentScoreData(c)` returns or what `assess()` returned directly.
-   *  Pass `null` to emit a card with no identity claims (publishable but unverified). */
-  data?: AgentScoreData | null;
-  /** Override the default issuer URL. Default `"https://agentscore.sh"`. */
-  issuer?: string;
-  /** Override the verify URL. */
-  verifyUrl?: string;
+  /** Capability flag: agent supports streaming responses. */
+  streaming?: boolean;
+  /** Capability flag: agent supports push notifications for async task updates. */
+  push_notifications?: boolean;
+  /** Capability flag: agent serves an extended (more detailed) card when authenticated. */
+  extended_agent_card?: boolean;
+  /** Provider org for the agent. */
+  provider?: A2AAgentProvider;
+  /** URL to additional human-readable documentation. */
+  documentation_url?: string;
+  /** Default input media types (defaults to `["application/json"]`). */
+  default_input_modes?: string[];
+  /** Default output media types (defaults to `["application/json"]`). */
+  default_output_modes?: string[];
+  /** Override the protocol binding for the auto-built primary interface (default `"HTTP+JSON"`). */
+  protocol_binding?: string;
+  /** Override the A2A protocol version for the auto-built primary interface (default `"1.0"`). */
+  a2a_protocol_version?: string;
+  /** Per-scheme security details (key = scheme name). */
+  security_schemes?: Record<string, unknown>;
+  /** Required security requirements for invoking the agent. */
+  security_requirements?: unknown[];
   /** Vendor-specific extras merged at the card top level. */
   extras?: Record<string, unknown>;
 }
 
-const PROTOCOL_VERSION = '1.0';
-const CARD_VERSION = 1;
-
 /**
- * Compose an A2A Signed Agent Card body with AgentScore identity claims included.
+ * Compose an A2A v1.0 Agent Card body per the canonical proto.
  *
- * Returns the UNSIGNED card. The vendor signs it with their wallet (typically using
- * the same wallet they use for x402 / MPP payments) and publishes the signed envelope
- * to wherever A2A consumers discover cards (a hosted endpoint, on-chain registry,
- * agent-card-server, etc.). Signing is vendor-side because the agent's signing key
- * never leaves their environment.
+ * Returns the UNSIGNED card. To attach identity claims, sign the serialized body
+ * as an RFC 7515 JWS (`AgentCardSignature`). Vendors can also add an identity-flavored
+ * extension to `capabilities.extensions[]`.
+ *
+ * The single `url` argument becomes the primary `supported_interfaces[0].url`
+ * (with `protocol_binding=HTTP+JSON`, `protocol_version=1.0` by default).
  *
  * Example:
  * ```ts
- * import { buildA2AAgentCard } from '@agent-score/commerce/identity/hono';
+ * import { buildA2AAgentCard, ucpA2AExtension } from '@agent-score/commerce';
  *
- * app.get('/.well-known/agent-card', async (c) => {
- *   const data = getAgentScoreData(c);
- *   const card = buildA2AAgentCard({
- *     name: 'Example Merchant Concierge',
- *     description: 'Buy regulated goods via agent payments.',
- *     url: 'https://agents.example.com',
- *     capabilities: {
- *       endpoints: [{ name: 'purchase', path: '/purchase', method: 'POST' }],
- *       skills: ['product-purchase', 'regulated-commerce'],
- *     },
- *     data,
- *   });
- *   const signed = await yourSign(card);
- *   return c.json(signed);
+ * const card = buildA2AAgentCard({
+ *   name: 'Example Merchant Concierge',
+ *   description: 'Buy regulated goods via agent payments.',
+ *   url: 'https://agents.example.com',
+ *   version: '1.0.0',
+ *   skills: [
+ *     { id: 'purchase', name: 'Purchase', description: 'Buy products via agent payments.', tags: ['commerce', 'payment'] },
+ *   ],
+ *   extensions: [ucpA2AExtension()],
  * });
+ * const signed = await yourJWSSign(card);
  * ```
  */
 export function buildA2AAgentCard(input: BuildA2AAgentCardInput): A2AAgentCard {
-  const issuer = input.issuer ?? 'https://agentscore.sh';
+  const capabilities: A2AAgentCardCapabilities = {};
+  if (input.streaming !== undefined) capabilities.streaming = input.streaming;
+  if (input.push_notifications !== undefined) capabilities.push_notifications = input.push_notifications;
+  if (input.extensions && input.extensions.length > 0) capabilities.extensions = input.extensions;
+  if (input.extended_agent_card !== undefined) capabilities.extended_agent_card = input.extended_agent_card;
 
-  let identity: A2AAgentCardIdentity | null = null;
-  if (input.data) {
-    const operatorId = (input.data.resolved_operator as string | undefined) ?? null;
-    if (operatorId) {
-      const operatorVerification = input.data.operator_verification;
-      const accountVerification = input.data.account_verification;
-      identity = {
-        issuer,
-        operator_id: operatorId,
-        kyc_level: accountVerification?.kyc_level ?? operatorVerification?.level ?? 'none',
-        sanctions_clear: accountVerification?.sanctions_clear === true,
-        age_bracket: accountVerification?.age_bracket ?? 'unknown',
-        jurisdiction: accountVerification?.jurisdiction ?? '',
-        verified_at: accountVerification?.verified_at ?? operatorVerification?.verified_at ?? null,
-        verify_url:
-          input.verifyUrl
-          ?? (input.data.verify_url as string | undefined)
-          ?? `${issuer}/verify`,
-      };
-    }
-  }
+  const primaryInterface: A2AAgentInterface = {
+    url: input.url,
+    protocol_binding: input.protocol_binding ?? DEFAULT_PROTOCOL_BINDING,
+    protocol_version: input.a2a_protocol_version ?? PROTOCOL_VERSION,
+  };
 
   const card: A2AAgentCard = {
-    protocol_version: PROTOCOL_VERSION,
-    card_version: CARD_VERSION,
     name: input.name,
-    identity,
+    description: input.description,
+    supported_interfaces: [primaryInterface],
+    version: input.version ?? '1.0.0',
+    capabilities,
+    default_input_modes: input.default_input_modes ?? [DEFAULT_INPUT_MODE],
+    default_output_modes: input.default_output_modes ?? [DEFAULT_OUTPUT_MODE],
   };
-  if (input.description !== undefined) card.description = input.description;
-  if (input.url !== undefined) card.url = input.url;
-  if (input.capabilities !== undefined) card.capabilities = input.capabilities;
-  if (input.extensions && input.extensions.length > 0) card.extensions = input.extensions;
-  if (input.extras !== undefined) card.extras = input.extras;
+  if (input.provider !== undefined) card.provider = input.provider;
+  if (input.documentation_url !== undefined) card.documentation_url = input.documentation_url;
+  if (input.skills && input.skills.length > 0) card.skills = input.skills;
+  if (input.security_schemes !== undefined) card.security_schemes = input.security_schemes;
+  if (input.security_requirements !== undefined) card.security_requirements = input.security_requirements;
+  if (input.extras) {
+    for (const [k, v] of Object.entries(input.extras)) {
+      card[k] = v;
+    }
+  }
   return card;
 }

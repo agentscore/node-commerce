@@ -94,8 +94,8 @@ function stripeHandler(config: Record<string, unknown>): UCPPaymentHandlerBindin
   return {
     id: 'stripe',
     version: '2026-04-08',
-    spec: 'https://agentscore.sh/specification/payment-handlers/stripe-spt',
-    schema: 'https://agentscore.sh/schemas/payment-handlers/stripe-spt.json',
+    spec: 'https://agentscore.sh/specification/payment-handlers/stripe_spt',
+    schema: 'https://agentscore.sh/schemas/payment-handlers/stripe_spt.json',
     config,
   };
 }
@@ -162,7 +162,7 @@ async function main(): Promise<void> {
       name: 'Extras Merchant',
       services: { 'dev.ucp.shopping': [shopServiceMcp('https://e.example.com')] },
       payment_handlers: {
-        'sh.agentscore.payment.stripe-spt': [stripeHandler({ profile_id: 'abc', count: 7 })],
+        'sh.agentscore.payment.stripe_spt': [stripeHandler({ profile_id: 'abc', count: 7 })],
       },
       signing_keys: [publicJWK as UCPSigningKey],
     });
