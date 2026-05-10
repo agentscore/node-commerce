@@ -193,10 +193,19 @@ return new Response(JSON.stringify(responseBody), { status: 402, headers });
 import { buildA2AAgentCard, buildUCPProfile, ucpA2AExtension } from "@agent-score/commerce";
 
 // Google A2A v1.0 Signed Agent Card; publish at /.well-known/agent-card.json.
-// Per UCP §A2A binding, the card MUST declare the canonical UCP extension URI;
-// pass `ucpA2AExtension()` with empty capabilities until you bind formal UCP
-// capabilities (dev.ucp.shopping.checkout, etc.).
-const card = buildA2AAgentCard({ name, url, capabilities, extensions: [ucpA2AExtension()], data: assess });
+// Per UCP §A2A binding, the card MUST declare the canonical UCP extension URI in
+// `capabilities.extensions[]`; pass `ucpA2AExtension()` with empty capabilities
+// until you bind formal UCP capabilities (dev.ucp.shopping.checkout, etc.).
+// Skills are top-level AgentSkill objects; identity claims live in a separate
+// AgentCardSignature (RFC 7515 JWS) wrapping the serialized card.
+const card = buildA2AAgentCard({
+  name,
+  description,
+  url,
+  version: "1.0.0",
+  skills: [{ id: "purchase", name: "Purchase", description: "Buy products via agent payments.", tags: ["commerce", "payment"] }],
+  extensions: [ucpA2AExtension()],
+});
 
 // Google Universal Commerce Protocol; publish at /.well-known/ucp
 // Output shape: { ucp: { version, services, capabilities, payment_handlers,
