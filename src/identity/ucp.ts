@@ -167,7 +167,7 @@ export interface UCPProfile {
 }
 
 export interface BuildUCPProfileInput {
-  /** UCP spec version. Default `'2026-04-17'`. */
+  /** UCP spec version. Default `'2026-04-08'` (the latest published UCP spec date). MUST match a published UCP spec version, not a free-form date. */
   version?: string;
   /** Display name for the merchant / agent surface. */
   name?: string;
@@ -198,7 +198,7 @@ export interface BuildUCPProfileInput {
   ucp_extras?: Record<string, unknown>;
 }
 
-const DEFAULT_VERSION = '2026-04-17';
+const DEFAULT_VERSION = '2026-04-08';
 // Reverse-DNS namespacing per UCP convention (`^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9_]*)+$`).
 // The bare `agentscore-identity` form fails the spec regex; vendor-namespacing under
 // `sh.agentscore` is honest about the capability being our extension, not UCP-canonical.
