@@ -178,7 +178,7 @@
     "hono": "^4.12.18",
     "jose": "^5.9.0",
     "lefthook": "^2.1.6",
-    "mppx": "^0.6.16",
+    "mppx": "^0.6.17",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.2",
