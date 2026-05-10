@@ -155,8 +155,10 @@ export interface BuildUCPProfileInput {
   signing_keys: UCPSigningKey[];
   /** AgentScore assess data — adds an `sh.agentscore.identity` capability + claims block when present. */
   data?: AgentScoreData | null;
-  /** Optional override for the AgentScore capability schema URL. */
-  agentscoreSchemaUrl?: string;
+  /** Optional override for the AgentScore capability schema URL. Field is
+   *  snake_cased for cross-language parity with `agentscore_commerce`'s
+   *  `build_ucp_profile(agentscore_schema_url=...)`. */
+  agentscore_schema_url?: string;
   /** Vendor-specific extras at the top level. */
   extras?: Record<string, unknown>;
 }
@@ -220,7 +222,7 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
       baseCapabilities.push({
         name: AGENTSCORE_CAPABILITY_NAME,
         version: AGENTSCORE_CAPABILITY_VERSION,
-        schema: input.agentscoreSchemaUrl ?? 'https://agentscore.sh/schemas/ucp/sh-agentscore-identity-v1.json',
+        schema: input.agentscore_schema_url ?? 'https://agentscore.sh/schemas/ucp/sh-agentscore-identity-v1.json',
         claims,
       });
     }

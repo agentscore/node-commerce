@@ -100,11 +100,11 @@ describe('buildUCPProfile', () => {
     expect(profile.version).toBe('2026-12-31');
   });
 
-  it('respects agentscoreSchemaUrl override', () => {
+  it('respects agentscore_schema_url override', () => {
     const profile = buildUCPProfile({
       ...baseInput,
       data: fullData,
-      agentscoreSchemaUrl: 'https://custom.example/schema.json',
+      agentscore_schema_url: 'https://custom.example/schema.json',
     });
     const cap = profile.capabilities.find((c) => c.name === AGENTSCORE_UCP_CAPABILITY);
     expect(cap?.schema).toBe('https://custom.example/schema.json');
