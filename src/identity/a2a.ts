@@ -104,11 +104,26 @@ export interface A2AAgentCardCapabilities {
   extended_agent_card?: boolean;
 }
 
+/** Per spec §4.4.7. JWS signature embedded in an Agent Card.
+ *
+ *  Multiple signatures MAY be attached to a single card. Verifiers reconstruct the
+ *  card body without `signatures` to verify each entry. Format follows RFC 7515 JSON
+ *  Web Signature (JWS). */
+export interface A2AAgentCardSignature {
+  /** Base64url-encoded JSON of the protected JWS header. REQUIRED. */
+  protected: string;
+  /** Base64url-encoded computed signature. REQUIRED. */
+  signature: string;
+  /** Optional unprotected JWS header values. */
+  header?: Record<string, unknown>;
+}
+
 /** Per spec §4.4.1. A2A v1.0 Agent Card body.
  *
- *  Identity claims live in a separate `AgentCardSignature` (RFC 7515 JWS) wrapping
- *  the serialized card, NOT in the card body itself. Per-vendor identity attestation
- *  can be expressed via a vendor extension entry inside `capabilities.extensions[]`. */
+ *  Per spec §4.4.7, JWS signatures may be embedded directly in the card via the
+ *  `signatures` field; verifiers reconstruct the card body without `signatures` and
+ *  verify each entry. Per-vendor identity attestation can also be expressed via a
+ *  vendor extension entry inside `capabilities.extensions[]`. */
 export interface A2AAgentCard {
   name: string;
   description: string;
@@ -120,9 +135,16 @@ export interface A2AAgentCard {
   capabilities: A2AAgentCardCapabilities;
   default_input_modes: string[];
   default_output_modes: string[];
+  /** Per spec §4.4.1 (proto field 12, REQUIRED): the agent must declare ≥1 skill.
+   *  The convenience builder `buildA2AAgentCard` enforces non-empty. */
+  skills: A2AAgentSkill[];
   provider?: A2AAgentProvider;
   documentation_url?: string;
-  skills?: A2AAgentSkill[];
+  /** Per spec §4.4.1 (proto field 14, optional): URL to an icon for the agent. */
+  icon_url?: string;
+  /** Per spec §4.4.1 (proto field 13, optional) + §4.4.7: JWS signatures embedded
+   *  in the card. Compute over the canonical card body MINUS this field, then attach. */
+  signatures?: A2AAgentCardSignature[];
   security_schemes?: Record<string, unknown>;
   security_requirements?: unknown[];
   /** Vendor-specific extras merged at top level. */
@@ -138,10 +160,11 @@ export interface BuildA2AAgentCardInput {
    *  `protocol_binding=HTTP+JSON`, `protocol_version=1.0` by default). For
    *  multi-binding agents, construct `A2AAgentCard` directly. */
   url: string;
+  /** Top-level skill declarations — what the agent can do. REQUIRED per spec
+   *  (proto field 12 [field_behavior=REQUIRED]); must have ≥1 entry. */
+  skills: A2AAgentSkill[];
   /** Agent's own version, e.g. `"1.0.0"`. Distinct from the A2A protocol version. */
   version?: string;
-  /** Top-level skill declarations — what the agent can do. */
-  skills?: A2AAgentSkill[];
   /** A2A v1.0 capability extensions. Build the UCP entry with `ucpA2AExtension()`. */
   extensions?: A2AAgentCardExtension[];
   /** Capability flag: agent supports streaming responses. */
@@ -154,6 +177,10 @@ export interface BuildA2AAgentCardInput {
   provider?: A2AAgentProvider;
   /** URL to additional human-readable documentation. */
   documentation_url?: string;
+  /** URL to an icon for the agent. */
+  icon_url?: string;
+  /** JWS signatures embedded in the card (per spec §4.4.7). */
+  signatures?: A2AAgentCardSignature[];
   /** Default input media types (defaults to `["application/json"]`). */
   default_input_modes?: string[];
   /** Default output media types (defaults to `["application/json"]`). */
@@ -198,6 +225,12 @@ export interface BuildA2AAgentCardInput {
  * ```
  */
 export function buildA2AAgentCard(input: BuildA2AAgentCardInput): A2AAgentCard {
+  if (!input.skills || input.skills.length === 0) {
+    throw new Error(
+      'buildA2AAgentCard: `skills` MUST be a non-empty list. Per spec §4.4.1 (proto field 12 [field_behavior=REQUIRED]), every Agent Card must declare at least one AgentSkill. Construct A2AAgentCard directly to bypass.',
+    );
+  }
+
   const capabilities: A2AAgentCardCapabilities = {};
   if (input.streaming !== undefined) capabilities.streaming = input.streaming;
   if (input.push_notifications !== undefined) capabilities.push_notifications = input.push_notifications;
@@ -218,10 +251,12 @@ export function buildA2AAgentCard(input: BuildA2AAgentCardInput): A2AAgentCard {
     capabilities,
     default_input_modes: input.default_input_modes ?? [DEFAULT_INPUT_MODE],
     default_output_modes: input.default_output_modes ?? [DEFAULT_OUTPUT_MODE],
+    skills: input.skills,
   };
   if (input.provider !== undefined) card.provider = input.provider;
   if (input.documentation_url !== undefined) card.documentation_url = input.documentation_url;
-  if (input.skills && input.skills.length > 0) card.skills = input.skills;
+  if (input.icon_url !== undefined) card.icon_url = input.icon_url;
+  if (input.signatures !== undefined && input.signatures.length > 0) card.signatures = input.signatures;
   if (input.security_schemes !== undefined) card.security_schemes = input.security_schemes;
   if (input.security_requirements !== undefined) card.security_requirements = input.security_requirements;
   if (input.extras) {

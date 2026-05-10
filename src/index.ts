@@ -30,6 +30,7 @@ export {
   type A2AAgentCard,
   type A2AAgentCardCapabilities,
   type A2AAgentCardExtension,
+  type A2AAgentCardSignature,
   type A2AAgentInterface,
   type A2AAgentProvider,
   type A2AAgentSkill,
