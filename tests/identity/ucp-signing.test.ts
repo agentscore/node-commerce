@@ -446,6 +446,14 @@ describe('ucpSigningKeyFromJWK', () => {
     expect(() => ucpSigningKeyFromJWK('string' as never)).toThrow();
     expect(() => ucpSigningKeyFromJWK(42 as never)).toThrow();
   });
+
+  it('rejects EC JWK missing crv', () => {
+    expect(() => ucpSigningKeyFromJWK({ kid: 'k', kty: 'EC' })).toThrow(/crv/);
+  });
+
+  it('rejects OKP JWK with empty crv', () => {
+    expect(() => ucpSigningKeyFromJWK({ kid: 'k', kty: 'OKP', crv: '' })).toThrow(/crv/);
+  });
 });
 
 describe('UCP signing — JCS-incompatible value rejection', () => {

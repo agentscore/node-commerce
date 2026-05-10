@@ -173,4 +173,11 @@ describe('UCP A2A extension', () => {
     const card = buildA2AAgentCard({ name: 'X', data: null });
     expect(card.extensions).toBeUndefined();
   });
+
+  it('buildA2AAgentCard omits extensions[] when passed an empty array (parity with python)', () => {
+    // Python's to_dict skips `extensions` when empty; node skips the same way so
+    // cross-language profiles canonicalize to identical bytes when both omit.
+    const card = buildA2AAgentCard({ name: 'X', data: null, extensions: [] });
+    expect(card.extensions).toBeUndefined();
+  });
 });

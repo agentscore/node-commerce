@@ -185,7 +185,7 @@ export function buildA2AAgentCard(input: BuildA2AAgentCardInput): A2AAgentCard {
   if (input.description !== undefined) card.description = input.description;
   if (input.url !== undefined) card.url = input.url;
   if (input.capabilities !== undefined) card.capabilities = input.capabilities;
-  if (input.extensions !== undefined) card.extensions = input.extensions;
+  if (input.extensions && input.extensions.length > 0) card.extensions = input.extensions;
   if (input.extras !== undefined) card.extras = input.extras;
   return card;
 }

@@ -65,6 +65,9 @@ export function ucpSigningKeyFromJWK(jwk: Record<string, unknown>): UCPSigningKe
       `ucpSigningKeyFromJWK: kty=${JSON.stringify(jwk.kty)} is not a supported asymmetric key type (expected OKP, EC, or RSA). Symmetric \`oct\` keys are rejected because they cannot publicly verify a JWS in the trust-mode UCP flow.`,
     );
   }
+  if ((jwk.kty === 'EC' || jwk.kty === 'OKP') && (typeof jwk.crv !== 'string' || !jwk.crv)) {
+    throw new Error(`ucpSigningKeyFromJWK: kty=${jwk.kty} requires a non-empty \`crv\` field (e.g., "P-256" for EC, "Ed25519" for OKP).`);
+  }
   return jwk as unknown as UCPSigningKey;
 }
 

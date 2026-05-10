@@ -190,10 +190,13 @@ return new Response(JSON.stringify(responseBody), { status: 402, headers });
 ### Identity publishing (cross-vendor standards)
 
 ```typescript
-import { buildA2AAgentCard, buildUCPProfile } from "@agent-score/commerce";
+import { buildA2AAgentCard, buildUCPProfile, ucpA2AExtension } from "@agent-score/commerce";
 
-// Google A2A v1.0 Signed Agent Card; publish at /.well-known/agent-card.json
-const card = buildA2AAgentCard({ name, url, capabilities, data: assess });
+// Google A2A v1.0 Signed Agent Card; publish at /.well-known/agent-card.json.
+// Per UCP §A2A binding, the card MUST declare the canonical UCP extension URI;
+// pass `ucpA2AExtension()` with empty capabilities until you bind formal UCP
+// capabilities (dev.ucp.shopping.checkout, etc.).
+const card = buildA2AAgentCard({ name, url, capabilities, extensions: [ucpA2AExtension()], data: assess });
 
 // Google Universal Commerce Protocol; publish at /.well-known/ucp
 // Output shape: { ucp: { version, services, capabilities, payment_handlers,
