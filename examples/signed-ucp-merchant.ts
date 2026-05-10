@@ -102,7 +102,7 @@ app.get('/.well-known/ucp', async (c) => {
           spec: 'https://ucp.dev/2026-04-08/specification/overview',
           transport: 'mcp',
           endpoint: 'https://agents.example.com/api/ucp/mcp',
-          schema: 'https://ucp.dev/services/shopping/openrpc.json',
+          schema: 'https://ucp.dev/services/shopping/mcp.openrpc.json',
         },
       ],
     },
