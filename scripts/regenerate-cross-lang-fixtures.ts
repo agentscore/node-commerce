@@ -183,7 +183,7 @@ async function main(): Promise<void> {
     const KID = 'node-capability-EdDSA';
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: KID });
     const customCapability: UCPCapabilityBinding = {
-      version: '1',
+      version: '2026-04-08',
       spec: 'https://agentscore.sh/specification/identity',
       schema: 'https://agentscore.sh/schemas/ucp/sh-agentscore-identity-v1.json',
       // `extras` flat on the binding — kyc_required is a vendor field on this binding.
