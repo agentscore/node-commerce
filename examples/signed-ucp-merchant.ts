@@ -2,14 +2,13 @@
  * Signed UCP profile example — `/.well-known/ucp` + `/.well-known/jwks.json`.
  *
  * AgentScore's `agentscore-profile+jws` is a vendor extension layered on top of
- * the UCP profile for trust-mode verifiers (Visa AP2 pilots, regulated-commerce
- * verifiers) that opt into auditable cryptographic provenance. UCP §6 itself
- * does NOT mandate profile-body signing — Pura Vida and other Shopify-backed
- * UCP merchants ship unsigned in production today, and live UCP-aware agents
- * (Google AI Mode, Gemini commerce, Microsoft Copilot, Perplexity) accept
- * unsigned profiles. This example wires both routes against a persistent
- * signing key (env-loaded for prod, ephemeral for dev) for verifiers that DO
- * opt into the signed envelope.
+ * the UCP profile for trust-mode verifiers (regulated-commerce, AP2-aware) that
+ * opt into auditable cryptographic provenance. UCP §6 itself does NOT mandate
+ * profile-body signing; production UCP merchants commonly ship unsigned, and
+ * vanilla UCP-aware agents read the canonical body and ignore the `signature`
+ * field. This example wires both routes against a persistent signing key
+ * (env-loaded for prod, ephemeral for dev) for verifiers that DO opt into the
+ * signed envelope.
  *
  * Run: `bun examples/signed-ucp-merchant.ts` (port 3010).
  *
@@ -36,7 +35,7 @@ import {
   verifyUCPProfile,
 } from '@agent-score/commerce';
 import { Hono } from 'hono';
-import { exportJWK, importJWK, type CryptoKey, type JWK } from 'jose';
+import { importJWK, type CryptoKey, type JWK } from 'jose';
 
 const KID = process.env.UCP_SIGNING_KEY_KID ?? 'merchant-2026-05';
 const ALG = (process.env.UCP_SIGNING_KEY_ALG ?? 'EdDSA') as 'EdDSA' | 'ES256';
@@ -69,12 +68,17 @@ function loadSigningKey(): Promise<GeneratedUCPKey> {
         throw new Error(`Unsupported env JWK: kty=${jwk.kty} crv=${jwk.crv}`);
       }
       const privateKey = (await importJWK(jwk, effectiveAlg)) as CryptoKey;
-      const publicJWK = (await exportJWK(privateKey)) as JWK;
+      // Derive the public JWK from the INPUT JWK rather than re-exporting through
+      // the CryptoKey: jose's `exportJWK` rejects non-extractable CryptoKeys with
+      // "non-extractable CryptoKey cannot be exported as a JWK", and Node's
+      // WebCrypto returns non-extractable keys from `importJWK` by default. Using
+      // the input JWK is runtime-independent and avoids the footgun.
+      const publicJWK = { ...jwk } as Record<string, unknown>;
+      for (const k of ['d', 'p', 'q', 'dp', 'dq', 'qi']) delete publicJWK[k];
       publicJWK.kid = jwk.kid ?? KID;
       publicJWK.alg = effectiveAlg;
       publicJWK.use = 'sig';
-      delete (publicJWK as Record<string, unknown>).d;
-      return { privateKey, publicJWK } as GeneratedUCPKey;
+      return { privateKey, publicJWK: publicJWK as JWK } as GeneratedUCPKey;
     }
     console.warn('[ucp] UCP_SIGNING_KEY_JWK_PRIVATE not set — generating ephemeral key. Verifier caches will break across restarts.');
     return generateUCPSigningKey({ kid: KID, alg: ALG });
