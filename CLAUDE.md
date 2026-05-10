@@ -9,7 +9,7 @@ Every helper is extracted from a real consumer, not speculated.
 | Subpath | What it is |
 |---|---|
 | `@agent-score/commerce/identity/{hono,express,fastify,nextjs,web}` | Trust gate middleware (KYC, age, sanctions, jurisdiction) |
-| `@agent-score/commerce/identity/policy` | Framework-agnostic per-product / per-tier compliance policy helpers — `PolicyBlock`, `policyToGateOptions`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed` |
+| `@agent-score/commerce/identity/policy` | Framework-agnostic per-product / per-tier compliance policy helpers: `PolicyBlock`, `policyToGateOptions`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed` |
 | `@agent-score/commerce/payment` | Networks/USDC/rails registries, paymentauth.org directive builders, `createX402Server` (peer-dep `@x402/core` + `@coinbase/x402` for the Coinbase facilitator), `buildX402AcceptsFor402` (one-call helper for the 402-emit path: builds the requirements via the registered scheme so `extra.name` matches the on-chain USDC contract per network), `createMppxServer` (peer-dep `mppx`), `processX402Settle` (verify+settle in one call), dispatch-by-network, signer extraction, WWW-Authenticate header, Settlement-Overrides header |
 | `@agent-score/commerce/discovery` | Discovery probe middleware, Bazaar wrapper, `/.well-known/mpp.json` builder, `llms.txt` builder, `skill.md` builder (Claude-Skill-compatible agent-discovery manifest), OpenAPI snippets, `noindexNonDiscoveryPaths` Hono middleware |
 | `@agent-score/commerce/challenge` | 402-body builders: accepted_methods, identity metadata, how_to_pay, agent_instructions, build402Body, `buildValidationError` (4xx body builder) |
@@ -18,7 +18,7 @@ Every helper is extracted from a real consumer, not speculated.
 
 ## Architecture
 
-Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framework identity adapters expose the same surface — `agentscoreGate`, `captureWallet`, `getAgentScoreData`, `verifyWalletSignerMatch`, `getGateDegradedState`, `getGateQuotaInfo` — with network-aware address normalization (EVM lowercased, Solana base58 preserved verbatim).
+Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framework identity adapters expose the same surface (`agentscoreGate`, `captureWallet`, `getAgentScoreData`, `verifyWalletSignerMatch`, `getGateDegradedState`, `getGateQuotaInfo`) with network-aware address normalization (EVM lowercased, Solana base58 preserved verbatim).
 
 | Directory | Contents |
 |---|---|
@@ -30,13 +30,13 @@ Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framew
 | `src/stripe-multichain/` | Stripe multichain PaymentIntent helpers |
 | `src/api/` | `AgentScore` re-export from sdk |
 | `examples/` | Runnable single-file Hono apps for each common scenario |
-| `tests/` | Vitest, one file per surface, ~360+ tests |
+| `tests/` | Vitest, one file per surface, ~750+ tests |
 
-Peer-dep pattern: payment/x402/mppx/stripe modules `dynamic import` at runtime — vendors install only what they use (`@x402/core`, `@x402/evm`, `@coinbase/x402`, `mppx`, `@solana/mpp`, `@solana/kit`, `stripe`). Missing peer dep throws a guiding error with the install command. x402 in this SDK is EVM-only; Solana SPL payments go through MPP `solana/charge` (`@solana/mpp/server`).
+Peer-dep pattern: payment/x402/mppx/stripe modules `dynamic import` at runtime, so vendors install only what they use (`@x402/core`, `@x402/evm`, `@coinbase/x402`, `mppx`, `@solana/mpp`, `@solana/kit`, `stripe`). Missing peer dep throws a guiding error with the install command. x402 in this SDK is EVM-only; Solana SPL payments go through MPP `solana/charge` (`@solana/mpp/server`).
 
 ## Examples
 
-`examples/` contains full single-file Hono apps for the most common merchant scenarios — copy-paste templates, not frameworks:
+`examples/` contains full single-file Hono apps for the most common merchant scenarios; copy-paste templates, not frameworks:
 
 | Example | Scenario |
 |---|---|
@@ -45,28 +45,29 @@ Peer-dep pattern: payment/x402/mppx/stripe modules `dynamic import` at runtime �
 | `multi-rail-merchant.ts` | Full agent-commerce: identity + Tempo MPP + x402 + Stripe SPT |
 | `stripe-multichain-merchant.ts` | Stripe-anchored multichain (PaymentIntent → tempo/base/solana deposit addresses) |
 | `variable-cost-merchant.ts` | Pay-per-actual-usage on **two protocols**: x402 upto (Permit2 + Settlement-Overrides) AND MPP tempo session (channel + SSE + mid-stream vouchers) |
-| `compliance-merchant.ts` | Regulated-goods merchant — full compliance gate + custom `onDenied` composing the denial helpers (`verificationAgentInstructions`, `isFixableDenial`, `buildSignerMismatchBody`, `buildContactSupportNextSteps`, `denialReasonToBody`/`denialReasonStatus`) |
-| `per-product-policy-merchant.ts` | Multi-product merchant where each product carries its own compliance policy — wine has hard gate (KYC + 21 + state allowlist), tee has none (anonymous), limited print uses `enforcement: 'soft'` (request KYC, accept anonymous, stamp `identity_status: 'unverified'`). Demonstrates `PolicyBlock`, `policyToGateOptions`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed`. |
+| `compliance-merchant.ts` | Regulated-goods merchant: full compliance gate + custom `onDenied` composing the denial helpers (`verificationAgentInstructions`, `isFixableDenial`, `buildSignerMismatchBody`, `buildContactSupportNextSteps`, `denialReasonToBody`/`denialReasonStatus`) |
+| `per-product-policy-merchant.ts` | Multi-product merchant where each product carries its own compliance policy: wine has hard gate (KYC + 21 + state allowlist), tee has none (anonymous), limited print uses `enforcement: 'soft'` (request KYC, accept anonymous, stamp `identity_status: 'unverified'`). Demonstrates `PolicyBlock`, `policyToGateOptions`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed`. |
+| `signed-ucp-merchant.ts` | Signed UCP profile (`/.well-known/ucp`) + JWKS endpoint (`/.well-known/jwks.json`). AgentScore's `agentscore-profile+jws` is a vendor extension on top of UCP for trust-mode verifiers (Visa AP2 pilots, regulated-commerce verifiers) that opt into auditable cryptographic provenance — UCP §6 itself does NOT mandate signing; Pura Vida and other Shopify-backed UCP merchants ship unsigned in production. Wires ephemeral-for-dev / env-JWK-for-prod signing, kid rotation, and `Cache-Control` posture. Uses `generateUCPSigningKey`, `signUCPProfile`, `buildJWKSResponse`, `ucpSigningKeyFromJWK`, `UCPVerificationError`. |
 
 ## Identity model
 
-Two identity types: wallet (`X-Wallet-Address`) and operator-token (`X-Operator-Token`). Default checks operator-token first, then wallet. Address normalization is network-aware via `src/identity/address.ts`: EVM lowercased, Solana base58 preserved verbatim — used for cache keys, wallet→operator resolves, and signer-match comparisons.
+Two identity types: wallet (`X-Wallet-Address`) and operator-token (`X-Operator-Token`). Default checks operator-token first, then wallet. Address normalization is network-aware via `src/identity/address.ts`: EVM lowercased, Solana base58 preserved verbatim. Used for cache keys, wallet→operator resolves, and signer-match comparisons.
 
 Denial reason codes: `missing_identity`, `identity_verification_required`, `token_expired`, `invalid_credential`, `wallet_signer_mismatch`, `wallet_auth_requires_wallet_signing`, `wallet_not_trusted`, `api_error`, `payment_required`. Each carries a structured `agent_instructions` JSON block describing concrete recovery actions. See `src/identity/_response.ts` and `src/core.ts` for the canned action copy.
 
 `createSessionOnMissing` auto-mints a verification session when no identity is present and returns 403 with `verify_url` + poll instructions instead of a bare denial. `verifyWalletSignerMatch` (per-adapter) recovers the signer from MPP/x402 credentials and compares against `linked_wallets[]` for cross-chain wallet-stack matching.
 
-Captured wallets: `captureWallet(ctx, { walletAddress, network, idempotencyKey })` is fire-and-forget — reads `operator_token` stashed during gating and POSTs to `/v1/credentials/wallets`. No-ops for wallet-authenticated requests.
+Captured wallets: `captureWallet(ctx, { walletAddress, network, idempotencyKey })` is fire-and-forget; reads `operator_token` stashed during gating and POSTs to `/v1/credentials/wallets`. No-ops for wallet-authenticated requests.
 
-Wallet-signer-match: `verifyWalletSignerMatch(ctx, { signer, network })` makes a single `/v1/assess` call with `resolve_signer` set; the API resolves both wallets and emits a `signer_match` verdict in the same response — collapses the legacy 2 follow-up assess calls into one round trip. Repeat lookups for the same `(claimed, signer)` pair hit a per-cache-entry `signerMatchBySigner` sub-map and skip the API entirely. Falls back to a 2-resolve path when the API doesn't emit `signer_match` (canary rollout safety). Signer recovery covers x402 EIP-3009 (EVM `from` address), Tempo MPP (`did:pkh:eip155` source), and Solana MPP `solana/charge` (via `did:pkh:solana` source when set, otherwise by decoding the credential's signed-tx payload to read the SPL `TransferChecked` authority — pull mode only, requires the `@solana/kit` optional peer).
+Wallet-signer-match: `verifyWalletSignerMatch(ctx, { signer, network })` makes a single `/v1/assess` call with `resolve_signer` set; the API resolves both wallets and emits a `signer_match` verdict in the same response, collapsing the legacy 2 follow-up assess calls into one round trip. Repeat lookups for the same `(claimed, signer)` pair hit a per-cache-entry `signerMatchBySigner` sub-map and skip the API entirely. Falls back to a 2-resolve path when the API doesn't emit `signer_match` (canary rollout safety). Signer recovery covers x402 EIP-3009 (EVM `from` address), Tempo MPP (`did:pkh:eip155` source), and Solana MPP `solana/charge` (via `did:pkh:solana` source when set, otherwise by decoding the credential's signed-tx payload to read the SPL `TransferChecked` authority; pull mode only, requires the `@solana/kit` optional peer).
 
 ### Fail-open (opt-in)
 
-`failOpen: true` on `agentscoreGate({...})` flips infra-failure handling: 429 / 5xx / network-timeout return `{ kind: 'allow', degraded: true, infraReason: 'quota_exceeded' | 'api_error' | 'network_timeout' }` instead of throwing. Per-adapter `getGateDegradedState(c)` exposes the flag for merchant logging/alerting; `withAgentScoreGate` (Next.js / Web Fetch) propagates `degraded` + `infraReason` directly on the handler's `gate` arg. Default stays `failOpen: false` — regulated commerce should keep it. Compliance denials (sanctions, age, jurisdiction, signer-mismatch) still deny regardless of the flag.
+`failOpen: true` on `agentscoreGate({...})` flips infra-failure handling: 429 / 5xx / network-timeout return `{ kind: 'allow', degraded: true, infraReason: 'quota_exceeded' | 'api_error' | 'network_timeout' }` instead of throwing. Per-adapter `getGateDegradedState(c)` exposes the flag for merchant logging/alerting; `withAgentScoreGate` (Next.js / Web Fetch) propagates `degraded` + `infraReason` directly on the handler's `gate` arg. Default stays `failOpen: false`; regulated commerce should keep it. Compliance denials (sanctions, age, jurisdiction, signer-mismatch) still deny regardless of the flag.
 
 ### Mount posture: gate-first vs gate-conditional
 
-`agentscoreGate(...)` returns a vanilla framework middleware. Mount it directly when the route is AgentScore-only (`app.use('/purchase', gate)` in Hono / Express, `dependencies=[Depends(gate)]` in FastAPI, etc.) — every request runs identity + policy. To support **anonymous discovery by any spec-compliant x402 wallet** (Coinbase awal, Phantom, Solflare, …), wrap the gate so it fires only when a payment credential is attached:
+`agentscoreGate(...)` returns a vanilla framework middleware. Mount it directly when the route is AgentScore-only (`app.use('/purchase', gate)` in Hono / Express, `dependencies=[Depends(gate)]` in FastAPI, etc.); every request runs identity + policy. To support **anonymous discovery by any spec-compliant x402 wallet** (Coinbase awal, Phantom, Solflare, ...), wrap the gate so it fires only when a payment credential is attached:
 
 ```ts
 const _gate = agentscoreGate({ /* opts */ });
@@ -85,15 +86,15 @@ Anonymous POST flows through to the handler unauthenticated and gets a 402 with 
 
 ### `compatible_clients` field on emitted 402s
 
-`buildAgentInstructions` emits a `compatible_clients` field in the 402 body, derived automatically from `howToPay` — per-rail list of CLIs the AgentScore team has smoke-verified end-to-end. Vendors override with `buildAgentInstructions({ howToPay, compatibleClients: {...} })` to add their own tested clients. Set to an empty object `{}` to suppress the default. Same data is published as `core/docs/integrations/x402-clients.mdx` for human-side rationale + per-rail commands.
+`buildAgentInstructions` emits a `compatible_clients` field in the 402 body, derived automatically from `howToPay`: per-rail list of CLIs the AgentScore team has smoke-verified end-to-end. Vendors override with `buildAgentInstructions({ howToPay, compatibleClients: {...} })` to add their own tested clients. Set to an empty object `{}` to suppress the default. Same data is published as `core/docs/integrations/x402-clients.mdx` for human-side rationale + per-rail commands.
 
 ## Tooling
 
-- **Bun** — package manager.
-- **ESLint 9** — linting.
-- **tsup** — CJS + ESM build with subpath exports.
-- **Vitest** — tests.
-- **Lefthook** — pre-commit lint, pre-push typecheck.
+- **Bun**: package manager.
+- **ESLint 9**: linting.
+- **tsup**: CJS + ESM build with subpath exports.
+- **Vitest**: tests.
+- **Lefthook**: pre-commit lint, pre-push typecheck.
 
 ```bash
 bun install
@@ -112,16 +113,16 @@ During local development the sdk dep is `link:@agent-score/sdk`. Run `bun link` 
 1. Create a branch
 2. Make changes
 3. Lefthook runs lint on commit, typecheck on push
-4. Open a PR — CI runs automatically
+4. Open a PR; CI runs automatically
 5. Merge (squash)
 
 ## Rules
 
 - **No silent refactors**
 - **Never commit .env files or secrets**
-- **Use PRs** — never push directly to main
-- **Helpers are protocol translations + configurable opinions, not opinionated frameworks** — vendor variation is config, not API redesign
-- **Extract from real consumers** — every helper lifts from working production code
+- **Use PRs**: never push directly to main
+- **Helpers are protocol translations + configurable opinions, not opinionated frameworks**: vendor variation is config, not API redesign
+- **Extract from real consumers**: every helper lifts from working production code
 
 ## Releasing
 

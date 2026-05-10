@@ -25,8 +25,11 @@ export {
 export { denialReasonToBody } from './_response';
 export {
   buildA2AAgentCard,
+  ucpA2AExtension,
+  UCP_A2A_EXTENSION_URI,
   type A2AAgentCard,
   type A2AAgentCardCapabilities,
+  type A2AAgentCardExtension,
   type A2AAgentCardIdentity,
   type BuildA2AAgentCardInput,
 } from './identity/a2a';
@@ -34,12 +37,25 @@ export {
   AGENTSCORE_UCP_CAPABILITY,
   buildUCPProfile,
   type BuildUCPProfileInput,
-  type UCPCapability,
-  type UCPPaymentHandler,
+  type UCPCapabilityBinding,
+  type UCPPaymentHandlerBinding,
   type UCPProfile,
-  type UCPService,
+  type UCPProfileBody,
+  type UCPServiceBinding,
   type UCPSigningKey,
+  ucpSigningKeyFromJWK,
 } from './identity/ucp';
+export {
+  buildJWKSResponse,
+  generateUCPSigningKey,
+  type GeneratedUCPKey,
+  type JWKSResponse,
+  type SignUCPProfileOptions,
+  type SignedUCPProfile,
+  signUCPProfile,
+  UCPVerificationError,
+  verifyUCPProfile,
+} from './identity/ucp-jwks';
 export {
   type EnforcementMode,
   type GateResult,
