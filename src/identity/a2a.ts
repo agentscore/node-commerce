@@ -23,6 +23,38 @@ export interface A2AAgentCardCapabilities {
   skills?: string[];
 }
 
+/** Per A2A v1.0: an entry in the card's top-level `extensions` array. UCP support
+ *  is declared this way (UCP §A2A binding requires `https://ucp.dev/2026-04-08/specification/reference`). */
+export interface A2AAgentCardExtension {
+  /** Canonical extension URI — for UCP, `https://ucp.dev/2026-04-08/specification/reference`. */
+  uri: string;
+  /** Extension-specific params. UCP places `{ capabilities: { "<reverse-dns>": [{ version: "..." }, ...] } }` here. */
+  params?: Record<string, unknown>;
+}
+
+/** Canonical UCP A2A extension URI — verifiers look for this exact URI in `extensions[]`
+ *  to detect UCP support on the agent card. Pinned to the 2026-04-08 spec snapshot. */
+export const UCP_A2A_EXTENSION_URI = 'https://ucp.dev/2026-04-08/specification/reference';
+
+/** Build the canonical UCP entry for an A2A agent card's `extensions[]` array.
+ *
+ *  Per UCP §A2A binding: "Businesses supporting UCP must advertise the extension and
+ *  any optional capabilities in their A2A Agent Card to allow platforms to activate
+ *  the extension." Pass the `capabilities` map keyed by reverse-DNS service/capability
+ *  name (e.g. `dev.ucp.shopping.checkout`), each value a list of `{ version }` records.
+ *  Pass `{}` (or omit) when you serve UCP at the discovery layer but have no formal
+ *  capability bindings yet — vendors that haven't implemented checkout/cart/etc. should
+ *  declare the extension URI without claiming capabilities they don't service.
+ */
+export function ucpA2AExtension(
+  capabilities: Record<string, Array<{ version: string }>> = {},
+): A2AAgentCardExtension {
+  return {
+    uri: UCP_A2A_EXTENSION_URI,
+    params: { capabilities },
+  };
+}
+
 export interface A2AAgentCardIdentity {
   /** Issuer of the identity claims — always `"https://agentscore.sh"` for the AgentScore-issued card. */
   issuer: string;
@@ -55,6 +87,8 @@ export interface A2AAgentCard {
   url?: string;
   /** Agent capabilities — endpoints + skills. */
   capabilities?: A2AAgentCardCapabilities;
+  /** A2A v1.0 extensions array. Use `ucpA2AExtension()` to add the UCP entry. */
+  extensions?: A2AAgentCardExtension[];
   /** AgentScore identity claims. Empty `null` when no identity is available (pre-KYC). */
   identity: A2AAgentCardIdentity | null;
   /** Vendor-specific extras merged at the top level. */
@@ -70,6 +104,9 @@ export interface BuildA2AAgentCardInput {
   url?: string;
   /** Capabilities — endpoints exposed + skill tags. */
   capabilities?: A2AAgentCardCapabilities;
+  /** A2A v1.0 extensions to declare on the card. Build the UCP entry with
+   *  `ucpA2AExtension()`. Other A2A extensions can be added the same way. */
+  extensions?: A2AAgentCardExtension[];
   /** AgentScore assess data — what `getAgentScoreData(c)` returns or what `assess()` returned directly.
    *  Pass `null` to emit a card with no identity claims (publishable but unverified). */
   data?: AgentScoreData | null;
@@ -148,6 +185,7 @@ export function buildA2AAgentCard(input: BuildA2AAgentCardInput): A2AAgentCard {
   if (input.description !== undefined) card.description = input.description;
   if (input.url !== undefined) card.url = input.url;
   if (input.capabilities !== undefined) card.capabilities = input.capabilities;
+  if (input.extensions !== undefined) card.extensions = input.extensions;
   if (input.extras !== undefined) card.extras = input.extras;
   return card;
 }

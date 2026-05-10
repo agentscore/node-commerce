@@ -25,8 +25,11 @@ export {
 export { denialReasonToBody } from './_response';
 export {
   buildA2AAgentCard,
+  ucpA2AExtension,
+  UCP_A2A_EXTENSION_URI,
   type A2AAgentCard,
   type A2AAgentCardCapabilities,
+  type A2AAgentCardExtension,
   type A2AAgentCardIdentity,
   type BuildA2AAgentCardInput,
 } from './identity/a2a';

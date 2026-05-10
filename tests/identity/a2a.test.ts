@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildA2AAgentCard } from '../../src/identity/a2a';
+import {
+  UCP_A2A_EXTENSION_URI,
+  buildA2AAgentCard,
+  ucpA2AExtension,
+} from '../../src/identity/a2a';
 import type { AgentScoreData } from '../../src/core';
 
 const fullData: AgentScoreData = {
@@ -127,5 +131,46 @@ describe('buildA2AAgentCard', () => {
       },
     });
     expect(card.identity?.verify_url).toBe('https://from-data.example/verify');
+  });
+});
+
+describe('UCP A2A extension', () => {
+  it('exports the canonical UCP A2A extension URI pinned to 2026-04-08', () => {
+    expect(UCP_A2A_EXTENSION_URI).toBe('https://ucp.dev/2026-04-08/specification/reference');
+  });
+
+  it('ucpA2AExtension() with no args produces empty-capabilities entry', () => {
+    const ext = ucpA2AExtension();
+    expect(ext.uri).toBe(UCP_A2A_EXTENSION_URI);
+    expect(ext.params).toEqual({ capabilities: {} });
+  });
+
+  it('ucpA2AExtension(map) wraps the capabilities map under params.capabilities', () => {
+    const ext = ucpA2AExtension({
+      'dev.ucp.shopping.checkout': [{ version: '2026-04-08' }],
+      'dev.ucp.shopping.cart': [{ version: '2026-04-08' }],
+    });
+    expect(ext.params).toEqual({
+      capabilities: {
+        'dev.ucp.shopping.checkout': [{ version: '2026-04-08' }],
+        'dev.ucp.shopping.cart': [{ version: '2026-04-08' }],
+      },
+    });
+  });
+
+  it('buildA2AAgentCard emits extensions[] when passed', () => {
+    const card = buildA2AAgentCard({
+      name: 'X',
+      data: null,
+      extensions: [ucpA2AExtension()],
+    });
+    expect(card.extensions).toHaveLength(1);
+    expect(card.extensions?.[0]?.uri).toBe(UCP_A2A_EXTENSION_URI);
+    expect(card.extensions?.[0]?.params).toEqual({ capabilities: {} });
+  });
+
+  it('buildA2AAgentCard omits extensions[] when not passed', () => {
+    const card = buildA2AAgentCard({ name: 'X', data: null });
+    expect(card.extensions).toBeUndefined();
   });
 });
