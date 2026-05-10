@@ -59,11 +59,19 @@ function loadSigningKey(): Promise<GeneratedUCPKey> {
           `Failed to parse UCP_SIGNING_KEY_JWK_PRIVATE as JSON: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
-      const privateKey = (await importJWK(jwk, ALG)) as CryptoKey;
-      // Re-export to derive a clean public-only JWK (drops `d` + any RSA private fields).
+      // Detect alg from JWK shape (parity with python sibling); ignore env ALG if it conflicts.
+      let effectiveAlg: 'EdDSA' | 'ES256';
+      if (jwk.kty === 'OKP' && jwk.crv === 'Ed25519') {
+        effectiveAlg = 'EdDSA';
+      } else if (jwk.kty === 'EC' && jwk.crv === 'P-256') {
+        effectiveAlg = 'ES256';
+      } else {
+        throw new Error(`Unsupported env JWK: kty=${jwk.kty} crv=${jwk.crv}`);
+      }
+      const privateKey = (await importJWK(jwk, effectiveAlg)) as CryptoKey;
       const publicJWK = (await exportJWK(privateKey)) as JWK;
       publicJWK.kid = jwk.kid ?? KID;
-      publicJWK.alg = ALG;
+      publicJWK.alg = effectiveAlg;
       publicJWK.use = 'sig';
       delete (publicJWK as Record<string, unknown>).d;
       return { privateKey, publicJWK } as GeneratedUCPKey;
