@@ -4,14 +4,12 @@
  * Compose the JSON payload published at `/.well-known/ucp` per the UCP spec.
  * Output shape matches the spec example: top-level `{ ucp: {...}, signing_keys: [...] }`
  * envelope, with `services` / `capabilities` / `payment_handlers` as MAPs keyed by
- * reverse-DNS service / capability / handler name. Verified against the live
- * production reference at `https://puravidabracelets.com/.well-known/ucp` (Shopify's
- * UCP integration, one of the launch reference brands).
+ * reverse-DNS service / capability / handler name.
  *
  * AgentScore identity claims layer over UCP via the `sh.agentscore.identity` capability
  * (vendor-namespaced; UCP doesn't define KYC/sanctions/age/jurisdiction natively). The
  * capability extends `dev.ucp.shopping.checkout` AND `dev.ucp.shopping.cart` (multi-parent,
- * matching Shopify's `dev.shopify.catalog.storefront` pattern in the live ecosystem).
+ * the standard pattern UCP allows for capabilities that compose multiple parents).
  *
  * The unsigned profile body returned here is what merchants publish; pass it through
  * `signUCPProfile` to attach the `agentscore-profile+jws` signature for trust-mode
@@ -191,8 +189,8 @@ export interface BuildUCPProfileInput {
   agentscore_schema_url?: string;
   /** Optional override for the AgentScore capability spec URL. */
   agentscore_spec_url?: string;
-  /** `supported_versions` map at the profile root. Pattern matches Pura Vida's
-   *  production profile (`{ "<date>": "<base>/.well-known/ucp/<date>" }`). */
+  /** `supported_versions` map at the profile root for backwards-compat across
+   *  spec dates. Pattern: `{ "<date>": "<base>/.well-known/ucp/<date>" }`. */
   supported_versions?: Record<string, string>;
   /** Vendor-specific extras at the OUTER level (alongside `ucp` + `signing_keys`). */
   extras?: Record<string, unknown>;

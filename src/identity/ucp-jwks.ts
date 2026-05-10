@@ -58,7 +58,7 @@ export interface SignedUCPProfile extends UCPProfile {
   signature: string;
 }
 
-const JOSE_INSTALL_HINT = 'Install the optional peer dependency: `npm install jose@^5` (or `bun add jose`). Tested against jose v5.x.';
+const JOSE_INSTALL_HINT = 'Install the optional peer dependency: `npm install jose@^6` (or `bun add jose`). Tested against jose v6.x.';
 
 /** UCP §6 + RFC 8725 §3.1 — restrict accepted JWS algorithms. Anything outside this
  *  list (HS, RS, none, etc.) is rejected to prevent alg-confusion attacks where a
