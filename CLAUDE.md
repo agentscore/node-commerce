@@ -18,7 +18,7 @@ Every helper is extracted from a real consumer, not speculated.
 
 ## Architecture
 
-Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framework identity adapters expose the same surface (`agentscoreGate`, `captureWallet`, `getAgentScoreData`, `verifyWalletSignerMatch`, `getGateDegradedState`, `getGateQuotaInfo`) with network-aware address normalization (EVM lowercased, Solana base58 preserved verbatim).
+Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framework identity adapters split by mounting style: hono/express/fastify expose the context-getter surface (`agentscoreGate(opts)` middleware + `getAgentScoreData(ctx)` / `getGateDegradedState(ctx)` / `getGateQuotaInfo(ctx)` accessors); nextjs/web expose the wrapper surface (`withAgentScoreGate(opts, handler)` / `createAgentScoreGate(opts) => guard(req)` which pass `data` + `degraded` + `infraReason` directly on the handler arg / guard result). All five share `captureWallet`, `verifyWalletSignerMatch`, and network-aware address normalization (EVM lowercased, Solana base58 preserved verbatim).
 
 | Directory | Contents |
 |---|---|
@@ -30,7 +30,7 @@ Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framew
 | `src/stripe-multichain/` | Stripe multichain PaymentIntent helpers |
 | `src/api/` | `AgentScore` re-export from sdk |
 | `examples/` | Runnable single-file Hono apps for each common scenario |
-| `tests/` | Vitest, one file per surface, ~750+ tests |
+| `tests/` | Vitest, one file per surface |
 
 Peer-dep pattern: payment/x402/mppx/stripe modules `dynamic import` at runtime, so vendors install only what they use (`@x402/core`, `@x402/evm`, `@coinbase/x402`, `mppx`, `@solana/mpp`, `@solana/kit`, `stripe`). Missing peer dep throws a guiding error with the install command. x402 in this SDK is EVM-only; Solana SPL payments go through MPP `solana/charge` (`@solana/mpp/server`).
 
