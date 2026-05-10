@@ -31,7 +31,6 @@ import {
   signUCPProfile,
   type SignedUCPProfile,
 } from '../src/identity/ucp-jwks';
-import type { AgentScoreData } from '../src/core';
 
 const OUT_DIR = join(__dirname, '..', 'tests', 'fixtures', 'cross-lang');
 
@@ -318,34 +317,26 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // node-data-driven-claims — exercises buildUCPProfile data path with
-  // API-shape "missing" sentinels (empty string + null). Both languages MUST
-  // emit identical canonical bytes for this input.
+  // node-agentscore-gate-full — exercises buildUCPProfile with a full merchant
+  // gate policy declared via `agentscore_gate`. Both languages MUST emit
+  // identical canonical bytes so a profile signed in one verifies in the other.
   // -------------------------------------------------------------------------
   {
-    const KID = 'node-data-driven-claims-EdDSA';
+    const KID = 'node-agentscore-gate-full-EdDSA';
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: KID });
-    const data: AgentScoreData = {
-      decision: 'allow',
-      decision_reasons: [],
-      resolved_operator: 'op_data_driven',
-      verify_url: 'https://agentscore.sh/verify/op_data_driven',
-      account_verification: {
-        kyc_level: '',
-        sanctions_clear: false,
-        age_bracket: null as unknown as string,
-        jurisdiction: null as unknown as string,
-        verified_at: null,
-      },
-    };
     const profile = buildUCPProfile({
-      name: 'Data Driven Claims Merchant',
+      name: 'AgentScore Gate Full-Policy Merchant',
       services: { 'dev.ucp.shopping': [shopServiceMcp('https://d.example.com')] },
       signing_keys: [publicJWK as UCPSigningKey],
-      data,
+      agentscore_gate: {
+        require_kyc: true,
+        require_sanctions_clear: true,
+        min_age: 21,
+        allowed_jurisdictions: ['US'],
+      },
     });
     const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: KID });
-    writeFixture('node-data-driven-claims', {
+    writeFixture('node-agentscore-gate-full', {
       profile: signed,
       jwks: buildJWKSResponse([publicJWK]),
       alg: 'EdDSA',
@@ -355,38 +346,23 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // node-typed-claims — exercises typed AssessResult fields (no raw fallback).
-  // Cross-lang parity check for the typed-field-only call site.
+  // node-agentscore-gate-blocked — exercises blocked_jurisdictions
+  // (mutually exclusive with allowed_jurisdictions) for cross-lang parity.
   // -------------------------------------------------------------------------
   {
-    const KID = 'node-typed-claims-EdDSA';
+    const KID = 'node-agentscore-gate-blocked-EdDSA';
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: KID });
-    const data: AgentScoreData = {
-      decision: 'allow',
-      decision_reasons: [],
-      resolved_operator: 'op_typed_claims',
-      verify_url: 'https://agentscore.sh/verify/op_typed_claims',
-      operator_verification: {
-        level: 'enhanced',
-        operator_type: 'api',
-        verified_at: '2026-04-01T00:00:00Z',
-      },
-      account_verification: {
-        kyc_level: 'enhanced',
-        sanctions_clear: true,
-        age_bracket: '21+',
-        jurisdiction: 'US',
-        verified_at: '2026-04-01T00:00:00Z',
-      },
-    };
     const profile = buildUCPProfile({
-      name: 'Typed Claims Merchant',
+      name: 'AgentScore Gate Blocked-Jurisdictions Merchant',
       services: { 'dev.ucp.shopping': [shopServiceMcp('https://t.example.com')] },
       signing_keys: [publicJWK as UCPSigningKey],
-      data,
+      agentscore_gate: {
+        require_kyc: true,
+        blocked_jurisdictions: ['KP', 'IR', 'CU'],
+      },
     });
     const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: KID });
-    writeFixture('node-typed-claims', {
+    writeFixture('node-agentscore-gate-blocked', {
       profile: signed,
       jwks: buildJWKSResponse([publicJWK]),
       alg: 'EdDSA',

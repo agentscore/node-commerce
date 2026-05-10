@@ -2,25 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   AGENTSCORE_UCP_CAPABILITY,
   buildUCPProfile,
+  type AgentScoreGatePolicy,
   type UCPCapabilityBinding,
   type UCPPaymentHandlerBinding,
   type UCPServiceBinding,
 } from '../../src/identity/ucp';
-import type { AgentScoreData } from '../../src/core';
-
-const fullData: AgentScoreData = {
-  decision: 'allow',
-  decision_reasons: [],
-  resolved_operator: 'op_abc',
-  verify_url: 'https://agentscore.sh/verify',
-  account_verification: {
-    kyc_level: 'enhanced',
-    sanctions_clear: true,
-    age_bracket: '21+',
-    jurisdiction: 'US',
-    verified_at: '2026-04-01T00:00:00Z',
-  },
-};
 
 const sampleServiceBinding: UCPServiceBinding = {
   version: '2026-04-08',
@@ -54,33 +40,59 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     expect((profile as Record<string, unknown>).version).toBeUndefined();
   });
 
-  it('appends sh.agentscore.identity capability when data carries a resolved operator', () => {
-    const profile = buildUCPProfile({ ...baseInput, data: fullData });
+  it('skips agentscore capability when agentscore_gate is not provided (default)', () => {
+    const profile = buildUCPProfile(baseInput);
+    expect(agentscoreCap(profile)).toBeUndefined();
+    expect(AGENTSCORE_UCP_CAPABILITY in profile.ucp.capabilities).toBe(false);
+  });
+
+  it('appends sh.agentscore.identity capability when agentscore_gate is provided', () => {
+    const gate: AgentScoreGatePolicy = {
+      require_kyc: true,
+      require_sanctions_clear: true,
+      min_age: 21,
+      allowed_jurisdictions: ['US'],
+    };
+    const profile = buildUCPProfile({ ...baseInput, agentscore_gate: gate });
     const cap = agentscoreCap(profile);
     expect(cap).toBeDefined();
-    expect(cap?.version).toBe('1');
+    // Date-format version (UCP convention; matches every other binding's version field).
+    expect(cap?.version).toBe('2026-04-08');
     expect(cap?.spec).toContain('agentscore.sh');
     expect(cap?.schema).toContain('sh-agentscore-identity-v1.json');
     // Multi-parent extends — matches Shopify's dev.shopify.catalog.storefront pattern
     // and UCP-canonical dev.ucp.shopping.discount (extends [checkout, cart]).
     expect(cap?.extends).toEqual(['dev.ucp.shopping.checkout', 'dev.ucp.shopping.cart']);
-    const claims = (cap as Record<string, unknown>).claims as Record<string, unknown>;
-    expect(claims.operator_id).toBe('op_abc');
-    expect(claims.kyc_level).toBe('enhanced');
-    expect(claims.sanctions_clear).toBe(true);
-    expect(claims.age_bracket).toBe('21+');
-    expect(claims.jurisdiction).toBe('US');
-    expect(claims.verify_url).toBe('https://agentscore.sh/verify');
-    expect(claims.issuer).toBe('https://agentscore.sh');
+    // Config is the merchant's policy declaration, NOT per-operator data. Public
+    // /.well-known/ucp profiles must never carry per-operator KYC claims.
+    const config = (cap as Record<string, unknown>).config as Record<string, unknown>;
+    expect(config).toEqual({
+      require_kyc: true,
+      require_sanctions_clear: true,
+      min_age: 21,
+      allowed_jurisdictions: ['US'],
+    });
   });
 
-  it('skips agentscore capability when data has no resolved_operator', () => {
-    const profile = buildUCPProfile({
-      ...baseInput,
-      data: { decision: null, decision_reasons: [] },
-    });
-    expect(agentscoreCap(profile)).toBeUndefined();
-    expect(AGENTSCORE_UCP_CAPABILITY in profile.ucp.capabilities).toBe(false);
+  it('capability present with omitted config when caller passes empty policy', () => {
+    // When the caller passes {} with no fields set, the binding is still injected
+    // (signals that the merchant is AgentScore-gated), but the `config` field is
+    // omitted from serialization for cross-lang parity (python's
+    // UCPCapabilityBinding.to_dict drops empty config consistently with how
+    // UCPPaymentHandlerBinding drops empty config).
+    const profile = buildUCPProfile({ ...baseInput, agentscore_gate: {} });
+    const cap = agentscoreCap(profile);
+    expect(cap).toBeDefined();
+    expect(cap?.version).toBe('2026-04-08');
+    expect((cap as Record<string, unknown>).config).toBeUndefined();
+  });
+
+  it('emits only the policy fields the caller set (omits unset min_age, etc.)', () => {
+    const profile = buildUCPProfile({ ...baseInput, agentscore_gate: { require_kyc: true } });
+    const config = (agentscoreCap(profile) as Record<string, unknown>).config as Record<string, unknown>;
+    expect(config).toEqual({ require_kyc: true });
+    expect('min_age' in config).toBe(false);
+    expect('allowed_jurisdictions' in config).toBe(false);
   });
 
   it('preserves caller-supplied capabilities and merges agentscore in alongside', () => {
@@ -92,10 +104,10 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     const profile = buildUCPProfile({
       ...baseInput,
       capabilities: { 'dev.ucp.shopping.checkout': [checkoutBinding] },
-      data: fullData,
+      agentscore_gate: { require_kyc: true },
     });
     expect(profile.ucp.capabilities['dev.ucp.shopping.checkout']?.[0]?.version).toBe('2026-04-08');
-    expect(agentscoreCap(profile)?.version).toBe('1');
+    expect(agentscoreCap(profile)?.version).toBe('2026-04-08');
   });
 
   it('passes through name + payment_handlers + extras + ucp_extras', () => {
@@ -143,7 +155,7 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
   it('respects agentscore_schema_url override on the auto-injected capability', () => {
     const profile = buildUCPProfile({
       ...baseInput,
-      data: fullData,
+      agentscore_gate: {},
       agentscore_schema_url: 'https://custom.example/schema.json',
     });
     expect(agentscoreCap(profile)?.schema).toBe('https://custom.example/schema.json');
@@ -152,7 +164,7 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
   it('respects agentscore_spec_url override on the auto-injected capability', () => {
     const profile = buildUCPProfile({
       ...baseInput,
-      data: fullData,
+      agentscore_gate: {},
       agentscore_spec_url: 'https://custom.example/spec',
     });
     expect(agentscoreCap(profile)?.spec).toBe('https://custom.example/spec');
@@ -192,53 +204,5 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     expect(() => buildUCPProfile({ ...baseInput, ucp_extras: { [k]: 'attacker' } })).toThrow(
       /collides with a reserved `ucp` field/,
     );
-  });
-
-  // Empty-string and null normalization: the API can emit `account_verification` with
-  // either null or `""` for un-set fields, and the node + python siblings must produce
-  // the SAME canonical claims block for either shape so a profile signed in one
-  // language verifies in the other.
-  describe('account_verification missing-value normalization (cross-lang parity)', () => {
-    const baseDataWithOp = {
-      decision: 'allow',
-      decision_reasons: [],
-      resolved_operator: 'op_abc',
-    };
-
-    const claimsOf = (av: AgentScoreData['account_verification']): Record<string, unknown> => {
-      const profile = buildUCPProfile({
-        ...baseInput,
-        data: { ...baseDataWithOp, account_verification: av } as AgentScoreData,
-      });
-      return (agentscoreCap(profile) as Record<string, unknown>).claims as Record<string, unknown>;
-    };
-
-    it('coerces empty-string kyc_level to "none"', () => {
-      expect(claimsOf({ kyc_level: '' }).kyc_level).toBe('none');
-    });
-
-    it('coerces null age_bracket to "unknown"', () => {
-      expect(claimsOf({ age_bracket: null as unknown as string }).age_bracket).toBe('unknown');
-    });
-
-    it('coerces empty-string age_bracket to "unknown"', () => {
-      expect(claimsOf({ age_bracket: '' }).age_bracket).toBe('unknown');
-    });
-
-    it('coerces null jurisdiction to ""', () => {
-      expect(claimsOf({ jurisdiction: null as unknown as string }).jurisdiction).toBe('');
-    });
-
-    it('coerces empty-string jurisdiction to ""', () => {
-      expect(claimsOf({ jurisdiction: '' }).jurisdiction).toBe('');
-    });
-
-    it('coerces null verified_at to null', () => {
-      expect(claimsOf({ verified_at: null }).verified_at).toBeNull();
-    });
-
-    it('coerces empty-string verified_at to null', () => {
-      expect(claimsOf({ verified_at: '' }).verified_at).toBeNull();
-    });
   });
 });

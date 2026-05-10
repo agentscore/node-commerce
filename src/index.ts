@@ -35,6 +35,7 @@ export {
 } from './identity/a2a';
 export {
   AGENTSCORE_UCP_CAPABILITY,
+  type AgentScoreGatePolicy,
   buildUCPProfile,
   type BuildUCPProfileInput,
   type UCPCapabilityBinding,

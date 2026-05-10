@@ -116,6 +116,10 @@ app.get('/.well-known/ucp', async (c) => {
       }],
     },
     signing_keys: [ucpSigningKeyFromJWK(key.publicJWK as Record<string, unknown>)],
+    // Optional: declare merchant gate policy as an `sh.agentscore.identity` capability
+    // binding inside the public profile. Static policy declaration only — no per-operator
+    // claims. Per-operator identity attestation flows through the AP2 risk-signal endpoint.
+    agentscore_gate: { require_kyc: true, min_age: 21, allowed_jurisdictions: ['US'] },
   });
   const signed = await signUCPProfile(profile, {
     signingKey: key.privateKey,

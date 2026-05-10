@@ -18,7 +18,6 @@
  * Spec reference: https://ucp.dev/
  */
 
-import type { AgentScoreData } from '../core';
 
 /**
  * UCP per-element shape note: each binding interface (`UCPServiceBinding`,
@@ -108,7 +107,8 @@ export interface UCPCapabilityBinding {
     protocol?: { min: string; max?: string };
     capabilities?: Record<string, { min: string; max?: string }>;
   };
-  /** Vendor-specific extras (e.g., AgentScore claims block on `sh.agentscore.identity`). */
+  /** Vendor-specific extras allowed per UCP convention (e.g., the AgentScore identity
+   *  capability adds a vendor-namespaced policy declaration here). */
   [k: string]: unknown;
 }
 
@@ -175,15 +175,18 @@ export interface BuildUCPProfileInput {
    *  bindings under `'dev.ucp.shopping'`. */
   services?: Record<string, UCPServiceBinding[]>;
   /** Capabilities map, keyed by capability name. The `sh.agentscore.identity` capability
-   *  is auto-added when `data` is provided. */
+   *  is auto-added when `agentscore_gate` is provided. */
   capabilities?: Record<string, UCPCapabilityBinding[]>;
   /** Payment handlers map, keyed by handler reverse-DNS name. */
   payment_handlers?: Record<string, UCPPaymentHandlerBinding[]>;
   /** JWKS — public keys the merchant signs with. REQUIRED by spec. */
   signing_keys: UCPSigningKey[];
-  /** AgentScore assess data — adds an `sh.agentscore.identity` capability + claims
-   *  block when present. */
-  data?: AgentScoreData | null;
+  /** Merchant gate policy declaration. When provided, the SDK auto-injects an
+   *  `sh.agentscore.identity` capability binding into `capabilities`, with the
+   *  policy as the binding's `config`. Static merchant declaration only — no
+   *  per-operator data ever ends up on the public profile. Per-operator identity
+   *  attestation lives on the AP2 risk-signal endpoint, not here. */
+  agentscore_gate?: AgentScoreGatePolicy;
   /** Optional override for the AgentScore capability schema URL. Field is snake_cased
    *  for cross-language parity with the Python sibling. */
   agentscore_schema_url?: string;
@@ -203,15 +206,35 @@ const DEFAULT_VERSION = '2026-04-08';
 // The bare `agentscore-identity` form fails the spec regex; vendor-namespacing under
 // `sh.agentscore` is honest about the capability being our extension, not UCP-canonical.
 const AGENTSCORE_CAPABILITY_NAME = 'sh.agentscore.identity';
-const AGENTSCORE_CAPABILITY_VERSION = '1';
+// Date-format version per UCP convention (matches every other binding's version field).
+const AGENTSCORE_CAPABILITY_VERSION = '2026-04-08';
+
+/** Merchant gate policy declared on the UCP profile via `sh.agentscore.identity` capability config.
+ *  All fields optional; merchant declares which AgentScore checks the gate enforces. Snake-case
+ *  field names match the AgentScore API's `/v1/assess` policy contract verbatim — no conversion
+ *  layer between this declaration and what the gate actually enforces at runtime. */
+export interface AgentScoreGatePolicy {
+  /** Gate denies if the operator/account behind the agent is not Stripe-Identity-verified. */
+  require_kyc?: boolean;
+  /** Gate denies if the operator/account is flagged by OpenSanctions screening. */
+  require_sanctions_clear?: boolean;
+  /** Gate denies if the verified age (from KYC) is below this threshold. Common values: 18, 21. */
+  min_age?: number;
+  /** ISO-3166-1 alpha-2 country codes the gate accepts. Empty/absent allows any. Mutually exclusive
+   *  with `blocked_jurisdictions` (set one or the other, not both). */
+  allowed_jurisdictions?: string[];
+  /** ISO-3166-1 alpha-2 country codes the gate denies. Empty/absent denies none. Mutually exclusive
+   *  with `allowed_jurisdictions`. */
+  blocked_jurisdictions?: string[];
+}
 const AGENTSCORE_DEFAULT_SPEC_URL = 'https://agentscore.sh/specification/identity';
 const AGENTSCORE_DEFAULT_SCHEMA_URL = 'https://agentscore.sh/schemas/ucp/sh-agentscore-identity-v1.json';
-// Multi-parent extension — `sh.agentscore.identity` carries claims relevant at both
-// checkout-build (compliance gate) and cart-build (price-gate eligibility, jurisdiction-
-// restricted items in cart) time. Mirrors the multi-parent convention in the live
-// ecosystem (Shopify's `dev.shopify.catalog.storefront` extends both `catalog.search`
-// and `catalog.lookup`; UCP-canonical `dev.ucp.shopping.discount` extends both checkout
-// and cart).
+// Multi-parent extension — `sh.agentscore.identity` declares merchant policy relevant at
+// both checkout-build (compliance gate) and cart-build (price-gate eligibility, jurisdiction-
+// restricted items in cart) time, so an agent reading either parent capability picks up the
+// policy contract. Mirrors the multi-parent convention in the live ecosystem
+// (Shopify's `dev.shopify.catalog.storefront` extends both `catalog.search` and
+// `catalog.lookup`; UCP-canonical `dev.ucp.shopping.discount` extends both checkout and cart).
 const AGENTSCORE_EXTENDS = ['dev.ucp.shopping.checkout', 'dev.ucp.shopping.cart'];
 
 const RESERVED_TOP_LEVEL = new Set([
@@ -241,9 +264,12 @@ const RESERVED_UCP_FIELDS = new Set([
  * trust-mode verifiers.
  *
  * Auto-injects `sh.agentscore.identity` as a vendor capability extending both
- * `dev.ucp.shopping.checkout` and `dev.ucp.shopping.cart` when `data` carries a
- * resolved operator. Verifiers that recognize the AgentScore namespace can parse
- * the `claims` block; vanilla UCP agents see a normal extension capability.
+ * `dev.ucp.shopping.checkout` and `dev.ucp.shopping.cart` when `agentscore_gate`
+ * is provided. The capability's `config` carries the merchant's static gate
+ * policy declaration (require_kyc / require_sanctions_clear / min_age /
+ * allowed_jurisdictions / blocked_jurisdictions). NO per-operator data is ever
+ * placed on the public profile — per-operator identity attestation flows through
+ * the AP2 risk-signal endpoint, not here.
  *
  * Example:
  * ```ts
@@ -268,6 +294,7 @@ const RESERVED_UCP_FIELDS = new Set([
  *     }],
  *   },
  *   signing_keys: [signingKey],
+ *   agentscore_gate: { require_kyc: true, min_age: 21, allowed_jurisdictions: ['US'] },
  * });
  * ```
  */
@@ -279,38 +306,24 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
     capabilities[name] = [...bindings];
   }
 
-  if (input.data) {
-    const operatorId = input.data.resolved_operator;
-    if (operatorId) {
-      const operatorVerification = input.data.operator_verification;
-      const accountVerification = input.data.account_verification;
-      // `||` (not `??`) coerces both null/undefined AND empty string to the default,
-      // matching the python sibling. The API can return `account_verification` with
-      // either null or `""` for un-set fields; profiles signed in one language must
-      // verify in the other across both shapes.
-      const claims: Record<string, unknown> = {
-        operator_id: operatorId,
-        kyc_level: accountVerification?.kyc_level || operatorVerification?.level || 'none',
-        sanctions_clear: accountVerification?.sanctions_clear === true,
-        age_bracket: accountVerification?.age_bracket || 'unknown',
-        jurisdiction: accountVerification?.jurisdiction || '',
-        verified_at: accountVerification?.verified_at || operatorVerification?.verified_at || null,
-        verify_url: input.data.verify_url ?? null,
-        issuer: 'https://agentscore.sh',
-      };
-      const agentscoreBinding: UCPCapabilityBinding = {
-        version: AGENTSCORE_CAPABILITY_VERSION,
-        spec: input.agentscore_spec_url ?? AGENTSCORE_DEFAULT_SPEC_URL,
-        schema: input.agentscore_schema_url ?? AGENTSCORE_DEFAULT_SCHEMA_URL,
-        extends: AGENTSCORE_EXTENDS,
-        // `claims` is our vendor extra on the binding; allowed per spec via the
-        // `[k: string]: unknown` index signature on UCPCapabilityBinding.
-        claims,
-      };
-      const existing = capabilities[AGENTSCORE_CAPABILITY_NAME];
-      if (existing) existing.push(agentscoreBinding);
-      else capabilities[AGENTSCORE_CAPABILITY_NAME] = [agentscoreBinding];
-    }
+  // Auto-inject `sh.agentscore.identity` capability when the merchant declares a gate
+  // policy. Static merchant-policy declaration only — no per-operator data on the public
+  // profile. Per-operator identity attestation flows through the AP2 risk-signal endpoint
+  // or per-request 4xx response bodies, not here.
+  if (input.agentscore_gate) {
+    const gateConfig = { ...input.agentscore_gate };
+    const agentscoreBinding: UCPCapabilityBinding = {
+      version: AGENTSCORE_CAPABILITY_VERSION,
+      spec: input.agentscore_spec_url ?? AGENTSCORE_DEFAULT_SPEC_URL,
+      schema: input.agentscore_schema_url ?? AGENTSCORE_DEFAULT_SCHEMA_URL,
+      extends: AGENTSCORE_EXTENDS,
+    };
+    // Omit `config` when empty so node + python emit byte-identical canonical output
+    // (python's UCPCapabilityBinding.to_dict already drops empty config).
+    if (Object.keys(gateConfig).length > 0) agentscoreBinding.config = gateConfig;
+    const existing = capabilities[AGENTSCORE_CAPABILITY_NAME];
+    if (existing) existing.push(agentscoreBinding);
+    else capabilities[AGENTSCORE_CAPABILITY_NAME] = [agentscoreBinding];
   }
 
   const ucp: UCPProfileBody = {

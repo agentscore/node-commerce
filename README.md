@@ -220,7 +220,11 @@ const profile = buildUCPProfile({
       config: { recipient: TEMPO_ADDR },
     }],
   },
-  signing_keys, data: assess,
+  signing_keys,
+  // Optional: declare the merchant's gate policy as an `sh.agentscore.identity` capability
+  // binding inside the public profile. Static policy declaration only — no per-operator data.
+  // Per-operator identity attestation lives on the AP2 risk-signal endpoint, not here.
+  agentscore_gate: { require_kyc: true, min_age: 21, allowed_jurisdictions: ['US'] },
 });
 ```
 
