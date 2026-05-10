@@ -78,8 +78,26 @@ app.get('/.well-known/ucp', async (c) => {
   const key = await loadSigningKey();
   const profile = buildUCPProfile({
     name: 'My Agent Service',
-    services: [{ type: 'rest', url: 'https://agents.example.com' }],
-    payment_handlers: [{ name: 'tempo', config: { recipient: '0xfeedface' } }],
+    services: {
+      'dev.ucp.shopping': [
+        {
+          version: '2026-04-08',
+          spec: 'https://ucp.dev/2026-04-08/specification/overview',
+          transport: 'mcp',
+          endpoint: 'https://agents.example.com/api/ucp/mcp',
+          schema: 'https://ucp.dev/services/shopping/openrpc.json',
+        },
+      ],
+    },
+    payment_handlers: {
+      'sh.agentscore.payment.tempo': [{
+        id: 'tempo',
+        version: '2026-04-08',
+        spec: 'https://agentscore.sh/specification/payment-handlers/tempo',
+        schema: 'https://agentscore.sh/schemas/payment-handlers/tempo.json',
+        config: { recipient: '0xfeedface' },
+      }],
+    },
     signing_keys: [ucpSigningKeyFromJWK(key.publicJWK as Record<string, unknown>)],
   });
   const signed = await signUCPProfile(profile, {
