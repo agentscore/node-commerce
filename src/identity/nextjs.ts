@@ -1,6 +1,6 @@
 import { createAgentScoreGate } from './web';
 import type { AgentScoreGateOptions as WebAgentScoreGateOptions } from './web';
-import type { AgentScoreData, FailOpenInfraReason, GateQuotaInfo, VerifyWalletSignerResult } from '../core';
+import type { AssessResult, FailOpenInfraReason, GateQuotaInfo, VerifyWalletSignerResult } from '../core';
 
 export type AgentScoreGateOptions = WebAgentScoreGateOptions;
 
@@ -30,7 +30,7 @@ export function withAgentScoreGate<TReq extends Request = Request, TCtx = unknow
   handler: (
     req: TReq,
     gate: {
-      data?: AgentScoreData;
+      data?: AssessResult;
       captureWallet?: (opts: {
         walletAddress: string;
         network: 'evm' | 'solana';

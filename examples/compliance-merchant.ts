@@ -35,7 +35,7 @@ import {
   buildSignerMismatchBody,
   denialReasonStatus,
   denialReasonToBody,
-  getAgentScoreData,
+  getAssessResult,
   isFixableDenial,
   verificationAgentInstructions,
   verifyWalletSignerMatch,
@@ -151,7 +151,7 @@ app.post(
   '/buy',
   complianceGateOnSettle,
   async (c) => {
-    const data = getAgentScoreData(c);
+    const data = getAssessResult(c);
 
     // Wallet-auth: verify the payment signer matches the claimed wallet (or a same-operator
     // linked wallet). Skips for operator_token requests. Replace the inline signer-extraction

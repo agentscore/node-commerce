@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildUCPProfile, ucpSigningKeyFromJWK } from '../../src/identity/ucp';
+import { buildUCPProfile, UCPSigningKey } from '../../src/identity/ucp';
 import {
   buildJWKSResponse,
   generateUCPSigningKey,
@@ -419,10 +419,10 @@ describe('UCP signing — additional hardening', () => {
   });
 });
 
-describe('ucpSigningKeyFromJWK', () => {
+describe('UCPSigningKey.fromJWK', () => {
   it('round-trips an EdDSA public JWK from generateUCPSigningKey', async () => {
     const { publicJWK } = await generateUCPSigningKey({ kid: 'rt-eddsa', alg: 'EdDSA' });
-    const result = ucpSigningKeyFromJWK(publicJWK as Record<string, unknown>);
+    const result = UCPSigningKey.fromJWK(publicJWK as Record<string, unknown>);
     const r = result as Record<string, unknown>;
     expect(r.kid).toBe('rt-eddsa');
     expect(r.kty).toBe('OKP');
@@ -434,7 +434,7 @@ describe('ucpSigningKeyFromJWK', () => {
 
   it('round-trips an ES256 public JWK from generateUCPSigningKey', async () => {
     const { publicJWK } = await generateUCPSigningKey({ kid: 'rt-es256', alg: 'ES256' });
-    const result = ucpSigningKeyFromJWK(publicJWK as Record<string, unknown>);
+    const result = UCPSigningKey.fromJWK(publicJWK as Record<string, unknown>);
     const r = result as Record<string, unknown>;
     expect(r.kid).toBe('rt-es256');
     expect(r.kty).toBe('EC');
@@ -447,30 +447,30 @@ describe('ucpSigningKeyFromJWK', () => {
 
   it('rejects symmetric oct keys', () => {
     expect(() =>
-      ucpSigningKeyFromJWK({ kid: 'k', kty: 'oct', k: 'AAAA' }),
+      UCPSigningKey.fromJWK({ kid: 'k', kty: 'oct', k: 'AAAA' }),
     ).toThrow(/asymmetric/i);
   });
 
   it('rejects JWK missing kid', () => {
-    expect(() => ucpSigningKeyFromJWK({ kty: 'OKP' })).toThrow(/kid/);
+    expect(() => UCPSigningKey.fromJWK({ kty: 'OKP' })).toThrow(/kid/);
   });
 
   it('rejects JWK missing kty', () => {
-    expect(() => ucpSigningKeyFromJWK({ kid: 'k' })).toThrow(/kty/);
+    expect(() => UCPSigningKey.fromJWK({ kid: 'k' })).toThrow(/kty/);
   });
 
   it('rejects non-object inputs', () => {
-    expect(() => ucpSigningKeyFromJWK(null as never)).toThrow();
-    expect(() => ucpSigningKeyFromJWK('string' as never)).toThrow();
-    expect(() => ucpSigningKeyFromJWK(42 as never)).toThrow();
+    expect(() => UCPSigningKey.fromJWK(null as never)).toThrow();
+    expect(() => UCPSigningKey.fromJWK('string' as never)).toThrow();
+    expect(() => UCPSigningKey.fromJWK(42 as never)).toThrow();
   });
 
   it('rejects EC JWK missing crv', () => {
-    expect(() => ucpSigningKeyFromJWK({ kid: 'k', kty: 'EC' })).toThrow(/crv/);
+    expect(() => UCPSigningKey.fromJWK({ kid: 'k', kty: 'EC' })).toThrow(/crv/);
   });
 
   it('rejects OKP JWK with empty crv', () => {
-    expect(() => ucpSigningKeyFromJWK({ kid: 'k', kty: 'OKP', crv: '' })).toThrow(/crv/);
+    expect(() => UCPSigningKey.fromJWK({ kid: 'k', kty: 'OKP', crv: '' })).toThrow(/crv/);
   });
 });
 

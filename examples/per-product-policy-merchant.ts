@@ -11,7 +11,7 @@
  * Each product carries its own policy block. The route uses three helpers
  * from `@agent-score/commerce/identity/policy`:
  *
- *   - policyToGateOptions(policy, { apiKey })  → AgentScoreGateOptions | null
+ *   - buildGateOptionsFromPolicy(policy, { apiKey })  → AgentScoreGateOptions | null
  *       (null when the policy has no enforcement — caller treats as "no gate")
  *   - agentscoreGate(opts)                      → framework middleware
  *       (per-framework adapter; this example uses Hono)
@@ -35,7 +35,7 @@ import { agentscoreGate } from '../src/identity/hono.js';
 import {
   type EnforcementMode,
   type PolicyBlock,
-  policyToGateOptions,
+  buildGateOptionsFromPolicy,
   runGateWithEnforcement,
   shippingCountryAllowed,
   shippingStateAllowed,
@@ -109,9 +109,9 @@ app.post('/purchase', async (c) => {
     );
   }
 
-  // Per-product identity gate. policyToGateOptions returns null when the policy
+  // Per-product identity gate. buildGateOptionsFromPolicy returns null when the policy
   // has no enforcement set; runGateWithEnforcement then short-circuits to anonymous.
-  const gateOptions = policyToGateOptions(policy, { apiKey: API_KEY });
+  const gateOptions = buildGateOptionsFromPolicy(policy, { apiKey: API_KEY });
   const enforcement: EnforcementMode | undefined = policy?.enforcement;
 
   // Adapt the per-framework middleware to the runGate shape: resolve {ok:true}

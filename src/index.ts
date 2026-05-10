@@ -1,13 +1,17 @@
 export type {
+  AccountVerification,
   AgentIdentity,
   AgentMemoryHint,
   AgentScoreCore,
   AgentScoreCoreOptions,
-  AgentScoreData,
+  AssessResult,
   CreateSessionOnMissing,
   DenialCode,
   DenialReason,
   EvaluateOutcome,
+  OperatorVerification,
+  PolicyCheck,
+  PolicyResult,
   VerifyWalletSignerMatchOptions,
   VerifyWalletSignerResult,
 } from './core';
@@ -46,8 +50,7 @@ export {
   type UCPProfile,
   type UCPProfileBody,
   type UCPServiceBinding,
-  type UCPSigningKey,
-  ucpSigningKeyFromJWK,
+  UCPSigningKey,
 } from './identity/ucp';
 export {
   buildJWKSResponse,
@@ -65,7 +68,7 @@ export {
   type GateResult,
   type IdentityStatus,
   type PolicyBlock,
-  policyToGateOptions,
+  buildGateOptionsFromPolicy,
   runGateWithEnforcement,
   shippingCountryAllowed,
   shippingStateAllowed,

@@ -41,7 +41,7 @@ import {
   firstEncounterAgentMemory,
   respond402,
 } from '@agent-score/commerce/challenge';
-import { agentscoreGate, getAgentScoreData } from '@agent-score/commerce/identity/hono';
+import { agentscoreGate, getAssessResult } from '@agent-score/commerce/identity/hono';
 import {
   createMppxServer,
   buildX402AcceptsFor402,
@@ -112,7 +112,7 @@ app.use('/purchase', async (c, next) => {
 });
 
 app.post('/purchase', async (c) => {
-  const assess = getAgentScoreData(c);
+  const assess = getAssessResult(c);
   const body = await c.req.json();
   const totalUsd = String(body.amount_usd ?? '10.00');
   const amountCents = Math.round(Number(totalUsd) * 100);

@@ -30,7 +30,7 @@ import {
   generateUCPSigningKey,
   signUCPProfile,
   type GeneratedUCPKey,
-  ucpSigningKeyFromJWK,
+  UCPSigningKey,
   UCPVerificationError,
   verifyUCPProfile,
 } from '@agent-score/commerce';
@@ -115,7 +115,7 @@ app.get('/.well-known/ucp', async (c) => {
         config: { recipient: '0xfeedface' },
       }],
     },
-    signing_keys: [ucpSigningKeyFromJWK(key.publicJWK as Record<string, unknown>)],
+    signing_keys: [UCPSigningKey.fromJWK(key.publicJWK as Record<string, unknown>)],
     // Optional: declare merchant gate policy as an `sh.agentscore.identity` capability
     // binding inside the public profile. Static policy declaration only — no per-operator
     // claims. Per-operator identity attestation flows through the AP2 risk-signal endpoint.

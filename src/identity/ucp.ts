@@ -44,29 +44,36 @@ export interface UCPSigningKey {
 /**
  * Construct a UCPSigningKey from a public JWK dict (e.g. the `publicJWK` returned by
  * `generateUCPSigningKey()`). Validates required fields and rejects symmetric keys that
- * can't publicly verify a JWS in trust-mode UCP. Symmetric to Python's
- * `UCPSigningKey.from_jwk(public_jwk)` classmethod.
+ * can't publicly verify a JWS in trust-mode UCP. Mirrors python's
+ * `UCPSigningKey.from_jwk(public_jwk)` classmethod via the `UCPSigningKey.fromJWK`
+ * static-method-style namespace export below.
  */
-export function ucpSigningKeyFromJWK(jwk: Record<string, unknown>): UCPSigningKey {
+function ucpSigningKeyFromJWKImpl(jwk: Record<string, unknown>): UCPSigningKey {
   if (!jwk || typeof jwk !== 'object') {
-    throw new Error(`ucpSigningKeyFromJWK expected a non-null object; got ${typeof jwk}.`);
+    throw new Error(`UCPSigningKey.fromJWK expected a non-null object; got ${typeof jwk}.`);
   }
   if (typeof jwk.kid !== 'string' || !jwk.kid) {
-    throw new Error('ucpSigningKeyFromJWK: JWK missing required field `kid` (or non-string).');
+    throw new Error('UCPSigningKey.fromJWK: JWK missing required field `kid` (or non-string).');
   }
   if (typeof jwk.kty !== 'string' || !jwk.kty) {
-    throw new Error('ucpSigningKeyFromJWK: JWK missing required field `kty` (or non-string).');
+    throw new Error('UCPSigningKey.fromJWK: JWK missing required field `kty` (or non-string).');
   }
   if (jwk.kty !== 'OKP' && jwk.kty !== 'EC' && jwk.kty !== 'RSA') {
     throw new Error(
-      `ucpSigningKeyFromJWK: kty=${JSON.stringify(jwk.kty)} is not a supported asymmetric key type (expected OKP, EC, or RSA). Symmetric \`oct\` keys are rejected because they cannot publicly verify a JWS in the trust-mode UCP flow.`,
+      `UCPSigningKey.fromJWK: kty=${JSON.stringify(jwk.kty)} is not a supported asymmetric key type (expected OKP, EC, or RSA). Symmetric \`oct\` keys are rejected because they cannot publicly verify a JWS in the trust-mode UCP flow.`,
     );
   }
   if ((jwk.kty === 'EC' || jwk.kty === 'OKP') && (typeof jwk.crv !== 'string' || !jwk.crv)) {
-    throw new Error(`ucpSigningKeyFromJWK: kty=${jwk.kty} requires a non-empty \`crv\` field (e.g., "P-256" for EC, "Ed25519" for OKP).`);
+    throw new Error(`UCPSigningKey.fromJWK: kty=${jwk.kty} requires a non-empty \`crv\` field (e.g., "P-256" for EC, "Ed25519" for OKP).`);
   }
   return jwk as unknown as UCPSigningKey;
 }
+
+/** Static-method-style namespace on the `UCPSigningKey` interface — mirrors python's
+ *  `UCPSigningKey.from_jwk(jwk)` classmethod. Use as `UCPSigningKey.fromJWK(jwk)`. */
+export const UCPSigningKey = {
+  fromJWK: ucpSigningKeyFromJWKImpl,
+};
 
 /** Transport binding — keyed under a service name (e.g., `dev.ucp.shopping`). */
 export interface UCPServiceBinding {

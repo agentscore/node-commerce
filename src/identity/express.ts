@@ -13,7 +13,7 @@ import type {
   AgentIdentity,
   AgentScoreCore,
   AgentScoreCoreOptions,
-  AgentScoreData,
+  AssessResult,
   CreateSessionOnMissing,
   DenialReason,
   FailOpenInfraReason,
@@ -128,8 +128,8 @@ export function getGateQuotaInfo(req: Request): GateQuotaInfo | undefined {
  * `undefined` if the gate did not run or attached no data (fail-open mode + missing identity,
  * or a route the middleware was not mounted on).
  */
-export function getAgentScoreData(req: Request): AgentScoreData | undefined {
-  return (req as unknown as Record<string, AgentScoreData | undefined>).agentscore;
+export function getAssessResult(req: Request): AssessResult | undefined {
+  return (req as unknown as Record<string, AssessResult | undefined>).agentscore;
 }
 
 /**

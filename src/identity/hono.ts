@@ -13,7 +13,7 @@ import type {
   AgentIdentity,
   AgentScoreCore,
   AgentScoreCoreOptions,
-  AgentScoreData,
+  AssessResult,
   CreateSessionOnMissing,
   DenialReason,
   FailOpenInfraReason,
@@ -114,8 +114,8 @@ export function agentscoreGate(options: AgentScoreGateOptions): MiddlewareHandle
  * did not run (e.g. in fail-open mode with a missing identity, or on a route without the
  * gate middleware).
  */
-export function getAgentScoreData(c: Context): AgentScoreData | undefined {
-  return c.get(CONTEXT_KEY) as AgentScoreData | undefined;
+export function getAssessResult(c: Context): AssessResult | undefined {
+  return c.get(CONTEXT_KEY) as AssessResult | undefined;
 }
 
 /**
@@ -151,7 +151,7 @@ export function getGateQuotaInfo(c: Context): GateQuotaInfo | undefined {
  *
  * ```ts
  * app.post('/purchase', async (c) => {
- *   const assess = getAgentScoreData(c);
+ *   const assess = getAssessResult(c);
  *   // ... run payment, recover signer wallet from the payload ...
  *   await captureWallet(c, { walletAddress: signer, network: 'evm' });
  *   return c.json({ ok: true });

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agentscoreGate, captureWallet, getAgentScoreData, getGateDegradedState } from '../src/identity/hono';
+import { agentscoreGate, captureWallet, getAssessResult, getGateDegradedState } from '../src/identity/hono';
 
 declare const __VERSION__: string;
 
@@ -68,7 +68,7 @@ describe('Hono adapter — identity extraction', () => {
     mockFetchOk(ALLOW_RESPONSE);
     const app = new Hono();
     app.use('*', agentscoreGate({ apiKey: API_KEY }));
-    app.get('/test', (c) => c.json({ data: getAgentScoreData(c) }));
+    app.get('/test', (c) => c.json({ data: getAssessResult(c) }));
 
     const res = await app.request('/test', {
       headers: { 'x-wallet-address': WALLET },
@@ -129,17 +129,17 @@ describe('Hono adapter — identity extraction', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Context attachment + getAgentScoreData helper
+// Context attachment + getAssessResult helper
 // ---------------------------------------------------------------------------
 
 describe('Hono adapter — context attachment', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('attaches assess data via c.set, retrievable by getAgentScoreData', async () => {
+  it('attaches assess data via c.set, retrievable by getAssessResult', async () => {
     mockFetchOk(ALLOW_RESPONSE);
     const app = new Hono();
     app.use('*', agentscoreGate({ apiKey: API_KEY }));
-    app.get('/test', (c) => c.json(getAgentScoreData(c) ?? { empty: true }));
+    app.get('/test', (c) => c.json(getAssessResult(c) ?? { empty: true }));
 
     const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
     const body = await res.json();
@@ -148,10 +148,10 @@ describe('Hono adapter — context attachment', () => {
     expect(body).toMatchObject({ decision: 'allow' });
   });
 
-  it('getAgentScoreData returns undefined when gate fails open without data', async () => {
+  it('getAssessResult returns undefined when gate fails open without data', async () => {
     const app = new Hono();
     app.use('*', agentscoreGate({ apiKey: API_KEY, failOpen: true }));
-    app.get('/test', (c) => c.json({ data: getAgentScoreData(c) ?? null }));
+    app.get('/test', (c) => c.json({ data: getAssessResult(c) ?? null }));
 
     const res = await app.request('/test'); // no identity
     const body = await res.json();

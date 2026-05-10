@@ -4,7 +4,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import {
-  policyToGateOptions,
+  buildGateOptionsFromPolicy,
   runGateWithEnforcement,
   shippingCountryAllowed,
   shippingStateAllowed,
@@ -60,19 +60,19 @@ describe('shippingStateAllowed', () => {
   });
 });
 
-// ── policyToGateOptions ─────────────────────────────────────────────────────
+// ── buildGateOptionsFromPolicy ─────────────────────────────────────────────────────
 
-describe('policyToGateOptions', () => {
+describe('buildGateOptionsFromPolicy', () => {
   it('returns null for null policy', () => {
-    expect(policyToGateOptions(null, { apiKey: 'as_test' })).toBeNull();
+    expect(buildGateOptionsFromPolicy(null, { apiKey: 'as_test' })).toBeNull();
   });
 
   it('returns null when policy has no enforcement', () => {
-    expect(policyToGateOptions({}, { apiKey: 'as_test' })).toBeNull();
+    expect(buildGateOptionsFromPolicy({}, { apiKey: 'as_test' })).toBeNull();
   });
 
   it('returns options when enforcement is set', () => {
-    const opts = policyToGateOptions(
+    const opts = buildGateOptionsFromPolicy(
       {
         enforcement: 'hard',
         requireKyc: true,
@@ -90,7 +90,7 @@ describe('policyToGateOptions', () => {
   });
 
   it('passes baseUrl through when given', () => {
-    const opts = policyToGateOptions(
+    const opts = buildGateOptionsFromPolicy(
       { enforcement: 'soft' },
       { apiKey: 'as_test', baseUrl: 'https://api.example.com' },
     );
@@ -98,7 +98,7 @@ describe('policyToGateOptions', () => {
   });
 
   it('omits absent fields rather than passing undefined', () => {
-    const opts = policyToGateOptions({ enforcement: 'soft' }, { apiKey: 'as_test' });
+    const opts = buildGateOptionsFromPolicy({ enforcement: 'soft' }, { apiKey: 'as_test' });
     expect(opts).not.toBeNull();
     expect(Object.prototype.hasOwnProperty.call(opts, 'requireKyc')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(opts, 'minAge')).toBe(false);
