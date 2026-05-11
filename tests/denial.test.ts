@@ -59,9 +59,8 @@ describe('FIXABLE_DENIAL_REASONS / isFixableDenial', () => {
 });
 
 describe('buildSignerMismatchBody', () => {
-  it('returns null for pass / api_error results', () => {
+  it('returns null for pass results', () => {
     expect(buildSignerMismatchBody({ result: { kind: 'pass' } as VerifyWalletSignerResult })).toBeNull();
-    expect(buildSignerMismatchBody({ result: { kind: 'api_error' } as VerifyWalletSignerResult })).toBeNull();
   });
 
   it('builds the standard 403 body for wallet_signer_mismatch with linked wallets', () => {

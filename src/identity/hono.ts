@@ -181,8 +181,7 @@ export async function captureWallet(
 /**
  * Synchronous read of the cached signer verdicts (`signer_match` wallet-binding +
  * `signer_sanctions` OFAC SDN wallet-address check). Both verdicts were composed by the
- * gate's primary `/v1/assess` call on this request — single round trip, no extra API
- * cost vs the legacy 2-call pattern via `verifyWalletSignerMatch`.
+ * gate's primary `/v1/assess` call on this request — single round trip, no extra API call.
  *
  * Returns `undefined` when the gate didn't run, the request was operator-token-only, or
  * no payment credential was attached (discovery legs).

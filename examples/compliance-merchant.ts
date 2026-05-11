@@ -15,7 +15,7 @@
  *     • `buildContactSupportNextSteps` for the unfixable branch
  *     • `denialReasonToBody` + `denialReasonStatus` for the standard fall-through (token_expired,
  *       invalid_credential, api_error get the right status + body for free)
- *   - `verifyWalletSignerMatch` + `buildSignerMismatchBody` for wallet-auth signer verification
+ *   - `getSignerVerdict` (cached signer_match read) + `buildSignerMismatchBody` for wallet-auth signer verification
  *
  * The pattern: vendors only write the BUSINESS-SPECIFIC denial branches (custom message for
  * compliance_denied, custom recovery flow for missing_identity). Everything else is a
@@ -36,9 +36,9 @@ import {
   denialReasonStatus,
   denialReasonToBody,
   getAgentScoreData,
+  getSignerVerdict,
   isFixableDenial,
   verificationAgentInstructions,
-  verifyWalletSignerMatch,
 } from '@agent-score/commerce/identity/hono';
 import { Hono } from 'hono';
 
@@ -153,12 +153,13 @@ app.post(
   async (c) => {
     const data = getAgentScoreData(c);
 
-    // Wallet-auth: verify the payment signer matches the claimed wallet (or a same-operator
-    // linked wallet). Skips for operator_token requests. Replace the inline signer-extraction
-    // with extractPaymentSigner from commerce/payment for real x402/MPP credentials.
-    const signerMatch = await verifyWalletSignerMatch(c);
-    const mismatchBody = buildSignerMismatchBody({ result: signerMatch });
-    if (mismatchBody) return c.json(mismatchBody, 403);
+    // Wallet-auth: read the cached signer_match verdict the gate composed on its
+    // primary /v1/assess call (single round trip). Returns null on operator_token paths.
+    const verdict = getSignerVerdict(c);
+    if (verdict?.signer_match) {
+      const mismatchBody = buildSignerMismatchBody({ result: verdict.signer_match });
+      if (mismatchBody) return c.json(mismatchBody, 403);
+    }
 
     // Compliance + signer-match passed. Run the actual purchase.
     return c.json({ ok: true, identity_method: data?.identity_method });

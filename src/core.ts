@@ -311,11 +311,7 @@ export type VerifyWalletSignerResult =
       kind: 'wallet_auth_requires_wallet_signing';
       claimedWallet: string;
       agentInstructions: string;
-    }
-  // Transient — the resolve call to /v1/assess failed or timed out. Caller should
-  // retry or surface as 503. Distinct from wallet_signer_mismatch (which is an actual
-  // security reject) so legitimate users don't get rejected on network flakes.
-  | { kind: 'api_error'; claimedWallet: string };
+    };
 
 export interface AgentScoreCore {
   /**
@@ -330,7 +326,7 @@ export interface AgentScoreCore {
     /** Pre-extracted payment signer from the inbound request (the adapter middleware
      *  extracts it via `extractPaymentSigner`). When provided, the assess call carries
      *  it and the response includes `signer_match` + `signer_sanctions` verdicts in one
-     *  round trip — replaces the legacy gate + verifyWalletSignerMatch 2-call pattern. */
+     *  round trip. */
     signer?: PaymentSigner | null,
   ): Promise<EvaluateOutcome>;
   /** Synchronous read of the cached signer verdicts (signer_match + signer_sanctions)
@@ -683,9 +679,8 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         ...(Object.keys(policy).length > 0 ? { policy: policy as never } : {}),
         // Pre-extracted payment signer (by the adapter middleware). When present, the API
         // composes BOTH signer_match (wallet-binding) and signer_sanctions (OFAC SDN wallet
-        // check) verdicts on the response — single round trip replaces the legacy
-        // gate-call + verifyWalletSignerMatch second call. Under policy.require_sanctions_clear,
-        // a signer_sanctions hit flips decision -> deny inline.
+        // check) verdicts on the response in one round trip. Under
+        // policy.require_sanctions_clear, a signer_sanctions hit flips decision -> deny inline.
         ...(signer && { signer: { address: signer.address, network: signer.network } }),
       };
       // SDK has two overloads — narrow by which identity is set so TS picks the right one.
@@ -883,9 +878,8 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     const rawSanctions = raw.signer_sanctions as SignerVerdict['signer_sanctions'] | undefined;
     if (!rawMatch && !rawSanctions) return undefined;
     // The API's signer_match has the actual signer wallet baked in (actual_signer); we
-    // didn't track it separately in the cache key (only claimed-side). For projectSignerMatch
-    // pass the API's own actual_signer as signerNorm so the projected shape is consistent
-    // with what the older verifyWalletSignerMatch helper produced for the same input.
+    // didn't track it separately in the cache key (only claimed-side). Pass the API's own
+    // actual_signer as signerNorm so the projected shape is consistent.
     const signerNorm = (rawMatch?.actual_signer as string | undefined) ?? claimedNorm;
     return {
       signer_match: rawMatch ? projectSignerMatch(rawMatch, claimedNorm, signerNorm) : null,

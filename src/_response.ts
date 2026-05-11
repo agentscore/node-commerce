@@ -29,7 +29,7 @@ import type { DenialCode, DenialReason } from './core.js';
  * Codes already stamped explicitly upstream in core.ts (`missing_identity`,
  * `invalid_credential`) and codes that don't go through DenialReason
  * (`wallet_signer_mismatch`, `wallet_auth_requires_wallet_signing` — handled by
- * `verifyWalletSignerMatch` result type) are not in this map.
+ * `getSignerVerdict` + `buildSignerMismatchBody`) are not in this map.
  */
 const WALLET_NOT_TRUSTED_INSTRUCTIONS = JSON.stringify({
   action: 'contact_support',
