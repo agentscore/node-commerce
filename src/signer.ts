@@ -162,15 +162,20 @@ export async function extractPaymentSigner(
 }
 
 /**
- * Address-only convenience over {@link extractPaymentSigner}. Used by the gate adapters
- * (verifyWalletSignerMatch) where only the address matters for operator comparison.
+ * Headers-only variant for adapters that don't natively expose a Web Fetch `Request`
+ * (Express, Fastify, ASGI-bridged frameworks). Constructs a synthetic Request carrying
+ * only the `authorization` header and delegates to {@link extractPaymentSigner}. Works
+ * because the MPP and x402 paths only read `request.headers.get('authorization')` and
+ * the explicit `x402PaymentHeader` arg — no body, query, or method semantics needed.
  */
-export async function extractPaymentSignerAddress(
-  request: Request,
+export async function extractPaymentSignerFromAuth(
+  authHeader: string | null | undefined,
   x402PaymentHeader?: string,
-): Promise<string | null> {
-  const result = await extractPaymentSigner(request, x402PaymentHeader);
-  return result?.address ?? null;
+): Promise<PaymentSigner | null> {
+  const request = new Request('http://internal.gate/', {
+    headers: authHeader ? { authorization: authHeader } : {},
+  });
+  return extractPaymentSigner(request, x402PaymentHeader);
 }
 
 /**

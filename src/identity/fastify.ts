@@ -8,7 +8,7 @@ import {
 } from '../_denial';
 import { denialReasonToBody } from '../_response';
 import { createAgentScoreCore } from '../core';
-import { extractPaymentSignerAddress, readX402PaymentHeader } from '../signer';
+import { extractPaymentSignerFromAuth, readX402PaymentHeader } from '../signer';
 import type {
   AgentIdentity,
   AgentScoreCore,
@@ -18,7 +18,7 @@ import type {
   DenialReason,
   FailOpenInfraReason,
   GateQuotaInfo,
-  VerifyWalletSignerResult,
+  SignerVerdict,
 } from '../core';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
@@ -93,7 +93,15 @@ const agentscoreGatePlugin: FastifyPluginAsync<AgentScoreGateOptions> = async (f
       walletAddress: identity?.address,
     } satisfies GateState;
 
-    const outcome = await core.evaluate(identity, request);
+    // Extract the payment signer pre-evaluate so the gate's primary /v1/assess call
+    // composes signer_match + signer_sanctions in one round trip. Fastify's request
+    // isn't a Fetch Request, so go through the header-only extractor.
+    const authHeader = (request.headers.authorization as string | undefined) ?? null;
+    const x402Header =
+      (request.headers['payment-signature'] as string | undefined) ??
+      (request.headers['x-payment'] as string | undefined);
+    const signer = await extractPaymentSignerFromAuth(authHeader, x402Header);
+    const outcome = await core.evaluate(identity, request, signer);
 
     if (outcome.kind === 'allow') {
       const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
@@ -162,27 +170,21 @@ export async function captureWallet(
 }
 
 /**
- * Verify the payment signer resolves to the same operator as the claimed X-Wallet-Address.
- * Pass `options.signer` explicitly (extracted from the payment credential); no auto-extraction
- * because Fastify's request isn't a Fetch Request.
+ * Synchronous read of the cached signer verdicts (`signer_match` + `signer_sanctions`).
+ * Both composed by the gate's primary /v1/assess in one round trip. Returns `undefined`
+ * for operator-token paths, discovery legs, or routes the gate didn't run on.
+ *
+ * Under `policy.require_sanctions_clear`, OFAC SDN wallet hits are already enforced by
+ * the gate (decision → deny before the handler runs); merchant code typically only needs
+ * this getter for the `signer_match` wallet-binding verdict.
  */
-export async function verifyWalletSignerMatch(
-  request: FastifyRequest,
-  options: { signer: string | null; network?: 'evm' | 'solana' },
-): Promise<VerifyWalletSignerResult> {
+export function getSignerVerdict(request: FastifyRequest): SignerVerdict | undefined {
   const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
-  // Operator-token wins when both headers sent — signer-match must no-op on non-strict-wallet-auth.
-  if (!state?.walletAddress || state.operatorToken) {
-    return { kind: 'pass', claimedOperator: null, signerOperator: null };
-  }
-  return state.core.verifyWalletSignerMatch({
-    claimedWallet: state.walletAddress,
-    signer: options.signer,
-    network: options.network,
-  });
+  if (!state?.walletAddress) return undefined;
+  return state.core.getSignerVerdict(state.walletAddress);
 }
 
-export { extractPaymentSignerAddress, readX402PaymentHeader };
+export { readX402PaymentHeader };
 export {
   FIXABLE_DENIAL_REASONS,
   buildContactSupportNextSteps,

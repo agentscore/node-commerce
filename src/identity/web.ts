@@ -8,7 +8,7 @@ import {
 } from '../_denial';
 import { denialReasonToBody } from '../_response';
 import { createAgentScoreCore } from '../core';
-import { extractPaymentSignerAddress, readX402PaymentHeader } from '../signer';
+import { extractPaymentSigner, readX402PaymentHeader } from '../signer';
 import type {
   AgentIdentity,
   AgentScoreCoreOptions,
@@ -17,7 +17,7 @@ import type {
   DenialReason,
   FailOpenInfraReason,
   GateQuotaInfo,
-  VerifyWalletSignerResult,
+  SignerVerdict,
 } from '../core';
 
 export interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
@@ -47,13 +47,12 @@ export type GuardResult =
         network: 'evm' | 'solana';
         idempotencyKey?: string;
       }) => Promise<void>;
-      /** Verify the payment signer matches the claimed X-Wallet-Address. Bound only when
-       *  the request was wallet-authenticated. Pass `opts.signer` explicitly or omit to
-       *  auto-extract from the original `Request`. */
-      verifyWalletSignerMatch?: (opts?: {
-        signer?: string | null;
-        network?: 'evm' | 'solana';
-      }) => Promise<VerifyWalletSignerResult>;
+      /** Synchronous read of the cached signer verdicts (`signer_match` wallet-binding
+       *  + `signer_sanctions` OFAC SDN wallet-address check). Both verdicts composed by
+       *  the gate's primary `/v1/assess` call in one round trip. Bound only on strict
+       *  wallet-auth requests; `undefined` otherwise (operator-token paths, discovery
+       *  legs, or routes the gate didn't run on). */
+      getSignerVerdict?: () => SignerVerdict | undefined;
       /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
        *  (429/5xx/network timeout). Compliance was NOT enforced this request — log/alert. */
       degraded?: boolean;
@@ -103,32 +102,29 @@ export function createAgentScoreGate(options: AgentScoreGateOptions): (req: Requ
 
   return async (req: Request): Promise<GuardResult> => {
     const identity = extractIdentity(req);
-    const outcome = await core.evaluate(identity, req);
+    // Extract the payment signer pre-evaluate. When present, the API composes
+    // signer_match + signer_sanctions verdicts on the primary assess response in one
+    // round trip — under policy.require_sanctions_clear, OFAC SDN wallet hits flip
+    // decision -> deny inline before the handler runs.
+    const signer = await extractPaymentSigner(req, readX402PaymentHeader(req));
+    const outcome = await core.evaluate(identity, req, signer);
 
     if (outcome.kind === 'allow') {
       const captureWallet = identity?.operatorToken
         ? (opts: { walletAddress: string; network: 'evm' | 'solana'; idempotencyKey?: string }) =>
             core.captureWallet({ operatorToken: identity.operatorToken!, ...opts })
         : undefined;
-      // Section IV: token wins when both headers sent — bind helper only on strict wallet-auth.
-      const verifyWalletSignerMatchBound = identity?.address && !identity?.operatorToken
-        ? async (opts?: { signer?: string | null; network?: 'evm' | 'solana' }) => {
-            const signer =
-              opts?.signer !== undefined
-                ? opts.signer
-                : await extractPaymentSignerAddress(req, readX402PaymentHeader(req));
-            return core.verifyWalletSignerMatch({
-              claimedWallet: identity.address!,
-              signer,
-              network: opts?.network,
-            });
-          }
+      // Synchronous getter — reads the cached verdicts (signer_match + signer_sanctions)
+      // composed by the primary assess call above. Returns undefined for operator-token
+      // paths or discovery legs where no signer was extractable.
+      const getSignerVerdictBound = identity?.address && !identity?.operatorToken
+        ? () => core.getSignerVerdict(identity.address!)
         : undefined;
       return {
         allowed: true,
         data: outcome.data,
         captureWallet,
-        verifyWalletSignerMatch: verifyWalletSignerMatchBound,
+        getSignerVerdict: getSignerVerdictBound,
         ...(outcome.degraded ? { degraded: true, infraReason: outcome.infraReason } : {}),
         ...(outcome.quota ? { quota: outcome.quota } : {}),
       };
@@ -161,10 +157,9 @@ export function withAgentScoreGate<TCtx = unknown>(
         network: 'evm' | 'solana';
         idempotencyKey?: string;
       }) => Promise<void>;
-      verifyWalletSignerMatch?: (opts?: {
-        signer?: string | null;
-        network?: 'evm' | 'solana';
-      }) => Promise<VerifyWalletSignerResult>;
+      /** Synchronous read of the cached signer verdicts. See {@link GuardResult}'s
+       *  `getSignerVerdict` for the contract. */
+      getSignerVerdict?: () => SignerVerdict | undefined;
       /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
        *  (429/5xx/network timeout). Compliance was NOT enforced this request — log/alert. */
       degraded?: boolean;
@@ -185,7 +180,7 @@ export function withAgentScoreGate<TCtx = unknown>(
       {
         data: result.data,
         captureWallet: result.captureWallet,
-        verifyWalletSignerMatch: result.verifyWalletSignerMatch,
+        getSignerVerdict: result.getSignerVerdict,
         ...(result.degraded ? { degraded: true, infraReason: result.infraReason } : {}),
         ...(result.quota ? { quota: result.quota } : {}),
       },
@@ -194,7 +189,7 @@ export function withAgentScoreGate<TCtx = unknown>(
   };
 }
 
-export { extractPaymentSignerAddress, readX402PaymentHeader };
+export { readX402PaymentHeader };
 export {
   FIXABLE_DENIAL_REASONS,
   buildContactSupportNextSteps,

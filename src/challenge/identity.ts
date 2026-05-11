@@ -12,7 +12,7 @@ export interface IdentityMetadataInput {
   mode: IdentityMode;
   /** Claimed wallet address (when mode === 'wallet'). */
   wallet?: string;
-  /** Result of a prior verifyWalletSignerMatch call. */
+  /** Projected signer_match verdict (from `getSignerVerdict(ctx).signer_match`). */
   signerMatchResult?: SignerMatchResultLike;
   /** Same-operator linked wallets (from assess response). */
   linkedWallets?: string[];

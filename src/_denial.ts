@@ -6,8 +6,8 @@
  *     be resolved by re-completing KYC (vs sanctions / age failures which are permanent).
  *   - `denialReasonStatus` — picks the right HTTP status code per denial code (401 for credential
  *     problems, 503 for transient API errors, 403 for everything else).
- *   - `buildSignerMismatchBody` — produces the standard 403 body for a `verifyWalletSignerMatch`
- *     non-pass result.
+ *   - `buildSignerMismatchBody` — produces the standard 403 body for a non-pass signer_match
+ *     verdict (read via `getSignerVerdict`).
  *   - `buildContactSupportNextSteps` — standard `next_steps.action: "contact_support"` shape for
  *     unfixable compliance denials.
  *   - `verificationAgentInstructions` — the canned `agent_instructions` block for
@@ -64,7 +64,8 @@ export function denialReasonStatus(reason: DenialReason): 401 | 403 | 503 {
 }
 
 export interface SignerMismatchBodyInput {
-  /** Result from `verifyWalletSignerMatch`. The function only emits a body for non-pass results. */
+  /** Projected signer_match verdict (from `getSignerVerdict(ctx).signer_match`). Only non-pass
+   *  kinds produce a body. */
   result: VerifyWalletSignerResult;
   /** Optional override for the human-facing `next_steps.user_message`. */
   userMessage?: string;
@@ -73,12 +74,14 @@ export interface SignerMismatchBodyInput {
 }
 
 /**
- * Standard 403 body for a non-pass `verifyWalletSignerMatch` result. Returns null for `pass` /
- * `api_error` so vendors can call it unconditionally:
+ * Standard 403 body for a non-pass signer-match verdict. Returns null for `pass` so vendors
+ * can call it unconditionally:
  *
- *   const result = await verifyWalletSignerMatch(c);
- *   const mismatchBody = buildSignerMismatchBody({ result });
- *   if (mismatchBody) return c.json(mismatchBody, 403);
+ *   const verdict = getSignerVerdict(c);
+ *   if (verdict?.signer_match) {
+ *     const mismatchBody = buildSignerMismatchBody({ result: verdict.signer_match });
+ *     if (mismatchBody) return c.json(mismatchBody, 403);
+ *   }
  *
  * Body shape mirrors the gate's denial bodies: top-level error.code, all signer-match fields
  * (`claimed_operator`, `actual_signer_operator`, `expected_signer`, `actual_signer`,
@@ -86,7 +89,7 @@ export interface SignerMismatchBodyInput {
  */
 export function buildSignerMismatchBody(input: SignerMismatchBodyInput): Record<string, unknown> | null {
   const { result } = input;
-  if (result.kind === 'pass' || result.kind === 'api_error') return null;
+  if (result.kind === 'pass') return null;
 
   const learnMoreUrl = input.learnMoreUrl ?? 'https://docs.agentscore.sh/guides/agent-identity';
 

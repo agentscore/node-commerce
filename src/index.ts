@@ -12,12 +12,12 @@ export type {
   OperatorVerification,
   PolicyCheck,
   PolicyResult,
-  VerifyWalletSignerMatchOptions,
+  SignerVerdict,
   VerifyWalletSignerResult,
 } from './core';
 export { buildAgentMemoryHint } from './core';
 export type { PaymentSigner, SignerNetwork } from './signer';
-export { extractPaymentSigner, extractPaymentSignerAddress, readX402PaymentHeader } from './signer';
+export { extractPaymentSigner, readX402PaymentHeader } from './signer';
 export {
   FIXABLE_DENIAL_REASONS,
   buildContactSupportNextSteps,
