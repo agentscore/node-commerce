@@ -292,13 +292,7 @@ const RESERVED_UCP_FIELDS = new Set([
  *     ],
  *   },
  *   payment_handlers: {
- *     'sh.agentscore.payment.tempo': [{
- *       id: 'tempo',
- *       version: '2026-04-08',
- *       spec: 'https://agentscore.sh/specification/payment-handlers/tempo',
- *       schema: 'https://agentscore.sh/schemas/payment-handlers/tempo.json',
- *       config: { recipient: TEMPO_ADDR },
- *     }],
+ *     ...mppPaymentHandler({ networks: [{ network: 'tempo-mainnet', chain_id: 4217, recipient: TEMPO_ADDR }] }),
  *   },
  *   signing_keys: [signingKey],
  *   agentscore_gate: { require_kyc: true, min_age: 21, allowed_jurisdictions: ['US'] },
@@ -399,3 +393,142 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
 }
 
 export const AGENTSCORE_UCP_CAPABILITY = AGENTSCORE_CAPABILITY_NAME;
+
+// ─── Payment handler builders ─────────────────────────────────────────────
+// Vendors compose UCP `payment_handlers` blocks by spreading these helpers.
+// The helpers fill in id/version/spec/schema/config wrapper so vendors only
+// supply merchant-specific data (networks + recipients + profile_id).
+//
+//   payment_handlers: {
+//     ...mppPaymentHandler({ networks: [...] }),
+//     ...x402PaymentHandler({ networks: [...] }),
+//     ...stripeSptPaymentHandler({ profile_id: '...' }),
+//   }
+//
+// Each helper returns `{ [reverse-DNS-key]: [binding] }` so spreading into
+// the parent map composes cleanly. The reverse-DNS keys + spec/schema URLs
+// + handler `version` are owned by these constants; bumping a handler spec
+// version is a one-line change here, not 20 lines across consumers.
+
+const HANDLER_VERSION = '2026-04-08';
+const SPEC_BASE = 'https://agentscore.sh/specification/payment-handlers';
+const SCHEMA_BASE = 'https://agentscore.sh/schemas/payment-handlers';
+
+type MppNetwork =
+  | 'tempo-mainnet'
+  | 'tempo-testnet'
+  | 'mpp-solana-mainnet'
+  | 'mpp-solana-devnet'
+  | (string & {}); // open for forward-compat (mpp-stellar-pubnet, mpp-lightning-mainnet, …)
+
+export interface MppNetworkEntry {
+  network: MppNetwork;
+  /** EVM-style chain id (e.g. 4217 for Tempo mainnet). Omit for non-EVM networks. */
+  chain_id?: number;
+  /** Static settlement address. Omit for per-order recipients (e.g. Stripe-derived deposits). */
+  recipient?: string;
+  [k: string]: unknown;
+}
+
+export interface MppPaymentHandlerInput {
+  networks: MppNetworkEntry[];
+}
+
+type X402Network =
+  | `base-${number}`
+  | 'solana-mainnet-beta'
+  | 'solana-devnet'
+  | 'stellar-pubnet'
+  | 'stellar-testnet'
+  | (string & {});
+
+export interface X402NetworkEntry {
+  network: X402Network;
+  /** Static settlement address. Omit for per-order recipients. */
+  recipient?: string;
+  [k: string]: unknown;
+}
+
+export interface X402PaymentHandlerInput {
+  networks: X402NetworkEntry[];
+}
+
+export interface StripeSptPaymentHandlerInput {
+  /** Stripe profile id (the merchant-side network identifier the agent's SPT is scoped to). */
+  profile_id: string;
+}
+
+/**
+ * Build the `sh.agentscore.payment.mpp` payment handler block for a UCP profile.
+ *
+ * @example
+ * ```ts
+ * buildUCPProfile({
+ *   ...,
+ *   payment_handlers: {
+ *     ...mppPaymentHandler({ networks: [{ network: 'tempo-mainnet', chain_id: 4217 }] }),
+ *   },
+ * });
+ * ```
+ */
+export function mppPaymentHandler(input: MppPaymentHandlerInput): Record<string, UCPPaymentHandlerBinding[]> {
+  return {
+    'sh.agentscore.payment.mpp': [{
+      id: 'mpp',
+      version: HANDLER_VERSION,
+      spec: `${SPEC_BASE}/mpp`,
+      schema: `${SCHEMA_BASE}/mpp.json`,
+      config: { networks: input.networks },
+    }],
+  };
+}
+
+/**
+ * Build the `sh.agentscore.payment.x402` payment handler block for a UCP profile.
+ *
+ * @example
+ * ```ts
+ * buildUCPProfile({
+ *   ...,
+ *   payment_handlers: {
+ *     ...x402PaymentHandler({ networks: [{ network: 'base-8453', recipient: '0xabc...' }] }),
+ *   },
+ * });
+ * ```
+ */
+export function x402PaymentHandler(input: X402PaymentHandlerInput): Record<string, UCPPaymentHandlerBinding[]> {
+  return {
+    'sh.agentscore.payment.x402': [{
+      id: 'x402',
+      version: HANDLER_VERSION,
+      spec: `${SPEC_BASE}/x402`,
+      schema: `${SCHEMA_BASE}/x402.json`,
+      config: { networks: input.networks },
+    }],
+  };
+}
+
+/**
+ * Build the `sh.agentscore.payment.stripe_spt` payment handler block for a UCP profile.
+ *
+ * @example
+ * ```ts
+ * buildUCPProfile({
+ *   ...,
+ *   payment_handlers: {
+ *     ...stripeSptPaymentHandler({ profile_id: 'profile_5xKvNqM9BaH' }),
+ *   },
+ * });
+ * ```
+ */
+export function stripeSptPaymentHandler(input: StripeSptPaymentHandlerInput): Record<string, UCPPaymentHandlerBinding[]> {
+  return {
+    'sh.agentscore.payment.stripe_spt': [{
+      id: 'stripe-spt',
+      version: HANDLER_VERSION,
+      spec: `${SPEC_BASE}/stripe_spt`,
+      schema: `${SCHEMA_BASE}/stripe_spt.json`,
+      config: { rail: 'stripe-spt', profile_id: input.profile_id },
+    }],
+  };
+}

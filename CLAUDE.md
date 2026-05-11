@@ -47,7 +47,26 @@ Peer-dep pattern: payment/x402/mppx/stripe modules `dynamic import` at runtime, 
 | `variable-cost-merchant.ts` | Pay-per-actual-usage on **two protocols**: x402 upto (Permit2 + Settlement-Overrides) AND MPP tempo session (channel + SSE + mid-stream vouchers) |
 | `compliance-merchant.ts` | Regulated-goods merchant: full compliance gate + custom `onDenied` composing the denial helpers (`verificationAgentInstructions`, `isFixableDenial`, `buildSignerMismatchBody`, `buildContactSupportNextSteps`, `denialReasonToBody`/`denialReasonStatus`) |
 | `per-product-policy-merchant.ts` | Multi-product merchant where each product carries its own compliance policy: wine has hard gate (KYC + 21 + state allowlist), tee has none (anonymous), limited print uses `enforcement: 'soft'` (request KYC, accept anonymous, stamp `identity_status: 'unverified'`). Demonstrates `PolicyBlock`, `buildGateOptionsFromPolicy`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed`. |
-| `signed-ucp-merchant.ts` | Signed UCP profile (`/.well-known/ucp`) + JWKS endpoint (`/.well-known/jwks.json`). AgentScore's `agentscore-profile+jws` is a vendor extension on top of UCP for trust-mode verifiers (regulated-commerce, AP2-aware) that opt into auditable cryptographic provenance — UCP §6 itself does NOT mandate signing; production UCP merchants commonly ship unsigned. Wires ephemeral-for-dev / env-JWK-for-prod signing, kid rotation, and `Cache-Control` posture. Uses `generateUCPSigningKey`, `signUCPProfile`, `buildJWKSResponse`, `UCPSigningKey.fromJWK`, `UCPVerificationError`. |
+| `signed-ucp-merchant.ts` | Signed UCP profile (`/.well-known/ucp`) + JWKS endpoint (`/.well-known/jwks.json`). AgentScore's `agentscore-profile+jws` is a vendor extension on top of UCP for trust-mode verifiers (regulated-commerce, AP2-aware) that opt into auditable cryptographic provenance — UCP §6 itself does NOT mandate signing; production UCP merchants commonly ship unsigned. Wires ephemeral-for-dev / env-JWK-for-prod signing, kid rotation, and `Cache-Control` posture. Uses `generateUCPSigningKey`, `signUCPProfile`, `buildJWKSResponse`, `UCPSigningKey.fromJWK`, `UCPVerificationError`. Demonstrates the payment-handler builders (`mppPaymentHandler`, `x402PaymentHandler`, `stripeSptPaymentHandler` — see "Payment-handler builders" below). |
+
+## Payment-handler builders
+
+The SDK ships protocol-rooted builders for the AgentScore-published payment handlers — vendors compose UCP `payment_handlers` blocks by spreading these helpers instead of hand-writing the verbose binding wrapper:
+
+```ts
+import { buildUCPProfile, mppPaymentHandler, x402PaymentHandler, stripeSptPaymentHandler } from '@agent-score/commerce';
+
+buildUCPProfile({
+  ...,
+  payment_handlers: {
+    ...mppPaymentHandler({ networks: [{ network: 'tempo-mainnet', chain_id: 4217, recipient: '0x...' }] }),
+    ...x402PaymentHandler({ networks: [{ network: 'base-8453', recipient: '0x...' }] }),
+    ...stripeSptPaymentHandler({ profile_id: 'profile_...' }),
+  },
+});
+```
+
+Each helper returns `{ [reverse-DNS-key]: [binding] }` so spreading composes the parent map. The handler `version`, spec URL, and schema URL are owned by the helpers (`src/identity/ucp.ts`) — bumping a handler spec version is a one-line change there. mpp + x402 share the same `networks: [{ network, recipient?, ...extras }]` config shape so consumers parse both identically. Recipient is optional — omit when the merchant uses per-order recipients (e.g. Stripe-derived deposit addresses); the authoritative recipient still ships in the 402 body.
 
 ## Identity model
 
