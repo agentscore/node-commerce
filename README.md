@@ -224,6 +224,8 @@ const profile = buildUCPProfile({
   },
   payment_handlers: {
     ...mppPaymentHandler({ networks: [{ network: 'tempo-mainnet', chain_id: 4217, recipient: TEMPO_ADDR }] }),
+    ...x402PaymentHandler({ networks: [{ network: 'base-8453', recipient: BASE_ADDR }] }),
+    ...stripeSptPaymentHandler({ profile_id: 'profile_5xKvNqM9BaH' }),
   },
   signing_keys,
   // Optional: declare the merchant's gate policy as an `sh.agentscore.identity` capability
