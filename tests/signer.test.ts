@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { extractPaymentSignerAddress, readX402PaymentHeader } from '../src/signer';
+import { extractPaymentSigner, readX402PaymentHeader } from '../src/signer';
 
 const SOLANA_GENESIS_MAINNET = '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
 const SOLANA_SIGNER = 'GEQg2TM4VL315Bd4LLkGrhBjdNfoatKjCJYHBDPM3D74';
@@ -44,55 +44,56 @@ describe('readX402PaymentHeader', () => {
   });
 });
 
-describe('extractPaymentSignerAddress — x402 path', () => {
+describe('extractPaymentSigner — x402 path', () => {
   it('returns the lowercased `from` address from a valid x402 payload', async () => {
     const req = makeRequest();
     const header = encodeX402({ payload: { authorization: { from: SIGNER_MIXED } } });
-    const result = await extractPaymentSignerAddress(req, header);
-    expect(result).toBe(SIGNER_LOWER);
+    const result = await extractPaymentSigner(req, header);
+    expect(result?.address).toBe(SIGNER_LOWER);
+    expect(result?.network).toBe('evm');
   });
 
   it('returns null when the x402 payload is not valid base64 JSON', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const result = await extractPaymentSignerAddress(makeRequest(), '!!!not-base64!!!');
+    const result = await extractPaymentSigner(makeRequest(), '!!!not-base64!!!');
     expect(result).toBeNull();
     expect(warn).toHaveBeenCalled();
   });
 
   it('returns null when `payload.authorization.from` is missing', async () => {
     const header = encodeX402({ payload: { authorization: {} } });
-    expect(await extractPaymentSignerAddress(makeRequest(), header)).toBeNull();
+    expect(await extractPaymentSigner(makeRequest(), header)).toBeNull();
   });
 
   it('returns null when `from` is not a valid 0x-prefixed address', async () => {
     const header = encodeX402({ payload: { authorization: { from: 'not-a-wallet' } } });
-    expect(await extractPaymentSignerAddress(makeRequest(), header)).toBeNull();
+    expect(await extractPaymentSigner(makeRequest(), header)).toBeNull();
   });
 
   it('returns null when neither header nor x402 payload is supplied', async () => {
-    expect(await extractPaymentSignerAddress(makeRequest(), undefined)).toBeNull();
+    expect(await extractPaymentSigner(makeRequest(), undefined)).toBeNull();
   });
 });
 
-describe('extractPaymentSignerAddress — MPP path', () => {
+describe('extractPaymentSigner — MPP path', () => {
   // mppx is an optional peer dep and is not installed in the gate's test env. The dynamic
   // import resolves to null and the helper falls through, leaving MPP extraction a no-op
   // for merchants who don't opt in to MPP.
   it('returns null when Authorization: Payment is set but mppx is unavailable', async () => {
     const req = makeRequest({ authorization: 'Payment some-mpp-credential' });
-    expect(await extractPaymentSignerAddress(req)).toBeNull();
+    expect(await extractPaymentSigner(req)).toBeNull();
   });
 
   it('returns null when the Authorization header is not the Payment scheme', async () => {
     const req = makeRequest({ authorization: 'Bearer unrelated-token' });
-    expect(await extractPaymentSignerAddress(req)).toBeNull();
+    expect(await extractPaymentSigner(req)).toBeNull();
   });
 
   it('prefers MPP when both MPP and x402 are present, falling back to x402 on MPP miss', async () => {
     // Because mppx is unavailable, MPP path yields null and the x402 path runs instead.
     const header = encodeX402({ payload: { authorization: { from: SIGNER_MIXED } } });
     const req = makeRequest({ authorization: 'Payment mpp-cred' });
-    expect(await extractPaymentSignerAddress(req, header)).toBe(SIGNER_LOWER);
+    expect((await extractPaymentSigner(req, header))?.address).toBe(SIGNER_LOWER);
   });
 
   it('extracts the lowercased 0x address from an MPP DID (did:pkh:eip155:...)', async () => {
@@ -102,12 +103,13 @@ describe('extractPaymentSignerAddress — MPP path', () => {
         fromRequest: () => ({ source: `did:pkh:eip155:8453:${SIGNER_MIXED}` }),
       },
     }));
-    const { extractPaymentSignerAddress: freshExtract } = await import(
+    const { extractPaymentSigner: freshExtract } = await import(
       `../src/signer?mpp=${freshImportKey()}`
     );
     const req = makeRequest({ authorization: 'Payment mpp-cred' });
     const result = await freshExtract(req);
-    expect(result).toBe(SIGNER_LOWER);
+    expect(result?.address).toBe(SIGNER_LOWER);
+    expect(result?.network).toBe('evm');
     vi.doUnmock('mppx');
   });
 
@@ -338,7 +340,7 @@ describe('extractPaymentSignerAddress — MPP path', () => {
         fromRequest: () => ({ source: 'did:web:example.com' }),
       },
     }));
-    const { extractPaymentSignerAddress: freshExtract } = await import(
+    const { extractPaymentSigner: freshExtract } = await import(
       `../src/signer?mpp-nonevm=${freshImportKey()}`
     );
     const req = makeRequest({ authorization: 'Payment mpp-cred' });
@@ -354,7 +356,7 @@ describe('extractPaymentSignerAddress — MPP path', () => {
       },
     }));
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { extractPaymentSignerAddress: freshExtract } = await import(
+    const { extractPaymentSigner: freshExtract } = await import(
       `../src/signer?mpp-throw=${freshImportKey()}`
     );
     const req = makeRequest({ authorization: 'Payment mpp-cred' });
@@ -364,17 +366,17 @@ describe('extractPaymentSignerAddress — MPP path', () => {
   });
 });
 
-describe('extractPaymentSignerAddress — Solana credentials are no longer extracted', () => {
+describe('extractPaymentSigner — Solana credentials are no longer extracted', () => {
   it('returns null for a credential carrying a Solana network (Solana goes through MPP solana/charge; gate signer-extraction skipped)', async () => {
     const header = encodeX402({
       accepted: { network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp' },
       payload: { transaction: Buffer.from('any-tx').toString('base64') },
     });
-    expect(await extractPaymentSignerAddress(makeRequest(), header)).toBeNull();
+    expect(await extractPaymentSigner(makeRequest(), header)).toBeNull();
   });
 
   it('still extracts EIP-3009 EVM signer when accepted.network is missing (back-compat)', async () => {
     const header = encodeX402({ payload: { authorization: { from: SIGNER_MIXED } } });
-    expect(await extractPaymentSignerAddress(makeRequest(), header)).toBe(SIGNER_LOWER);
+    expect((await extractPaymentSigner(makeRequest(), header))?.address).toBe(SIGNER_LOWER);
   });
 });

@@ -10,6 +10,7 @@ import { isFixableDenial } from './_denial';
 import { QUOTA_EXCEEDED_INSTRUCTIONS } from './_response';
 import { normalizeAddress } from './address';
 import { TTLCache } from './cache';
+import type { PaymentSigner } from './signer';
 
 // Character-based trim avoids a CodeQL polynomial-redos false positive on
 // `/\/+$/` patterns that report library-input strings.
@@ -274,14 +275,23 @@ export interface CaptureWalletOptions {
   idempotencyKey?: string;
 }
 
-export interface VerifyWalletSignerMatchOptions {
-  /** The wallet claimed via `X-Wallet-Address`. */
-  claimedWallet: string;
-  /** The signer wallet recovered from the payment credential. `null` means the rail carries
-   *  no wallet signer (SPT, card) — the helper returns `wallet_auth_requires_wallet_signing`. */
-  signer: string | null;
-  /** Network of the signer. EVM covers every EVM chain; `solana` lives in its own namespace. */
-  network?: 'evm' | 'solana';
+/** Combined wallet-signer verdict surfaced by `getSignerVerdict(c)` — both verdicts come
+ *  through the gate's primary `/v1/assess` call (single round trip). `signer_match` describes
+ *  the wallet-binding (claimed wallet's operator ≡ signer wallet's operator); `signer_sanctions`
+ *  describes the OFAC SDN wallet-address check.
+ *
+ *  `signer_match` is projected to the gate's camelCase `VerifyWalletSignerResult` shape so
+ *  existing `buildSignerMismatchBody(...)` helpers consume it unchanged. `signer_sanctions`
+ *  passes through in the API's wire shape (already short and stable). Returned `undefined`
+ *  from `getSignerVerdict` when the gate didn't run with a signer (operator-token-only
+ *  paths, discovery legs with no payment header). */
+export interface SignerVerdict {
+  signer_match: VerifyWalletSignerResult | null;
+  signer_sanctions:
+    | { status: 'clear' }
+    | { sanctioned: true; ofac_label: string; sdn_uid: string; listed_at: string | null }
+    | { status: 'unavailable' }
+    | null;
 }
 
 export type VerifyWalletSignerResult =
@@ -314,24 +324,23 @@ export interface AgentScoreCore {
    * @param ctx - optional framework-specific context (Hono c, Express req, etc.) passed
    *   through to `createSessionOnMissing` hooks. Opaque to core.
    */
-  evaluate(identity: AgentIdentity | undefined, ctx?: unknown): Promise<EvaluateOutcome>;
+  evaluate(
+    identity: AgentIdentity | undefined,
+    ctx?: unknown,
+    /** Pre-extracted payment signer from the inbound request (the adapter middleware
+     *  extracts it via `extractPaymentSigner`). When provided, the assess call carries
+     *  it and the response includes `signer_match` + `signer_sanctions` verdicts in one
+     *  round trip — replaces the legacy gate + verifyWalletSignerMatch 2-call pattern. */
+    signer?: PaymentSigner | null,
+  ): Promise<EvaluateOutcome>;
+  /** Synchronous read of the cached signer verdicts (signer_match + signer_sanctions)
+   *  populated when the gate's evaluate call was made with a pre-extracted signer. Returns
+   *  `undefined` when the gate didn't run, the request was operator-token-authenticated,
+   *  or no signer was extractable (discovery legs). */
+  getSignerVerdict(claimedAddress: string): SignerVerdict | undefined;
   /** Report a wallet seen paying under an operator credential. Fire-and-forget; silently
    *  swallows non-fatal errors because capture is informational, not on the critical path. */
   captureWallet(options: CaptureWalletOptions): Promise<void>;
-  /**
-   * Verify the payment signer resolves to the same operator as the claimed `X-Wallet-Address`.
-   *
-   * Returns `pass` when the signer is linked to the same operator as the claimed wallet
-   * (byte-equal wallets pass trivially; other wallets linked to the same operator also pass —
-   * multi-wallet agents work without ergonomic pain). Returns `wallet_signer_mismatch` when
-   * the signer resolves to a different (or no) operator. Returns `wallet_auth_requires_wallet_signing`
-   * when the signer is `null` (SPT, card — rails that carry no wallet signature).
-   *
-   * Call this AFTER the gate evaluates (so the claimed wallet's operator is cached) and
-   * AFTER the payment credential is parsed (so the signer is known). Merchants should call
-   * it before settling payment.
-   */
-  verifyWalletSignerMatch(options: VerifyWalletSignerMatchOptions): Promise<VerifyWalletSignerResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -347,13 +356,6 @@ interface CachedAssessResult {
   decision?: string;
   reasons?: string[];
   raw?: unknown;
-  // Per-signer wallet-match verdicts cached from prior verifyWalletSignerMatch() calls
-  // for this same claimed wallet. Each signer gets its own slot so two payments under
-  // the same claimed identity but from different signer wallets don't serve stale
-  // verdicts to each other. Verdicts come from the API's `signer_match` response field
-  // (populated when the assess request carried `signer`), so reading a hit
-  // skips the round-trip altogether.
-  signerMatchBySigner?: Map<string, Record<string, unknown>>;
 }
 
 /**
@@ -581,7 +583,11 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     }
   }
 
-  async function evaluate(identity: AgentIdentity | undefined, ctx?: unknown): Promise<EvaluateOutcome> {
+  async function evaluate(
+    identity: AgentIdentity | undefined,
+    ctx?: unknown,
+    signer?: PaymentSigner | null,
+  ): Promise<EvaluateOutcome> {
     // Treat "returned identity object with no usable fields" the same as "no identity at all" —
     // otherwise a misbehaving custom extractIdentity would send an empty body to /v1/assess.
     if (!identity || (!identity.address && !identity.operatorToken)) {
@@ -675,6 +681,12 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       const opts = {
         chain: gateChain,
         ...(Object.keys(policy).length > 0 ? { policy: policy as never } : {}),
+        // Pre-extracted payment signer (by the adapter middleware). When present, the API
+        // composes BOTH signer_match (wallet-binding) and signer_sanctions (OFAC SDN wallet
+        // check) verdicts on the response — single round trip replaces the legacy
+        // gate-call + verifyWalletSignerMatch second call. Under policy.require_sanctions_clear,
+        // a signer_sanctions hit flips decision -> deny inline.
+        ...(signer && { signer: { address: signer.address, network: signer.network } }),
       };
       // SDK has two overloads — narrow by which identity is set so TS picks the right one.
       const result = identity.address
@@ -814,67 +826,6 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     }
   }
 
-  /**
-   * Resolve a wallet to its operator id via /v1/assess.
-   *
-   * Returns:
-   *   - `{ ok: true, operator: <id> }` — wallet is linked to that operator
-   *   - `{ ok: true, operator: null }` — wallet is valid but not linked to any operator
-   *   - `{ ok: false }` — the API call failed (network, timeout, non-2xx). Distinguishable so
-   *     callers can emit `api_error` instead of falsely asserting "no operator linked".
-   *
-   * Checks the main evaluate() cache before making a fresh call — if the gate already
-   * resolved this wallet during identity evaluation, we have the resolved_operator already.
-   */
-  async function resolveWalletToOperator(
-    walletAddress: string,
-  ): Promise<{ ok: true; operator: string | null; linkedWallets: string[] } | { ok: false }> {
-    // Network-aware: lowercases EVM, preserves Solana base58 case. The DB stores both
-    // formats verbatim in operator_credential_wallets.wallet_address; lowercasing a
-    // Solana address would never match.
-    const wallet = normalizeAddress(walletAddress);
-
-    // Cache lookup — first the plain cache (populated by evaluate() for identity-headered wallets).
-    // Saves a second /v1/assess call when the gate already looked up this wallet.
-    const extractFromCached = (raw: Record<string, unknown>): { operator: string | null; linkedWallets: string[] } => {
-      const op = raw.resolved_operator;
-      const links = raw.linked_wallets;
-      return {
-        operator: typeof op === 'string' ? op : null,
-        linkedWallets: Array.isArray(links) ? (links as unknown[]).filter((w): w is string => typeof w === 'string') : [],
-      };
-    };
-
-    const plainCached = cache.get(wallet);
-    if (plainCached?.raw) {
-      return { ok: true, ...extractFromCached(plainCached.raw as Record<string, unknown>) };
-    }
-    const resolveCached = cache.get(`resolve:${wallet}`);
-    if (resolveCached?.raw) {
-      return { ok: true, ...extractFromCached(resolveCached.raw as Record<string, unknown>) };
-    }
-
-    try {
-      const data = (await sdk.assess(walletAddress)) as unknown as Record<string, unknown>;
-      cache.set(`resolve:${wallet}`, { allow: true, raw: data });
-      return { ok: true, ...extractFromCached(data) };
-    } catch (err) {
-      // Network/timeout/parse on the wallet→operator resolve path. Caller maps
-      // `{ok:false}` to `wallet_signer_mismatch.kind === 'api_error'`, which already
-      // surfaces as 503 — but log here too so multi-wallet match failures aren't
-      // silently indistinguishable from "operator simply has no linked wallet".
-      console.warn('[gate] resolveWalletToOperator failed — returning { ok:false }:', err instanceof Error ? err.message : err);
-      return { ok: false };
-    }
-  }
-
-  function reportSignerEvent(kind: 'pass' | 'wallet_signer_mismatch' | 'wallet_auth_requires_wallet_signing' | 'api_error'): void {
-    // Fire-and-forget: surfaces mismatch-catch rate + api_error SLO on the dashboard.
-    // SDK's telemetrySignerMatch already does the catch + warn-log internally; this
-    // call must not affect the gate's decision so we don't await.
-    void sdk.telemetrySignerMatch({ kind });
-  }
-
   // Project the API's signer_match block onto the gate's VerifyWalletSignerResult shape.
   // The API authors agent_instructions, claimed/signer operators, and the linked-wallet
   // set (deny-guarded server-side); the gate just shapes those fields into camelCase.
@@ -915,111 +866,32 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     };
   }
 
-  async function verifyWalletSignerMatch(
-    options: VerifyWalletSignerMatchOptions,
-  ): Promise<VerifyWalletSignerResult> {
-    const { claimedWallet, signer, network } = options;
-
-    if (!signer) {
-      reportSignerEvent('wallet_auth_requires_wallet_signing');
-      return {
-        kind: 'wallet_auth_requires_wallet_signing',
-        claimedWallet,
-        agentInstructions: WALLET_AUTH_REQUIRES_WALLET_SIGNING_INSTRUCTIONS,
-      };
-    }
-
-    // Network-aware normalization: lowercase EVM, preserve Solana base58. The byte-equal
-    // short-circuit and downstream cache-key derivation MUST match how the DB stores
-    // wallets; lowercasing Solana would corrupt both.
-    const claimedNorm = normalizeAddress(claimedWallet);
-    const signerNorm = normalizeAddress(signer);
-
-    // Byte-equal short-circuit — no API lookup; same wallet ≡ same operator by definition.
-    if (claimedNorm === signerNorm) {
-      reportSignerEvent('pass');
-      return { kind: 'pass', claimedOperator: null, signerOperator: null };
-    }
-
-    // Cache hit — a prior call for this same (claimed, signer) pair already populated
-    // signer_match. Skip the round trip + telemetry post (the API recorded it the first
-    // time). Subsequent same-pair payments cost zero outbound assess calls.
-    const cachedEntry = cache.get(claimedNorm);
-    const cachedMatch = cachedEntry?.signerMatchBySigner?.get(signerNorm);
-    if (cachedMatch) {
-      return projectSignerMatch(cachedMatch, claimedNorm, signerNorm);
-    }
-
-    // Single fresh assess call carrying the signer. Server-side resolves both wallets
-    // against the operator graph and returns BOTH a signer_match verdict (wallet-binding)
-    // AND a signer_sanctions verdict (OFAC SDN wallet check) in one response — collapses
-    // the legacy 2 follow-up calls (one per wallet) AND the wallet-sanctions check into
-    // one round trip.
-    const inferredNetwork: 'evm' | 'solana' = network ?? (signerNorm.startsWith('0x') ? 'evm' : 'solana');
-    let assessResponse: { signer_match?: Record<string, unknown>; signer_sanctions?: Record<string, unknown> } & Record<string, unknown>;
-    try {
-      assessResponse = (await sdk.assess(claimedNorm, {
-        signer: { address: signerNorm, network: inferredNetwork },
-      })) as unknown as { signer_match?: Record<string, unknown>; signer_sanctions?: Record<string, unknown> } & Record<string, unknown>;
-    } catch (err) {
-      console.warn('[gate] verifyWalletSignerMatch assess failed:', err instanceof Error ? err.message : err);
-      reportSignerEvent('api_error');
-      return { kind: 'api_error', claimedWallet: claimedNorm };
-    }
-
-    const signerMatch = assessResponse.signer_match;
-    if (signerMatch && typeof signerMatch === 'object') {
-      // Cache for repeat same-pair lookups. Server-side already recorded telemetry for
-      // this verdict, so skip the SDK-side reportSignerEvent — avoids double-counting.
-      if (cachedEntry) {
-        // Mutate the existing entry in place — TTLCache.get() returns a reference, so the
-        // store's record sees the new sub-map without a `set()` call. This preserves the
-        // gate's original cache TTL window (set() would reset it forward, causing the
-        // gate verdict to be served past its intended freshness horizon).
-        const map = cachedEntry.signerMatchBySigner ?? new Map<string, Record<string, unknown>>();
-        map.set(signerNorm, signerMatch);
-        cachedEntry.signerMatchBySigner = map;
-      } else {
-        // No prior gate cache for this wallet — create a fresh entry with the verdict
-        // attached so a subsequent same-pair call hits cache.
-        const entry: CachedAssessResult = { allow: true, raw: assessResponse };
-        entry.signerMatchBySigner = new Map([[signerNorm, signerMatch]]);
-        cache.set(claimedNorm, entry);
-      }
-      return projectSignerMatch(signerMatch, claimedNorm, signerNorm);
-    }
-
-    // API response had no signer_match (server didn't compute one). Fall back to the
-    // 2-resolve path so the gate still produces a verdict.
-    const [claimedResolve, signerResolve] = await Promise.all([
-      resolveWalletToOperator(claimedNorm),
-      resolveWalletToOperator(signerNorm),
-    ]);
-
-    if (!claimedResolve.ok || !signerResolve.ok) {
-      reportSignerEvent('api_error');
-      return { kind: 'api_error', claimedWallet: claimedNorm };
-    }
-
-    const claimedOperator = claimedResolve.operator;
-    const signerOperator = signerResolve.operator;
-
-    if (claimedOperator && signerOperator && claimedOperator === signerOperator) {
-      reportSignerEvent('pass');
-      return { kind: 'pass', claimedOperator, signerOperator };
-    }
-
-    reportSignerEvent('wallet_signer_mismatch');
+  /**
+   * Synchronous read of the cached signer verdicts. Adapter middleware extracts the
+   * signer pre-evaluate and the gate's primary /v1/assess call composes both verdicts
+   * (signer_match + signer_sanctions) in one round trip — this getter just reads the
+   * cached response. Returns `undefined` for operator-token-only paths, discovery legs
+   * with no payment credential, or when the gate didn't run.
+   */
+  function getSignerVerdict(claimedAddress: string): SignerVerdict | undefined {
+    const claimedNorm = normalizeAddress(claimedAddress);
+    const cached = cache.get(claimedNorm);
+    if (!cached) return undefined;
+    const raw = cached.raw as Record<string, unknown> | undefined;
+    if (!raw) return undefined;
+    const rawMatch = raw.signer_match as Record<string, unknown> | undefined;
+    const rawSanctions = raw.signer_sanctions as SignerVerdict['signer_sanctions'] | undefined;
+    if (!rawMatch && !rawSanctions) return undefined;
+    // The API's signer_match has the actual signer wallet baked in (actual_signer); we
+    // didn't track it separately in the cache key (only claimed-side). For projectSignerMatch
+    // pass the API's own actual_signer as signerNorm so the projected shape is consistent
+    // with what the older verifyWalletSignerMatch helper produced for the same input.
+    const signerNorm = (rawMatch?.actual_signer as string | undefined) ?? claimedNorm;
     return {
-      kind: 'wallet_signer_mismatch',
-      claimedOperator,
-      actualSignerOperator: signerOperator,
-      expectedSigner: claimedNorm,
-      actualSigner: signerNorm,
-      linkedWallets: claimedResolve.linkedWallets,
-      agentInstructions: WALLET_SIGNER_MISMATCH_INSTRUCTIONS,
+      signer_match: rawMatch ? projectSignerMatch(rawMatch, claimedNorm, signerNorm) : null,
+      signer_sanctions: rawSanctions ?? null,
     };
   }
 
-  return { evaluate, captureWallet, verifyWalletSignerMatch };
+  return { evaluate, captureWallet, getSignerVerdict };
 }

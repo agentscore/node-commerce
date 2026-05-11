@@ -1,6 +1,6 @@
 import { createAgentScoreGate } from './web';
 import type { AgentScoreGateOptions as WebAgentScoreGateOptions } from './web';
-import type { AssessResult, FailOpenInfraReason, GateQuotaInfo, VerifyWalletSignerResult } from '../core';
+import type { AssessResult, FailOpenInfraReason, GateQuotaInfo, SignerVerdict } from '../core';
 
 export type AgentScoreGateOptions = WebAgentScoreGateOptions;
 
@@ -36,10 +36,11 @@ export function withAgentScoreGate<TReq extends Request = Request, TCtx = unknow
         network: 'evm' | 'solana';
         idempotencyKey?: string;
       }) => Promise<void>;
-      verifyWalletSignerMatch?: (opts?: {
-        signer?: string | null;
-        network?: 'evm' | 'solana';
-      }) => Promise<VerifyWalletSignerResult>;
+      /** Synchronous read of the cached signer verdicts (`signer_match` wallet-binding
+       *  + `signer_sanctions` OFAC SDN wallet-address check). Both composed by the gate's
+       *  primary `/v1/assess` in one round trip. Bound only on strict wallet-auth
+       *  requests; `undefined` otherwise. */
+      getSignerVerdict?: () => SignerVerdict | undefined;
       /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
        *  (429/5xx/network timeout). Compliance was NOT enforced — log/alert in your handler. */
       degraded?: boolean;
@@ -60,7 +61,7 @@ export function withAgentScoreGate<TReq extends Request = Request, TCtx = unknow
       {
         data: result.data,
         captureWallet: result.captureWallet,
-        verifyWalletSignerMatch: result.verifyWalletSignerMatch,
+        getSignerVerdict: result.getSignerVerdict,
         ...(result.degraded ? { degraded: true, infraReason: result.infraReason } : {}),
         ...(result.quota ? { quota: result.quota } : {}),
       },
@@ -103,7 +104,7 @@ export {
   buildSignerMismatchBody,
   denialReasonStatus,
   denialReasonToBody,
-  extractPaymentSignerAddress,
+
   isFixableDenial,
   readX402PaymentHeader,
   verificationAgentInstructions,

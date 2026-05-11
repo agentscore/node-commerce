@@ -8,7 +8,7 @@ import {
 } from '../_denial';
 import { denialReasonToBody } from '../_response';
 import { createAgentScoreCore } from '../core';
-import { extractPaymentSignerAddress, readX402PaymentHeader } from '../signer';
+import { extractPaymentSignerFromAuth, readX402PaymentHeader } from '../signer';
 import type {
   AgentIdentity,
   AgentScoreCore,
@@ -18,7 +18,7 @@ import type {
   DenialReason,
   FailOpenInfraReason,
   GateQuotaInfo,
-  VerifyWalletSignerResult,
+  SignerVerdict,
 } from '../core';
 import type { Request, Response, NextFunction } from 'express';
 
@@ -80,7 +80,16 @@ export function agentscoreGate(options: AgentScoreGateOptions) {
       walletAddress: identity?.address,
     } satisfies GateState;
 
-    const outcome = await core.evaluate(identity, req);
+    // Extract the payment signer from Authorization (MPP) / payment-signature / x-payment
+    // (x402) headers before the assess call. When present, the API composes both
+    // signer_match + signer_sanctions verdicts on the primary response in one round trip.
+    // Express doesn't expose a Web Fetch Request, so use the header-only extractor.
+    const authHeader = (req.headers.authorization as string | undefined) ?? null;
+    const x402Header =
+      (req.headers['payment-signature'] as string | undefined) ??
+      (req.headers['x-payment'] as string | undefined);
+    const signer = await extractPaymentSignerFromAuth(authHeader, x402Header);
+    const outcome = await core.evaluate(identity, req, signer);
 
     if (outcome.kind === 'allow') {
       const state = (req as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
@@ -152,32 +161,24 @@ export async function captureWallet(
 }
 
 /**
- * Verify the payment signer resolves to the same operator as the claimed X-Wallet-Address.
- * See hono adapter for the full contract.
+ * Synchronous read of the cached signer verdicts (`signer_match` + `signer_sanctions`).
+ * Both verdicts were composed by the gate's primary `/v1/assess` call on this request —
+ * single round trip, no extra API cost vs the legacy 2-call pattern. Returns `undefined`
+ * for operator-token paths, discovery legs, or routes the gate didn't run on.
  *
- * Because Express `Request` isn't a web `Request`, the caller must pass both the original
- * Fetch-style `Request` (if available — e.g. middleware upstream) and/or the x402 header value.
- * Simpler pattern: pass `options.signer` directly after extracting it yourself.
+ * Under `policy.require_sanctions_clear`, OFAC SDN wallet-address hits are already
+ * enforced by the gate (decision → deny before the handler runs); merchant code typically
+ * only needs to consume this getter for the `signer_match` wallet-binding verdict.
  */
-export async function verifyWalletSignerMatch(
-  req: Request,
-  options: { signer: string | null; network?: 'evm' | 'solana' },
-): Promise<VerifyWalletSignerResult> {
+export function getSignerVerdict(req: Request): SignerVerdict | undefined {
   const state = (req as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
-  // Operator-token wins when both headers sent — signer-match must no-op on non-strict-wallet-auth.
-  if (!state?.walletAddress || state.operatorToken) {
-    return { kind: 'pass', claimedOperator: null, signerOperator: null };
-  }
-  return state.core.verifyWalletSignerMatch({
-    claimedWallet: state.walletAddress,
-    signer: options.signer,
-    network: options.network,
-  });
+  if (!state?.walletAddress) return undefined;
+  return state.core.getSignerVerdict(state.walletAddress);
 }
 
 // Re-export shared signer helpers so Express consumers can extract from Fetch-style Requests
 // if they have one on hand (e.g. edge proxies forwarding the raw Request).
-export { extractPaymentSignerAddress, readX402PaymentHeader };
+export { readX402PaymentHeader };
 export {
   FIXABLE_DENIAL_REASONS,
   buildContactSupportNextSteps,

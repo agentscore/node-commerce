@@ -8,7 +8,7 @@ import {
 } from '../_denial';
 import { denialReasonToBody } from '../_response';
 import { createAgentScoreCore } from '../core';
-import { extractPaymentSignerAddress, readX402PaymentHeader } from '../signer';
+import { extractPaymentSigner, readX402PaymentHeader } from '../signer';
 import type {
   AgentIdentity,
   AgentScoreCore,
@@ -18,7 +18,7 @@ import type {
   DenialReason,
   FailOpenInfraReason,
   GateQuotaInfo,
-  VerifyWalletSignerResult,
+  SignerVerdict,
 } from '../core';
 import type { Context, MiddlewareHandler } from 'hono';
 
@@ -89,7 +89,13 @@ export function agentscoreGate(options: AgentScoreGateOptions): MiddlewareHandle
       walletAddress: identity?.address,
     } satisfies GateState);
 
-    const outcome = await core.evaluate(identity, c);
+    // Extract the payment signer from MPP / x402 headers before the assess call. When a
+    // signer is recovered, the API composes both signer_match + signer_sanctions on the
+    // primary assess response in one round trip; under policy.require_sanctions_clear a
+    // wallet-sanctions hit flips decision -> deny inline so the gate's onDenied fires
+    // before the handler runs. No-op on discovery legs (no payment header present).
+    const signer = await extractPaymentSigner(c.req.raw, readX402PaymentHeader(c.req.raw));
+    const outcome = await core.evaluate(identity, c, signer);
 
     if (outcome.kind === 'allow') {
       if (outcome.degraded || outcome.quota) {
@@ -173,51 +179,24 @@ export async function captureWallet(
 }
 
 /**
- * Verify the payment signer resolves to the same operator as the claimed `X-Wallet-Address`.
+ * Synchronous read of the cached signer verdicts (`signer_match` wallet-binding +
+ * `signer_sanctions` OFAC SDN wallet-address check). Both verdicts were composed by the
+ * gate's primary `/v1/assess` call on this request — single round trip, no extra API
+ * cost vs the legacy 2-call pattern via `verifyWalletSignerMatch`.
  *
- * Call this AFTER the agent submits a payment credential, BEFORE settling. Returns:
+ * Returns `undefined` when the gate didn't run, the request was operator-token-only, or
+ * no payment credential was attached (discovery legs).
  *
- *   - `pass` — signer matches (byte-equal or same-operator)
- *   - `wallet_signer_mismatch` — signer resolves to a different operator (or is unlinked)
- *   - `wallet_auth_requires_wallet_signing` — payment rail has no wallet signer (SPT/card);
- *     agent should switch to `X-Operator-Token`
- *
- * No-ops (returns `pass` with `claimedOperator: null`) when the request was operator-token
- * authenticated — signer-match only applies to wallet-auth.
- *
- * The helper auto-extracts the signer from MPP (`Authorization: Payment`) or x402
- * (`payment-signature` / `x-payment`) headers. Pass `options.signer` explicitly to override.
- *
- * ```ts
- * app.post('/purchase', async (c) => {
- *   const result = await verifyWalletSignerMatch(c);
- *   if (result.kind !== 'pass') return c.json({ error: result.kind, ...result }, 403);
- *   // ... proceed with settlement ...
- * });
- * ```
+ * Under `policy.require_sanctions_clear`, an OFAC SDN hit (or unavailable lookup) is
+ * already enforced by the gate (decision → deny before the handler runs); merchant code
+ * typically only needs this getter for the `signer_match` wallet-binding verdict.
  */
-export async function verifyWalletSignerMatch(
-  c: Context,
-  options?: { signer?: string | null; network?: 'evm' | 'solana' },
-): Promise<VerifyWalletSignerResult> {
+export function getSignerVerdict(c: Context): SignerVerdict | undefined {
   const state = c.get(GATE_STATE_KEY) as GateState | undefined;
-  // No check when: not a wallet-auth request, OR both headers were sent (operator-token wins —
-  // the caller opted out of strict wallet-auth). Signer-match only runs on strict wallet-auth.
-  if (!state?.walletAddress || state.operatorToken) {
-    return { kind: 'pass', claimedOperator: null, signerOperator: null };
-  }
-
-  const signer =
-    options?.signer !== undefined
-      ? options.signer
-      : await extractPaymentSignerAddress(c.req.raw, readX402PaymentHeader(c.req.raw));
-
-  return state.core.verifyWalletSignerMatch({
-    claimedWallet: state.walletAddress,
-    signer,
-    network: options?.network,
-  });
+  if (!state?.walletAddress) return undefined;
+  return state.core.getSignerVerdict(state.walletAddress);
 }
+
 
 // Re-export the denial helpers so vendors can compose custom onDenied handlers
 // without reaching into the internal _denial module.
@@ -230,4 +209,4 @@ export {
   verificationAgentInstructions,
 };
 export { denialReasonToBody };
-export { extractPaymentSignerAddress, readX402PaymentHeader };
+export { readX402PaymentHeader };
