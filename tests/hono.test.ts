@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agentscoreGate, captureWallet, getAgentScoreData, getGateDegradedState } from '../src/identity/hono';
+import { agentscoreGate, captureWallet, getAgentScoreData, getGateDegradedState, getSignerVerdict } from '../src/identity/hono';
 
 declare const __VERSION__: string;
 
@@ -836,6 +836,155 @@ describe('Hono adapter — captureWallet', () => {
 
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('ok');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getSignerVerdict — exercise core's projectSignerMatch + cache-read paths
+// ---------------------------------------------------------------------------
+
+describe('Hono adapter — getSignerVerdict projection', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('projects signer_match.kind=pass with claimed/signer operators', async () => {
+    mockFetchOk({
+      ...ALLOW_RESPONSE,
+      signer_match: { kind: 'pass', claimed_operator: 'op_a', signer_operator: 'op_a' },
+      signer_sanctions: { status: 'clear' },
+    });
+    const app = new Hono();
+    app.use('*', agentscoreGate({ apiKey: API_KEY }));
+    app.get('/test', (c) => {
+      const verdict = getSignerVerdict(c);
+      return c.json(verdict ?? { empty: true });
+    });
+
+    const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
+    const body = await res.json() as { signer_match: { kind: string; claimedOperator: string; signerOperator: string } };
+    expect(body.signer_match.kind).toBe('pass');
+    expect(body.signer_match.claimedOperator).toBe('op_a');
+    expect(body.signer_match.signerOperator).toBe('op_a');
+  });
+
+  it('projects signer_match.kind=wallet_signer_mismatch with linked_wallets array', async () => {
+    mockFetchOk({
+      ...ALLOW_RESPONSE,
+      signer_match: {
+        kind: 'wallet_signer_mismatch',
+        claimed_operator: 'op_claim',
+        signer_operator: 'op_signer',
+        expected_signer: '0xclaimed',
+        actual_signer: '0xsigner',
+        linked_wallets: ['0xclaimed', '0xsibling', null, 42], // null/non-string filtered out
+        agent_instructions: '{"action":"resign_or_switch_to_operator_token","steps":[],"user_message":"x"}',
+      },
+    });
+    const app = new Hono();
+    app.use('*', agentscoreGate({ apiKey: API_KEY }));
+    app.get('/test', (c) => {
+      const verdict = getSignerVerdict(c);
+      return c.json(verdict ?? { empty: true });
+    });
+
+    const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
+    const body = await res.json() as {
+      signer_match: { kind: string; expectedSigner: string; actualSigner: string; linkedWallets: string[]; actualSignerOperator: string };
+    };
+    expect(body.signer_match.kind).toBe('wallet_signer_mismatch');
+    expect(body.signer_match.expectedSigner).toBe('0xclaimed');
+    expect(body.signer_match.actualSigner).toBe('0xsigner');
+    expect(body.signer_match.actualSignerOperator).toBe('op_signer');
+    expect(body.signer_match.linkedWallets).toEqual(['0xclaimed', '0xsibling']);
+  });
+
+  it('projects signer_match.kind=wallet_auth_requires_wallet_signing with claimed_wallet', async () => {
+    mockFetchOk({
+      ...ALLOW_RESPONSE,
+      signer_match: {
+        kind: 'wallet_auth_requires_wallet_signing',
+        claimed_wallet: WALLET,
+        agent_instructions: '{"action":"switch_to_operator_token","steps":[],"user_message":"x"}',
+      },
+    });
+    const app = new Hono();
+    app.use('*', agentscoreGate({ apiKey: API_KEY }));
+    app.get('/test', (c) => {
+      const verdict = getSignerVerdict(c);
+      return c.json(verdict ?? { empty: true });
+    });
+
+    const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
+    const body = await res.json() as { signer_match: { kind: string; claimedWallet: string; agentInstructions: string } };
+    expect(body.signer_match.kind).toBe('wallet_auth_requires_wallet_signing');
+    expect(body.signer_match.claimedWallet).toBe(WALLET);
+    expect(body.signer_match.agentInstructions).toContain('switch_to_operator_token');
+  });
+
+  it('falls back to defaults when API omits agent_instructions / linked_wallets / expected_signer', async () => {
+    mockFetchOk({
+      ...ALLOW_RESPONSE,
+      signer_match: {
+        kind: 'wallet_signer_mismatch',
+        claimed_operator: null,
+        signer_operator: null,
+        // no expected_signer, no actual_signer, no linked_wallets, no agent_instructions
+      },
+    });
+    const app = new Hono();
+    app.use('*', agentscoreGate({ apiKey: API_KEY }));
+    app.get('/test', (c) => {
+      const verdict = getSignerVerdict(c);
+      return c.json(verdict ?? { empty: true });
+    });
+
+    const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
+    const body = await res.json() as {
+      signer_match: {
+        kind: string; expectedSigner: string; actualSigner: string;
+        linkedWallets: string[]; agentInstructions: string; claimedOperator: string | null; actualSignerOperator: string | null;
+      };
+    };
+    expect(body.signer_match.kind).toBe('wallet_signer_mismatch');
+    // expected/actual fall back to claimedNorm/signerNorm (both = claimed since no actual_signer)
+    expect(body.signer_match.expectedSigner).toBeTruthy();
+    expect(body.signer_match.actualSigner).toBeTruthy();
+    expect(body.signer_match.linkedWallets).toEqual([]);
+    expect(body.signer_match.agentInstructions).toContain('resign_or_switch_to_operator_token');
+    expect(body.signer_match.claimedOperator).toBeNull();
+    expect(body.signer_match.actualSignerOperator).toBeNull();
+  });
+
+  it('returns undefined when assess response has neither signer_match nor signer_sanctions', async () => {
+    mockFetchOk(ALLOW_RESPONSE); // no signer fields
+    const app = new Hono();
+    app.use('*', agentscoreGate({ apiKey: API_KEY }));
+    app.get('/test', (c) => {
+      const verdict = getSignerVerdict(c);
+      return c.json({ empty: verdict === undefined });
+    });
+
+    const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
+    const body = await res.json() as { empty: boolean };
+    expect(body.empty).toBe(true);
+  });
+
+  it('returns only signer_sanctions when signer_match absent', async () => {
+    mockFetchOk({
+      ...ALLOW_RESPONSE,
+      signer_sanctions: { sanctioned: true, ofac_label: 'ETH', sdn_uid: '19011', listed_at: '2019-09-13' },
+    });
+    const app = new Hono();
+    app.use('*', agentscoreGate({ apiKey: API_KEY }));
+    app.get('/test', (c) => {
+      const verdict = getSignerVerdict(c);
+      return c.json(verdict ?? { empty: true });
+    });
+
+    const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
+    const body = await res.json() as { signer_match: unknown; signer_sanctions: { sanctioned: boolean; ofac_label: string } };
+    expect(body.signer_match).toBeNull();
+    expect(body.signer_sanctions.sanctioned).toBe(true);
+    expect(body.signer_sanctions.ofac_label).toBe('ETH');
   });
 });
 
