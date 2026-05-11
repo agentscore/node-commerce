@@ -393,7 +393,7 @@ When `failOpen: true` AND the failure is infra-shape, the gate carries `degraded
 
 For regulated commerce (alcohol, age-gated, sanctioned-jurisdiction-relevant) keep the default `failOpen: false`: outage is the correct posture, and bypassing compliance on infra failure is a compliance gap. For low-stakes commerce or high-uptime SLAs, opt in and use the `degraded` flag as the audit trail.
 
-The `getGateDegradedState` helper is exported by every framework adapter (Hono, Express, Fastify, Next.js, Web Fetch). For `withAgentScoreGate` (Next.js / Web Fetch), the `degraded` + `infraReason` fields land directly on the `gate` object passed to your handler.
+The `getGateDegradedState` helper is exported by the context-getter adapters (Hono, Express, Fastify). For the wrapper-pattern adapters (Next.js, Web Fetch via `withAgentScoreGate` / `createAgentScoreGate`), the `degraded` + `infraReason` fields land directly on the `gate` object passed to your handler — no separate getter.
 
 ## Examples
 
