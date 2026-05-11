@@ -1,5 +1,5 @@
 /**
- * Cross-adapter read-helper coverage for getAssessResult / getGateQuotaInfo.
+ * Cross-adapter read-helper coverage for getAgentScoreData / getGateQuotaInfo.
  *
  * Each adapter exposes read-only helpers that pull state stashed on the
  * framework-specific request container during gate evaluate. These tests exercise
@@ -11,11 +11,11 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import {
-  getAssessResult as getExpressAssessResult,
+  getAgentScoreData as getExpressAssessResult,
   getGateQuotaInfo as getExpressGateQuotaInfo,
 } from '../src/identity/express';
 import {
-  getAssessResult as getFastifyAssessResult,
+  getAgentScoreData as getFastifyAssessResult,
   getGateQuotaInfo as getFastifyGateQuotaInfo,
 } from '../src/identity/fastify';
 import { getGateQuotaInfo as getHonoGateQuotaInfo } from '../src/identity/hono';
@@ -32,7 +32,7 @@ const GATE_STATE_KEY = '__agentscoreGate';
 const FAKE_QUOTA = { limit: 1000, used: 780, reset: '2026-06-01T00:00:00Z' };
 const FAKE_ASSESS_DATA = { decision: 'allow', operatorToken: null } as const;
 
-describe('express getAssessResult', () => {
+describe('express getAgentScoreData', () => {
   it('returns the attached AssessResult', () => {
     const req = { agentscore: FAKE_ASSESS_DATA } as unknown as ExpressRequest;
     expect(getExpressAssessResult(req)).toBe(FAKE_ASSESS_DATA);
@@ -61,7 +61,7 @@ describe('express getGateQuotaInfo', () => {
   });
 });
 
-describe('fastify getAssessResult', () => {
+describe('fastify getAgentScoreData', () => {
   it('returns the attached AssessResult', () => {
     const request = { agentscore: FAKE_ASSESS_DATA } as unknown as FastifyRequest;
     expect(getFastifyAssessResult(request)).toBe(FAKE_ASSESS_DATA);

@@ -21,7 +21,7 @@
 import {
   agentscoreGate,
   captureWallet,
-  getAssessResult,
+  getAgentScoreData,
 } from '@agent-score/commerce/identity/hono';
 import { Hono } from 'hono';
 
@@ -46,7 +46,7 @@ app.use(
 );
 
 app.post('/restricted', async (c) => {
-  const assess = getAssessResult(c);
+  const assess = getAgentScoreData(c);
   // assess includes: { decision, operator, kyc_verified, age_bracket, jurisdiction, ... }
 
   // Run your own business logic here — buy something via your existing Stripe flow,
