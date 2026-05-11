@@ -223,12 +223,7 @@ const profile = buildUCPProfile({
     ],
   },
   payment_handlers: {
-    'sh.agentscore.payment.mpp': [{
-      id: 'mpp', version: '2026-04-08',
-      spec: 'https://agentscore.sh/specification/payment-handlers/mpp',
-      schema: 'https://agentscore.sh/schemas/payment-handlers/mpp.json',
-      config: { chains: { tempo: { rail: 'tempo-mainnet', chain_id: 4217, recipient: TEMPO_ADDR } } },
-    }],
+    ...mppPaymentHandler({ networks: [{ network: 'tempo-mainnet', chain_id: 4217, recipient: TEMPO_ADDR }] }),
   },
   signing_keys,
   // Optional: declare the merchant's gate policy as an `sh.agentscore.identity` capability

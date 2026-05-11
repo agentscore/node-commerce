@@ -28,6 +28,7 @@ import {
   buildJWKSResponse,
   buildUCPProfile,
   generateUCPSigningKey,
+  mppPaymentHandler,
   signUCPProfile,
   type GeneratedUCPKey,
   UCPSigningKey,
@@ -107,17 +108,11 @@ app.get('/.well-known/ucp', async (c) => {
       ],
     },
     payment_handlers: {
-      'sh.agentscore.payment.mpp': [{
-        id: 'mpp',
-        version: '2026-04-08',
-        spec: 'https://agentscore.sh/specification/payment-handlers/mpp',
-        schema: 'https://agentscore.sh/schemas/payment-handlers/mpp.json',
-        config: {
-          chains: {
-            tempo: { rail: 'tempo-mainnet', chain_id: 4217, recipient: '0xfeedface' },
-          },
-        },
-      }],
+      ...mppPaymentHandler({
+        networks: [
+          { network: 'tempo-mainnet', chain_id: 4217, recipient: '0xfeedface' },
+        ],
+      }),
     },
     signing_keys: [UCPSigningKey.fromJWK(key.publicJWK as Record<string, unknown>)],
     // Optional: declare merchant gate policy as an `sh.agentscore.identity` capability
