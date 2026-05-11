@@ -292,12 +292,12 @@ const RESERVED_UCP_FIELDS = new Set([
  *     ],
  *   },
  *   payment_handlers: {
- *     'sh.agentscore.payment.tempo': [{
- *       id: 'tempo',
+ *     'sh.agentscore.payment.mpp': [{
+ *       id: 'mpp',
  *       version: '2026-04-08',
- *       spec: 'https://agentscore.sh/specification/payment-handlers/tempo',
- *       schema: 'https://agentscore.sh/schemas/payment-handlers/tempo.json',
- *       config: { recipient: TEMPO_ADDR },
+ *       spec: 'https://agentscore.sh/specification/payment-handlers/mpp',
+ *       schema: 'https://agentscore.sh/schemas/payment-handlers/mpp.json',
+ *       config: { chains: { tempo: { rail: 'tempo-mainnet', chain_id: 4217 } } },
  *     }],
  *   },
  *   signing_keys: [signingKey],
