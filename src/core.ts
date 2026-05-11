@@ -351,7 +351,7 @@ interface CachedAssessResult {
   // for this same claimed wallet. Each signer gets its own slot so two payments under
   // the same claimed identity but from different signer wallets don't serve stale
   // verdicts to each other. Verdicts come from the API's `signer_match` response field
-  // (populated when the assess request carried `resolve_signer`), so reading a hit
+  // (populated when the assess request carried `signer`), so reading a hit
   // skips the round-trip altogether.
   signerMatchBySigner?: Map<string, Record<string, unknown>>;
 }
@@ -950,15 +950,17 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       return projectSignerMatch(cachedMatch, claimedNorm, signerNorm);
     }
 
-    // Single fresh assess call carrying resolve_signer. Server-side resolves both wallets
-    // against the operator graph and returns a signer_match verdict in the response —
-    // collapses the legacy 2 follow-up calls (one per wallet) into one round trip.
+    // Single fresh assess call carrying the signer. Server-side resolves both wallets
+    // against the operator graph and returns BOTH a signer_match verdict (wallet-binding)
+    // AND a signer_sanctions verdict (OFAC SDN wallet check) in one response — collapses
+    // the legacy 2 follow-up calls (one per wallet) AND the wallet-sanctions check into
+    // one round trip.
     const inferredNetwork: 'evm' | 'solana' = network ?? (signerNorm.startsWith('0x') ? 'evm' : 'solana');
-    let assessResponse: { signer_match?: Record<string, unknown> } & Record<string, unknown>;
+    let assessResponse: { signer_match?: Record<string, unknown>; signer_sanctions?: Record<string, unknown> } & Record<string, unknown>;
     try {
       assessResponse = (await sdk.assess(claimedNorm, {
-        resolveSigner: { address: signerNorm, network: inferredNetwork },
-      })) as unknown as { signer_match?: Record<string, unknown> } & Record<string, unknown>;
+        signer: { address: signerNorm, network: inferredNetwork },
+      })) as unknown as { signer_match?: Record<string, unknown>; signer_sanctions?: Record<string, unknown> } & Record<string, unknown>;
     } catch (err) {
       console.warn('[gate] verifyWalletSignerMatch assess failed:', err instanceof Error ? err.message : err);
       reportSignerEvent('api_error');

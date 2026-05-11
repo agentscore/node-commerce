@@ -158,7 +158,7 @@ describe('AgentScoreCore.verifyWalletSignerMatch', () => {
     // Server didn't include signer_match in the response. Commerce falls back to two
     // resolveWalletToOperator calls so the gate still produces a verdict.
     mockFetchSequence([
-      // First call: resolve_signer-aware assess but old API ignores the field.
+      // First call: signer-aware assess but old API ignores the field.
       { decision: 'allow', decision_reasons: [], resolved_operator: 'op_claimed' },
       // Legacy fallback resolve(claimed)
       { decision: 'allow', decision_reasons: [], resolved_operator: 'op_claimed', linked_wallets: [WALLET_A.toLowerCase()] },
