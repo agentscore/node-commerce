@@ -114,7 +114,7 @@ app.get('/.well-known/ucp', async (c) => {
         schema: 'https://agentscore.sh/schemas/payment-handlers/mpp.json',
         config: {
           chains: {
-            tempo: { rail: 'tempo-mainnet', chain_id: 4217 },
+            tempo: { rail: 'tempo-mainnet', chain_id: 4217, recipient: '0xfeedface' },
           },
         },
       }],
