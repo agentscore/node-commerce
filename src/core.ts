@@ -153,7 +153,7 @@ export interface DenialReason {
    *  not promoted to first-class DenialReason properties (e.g., `policy_result`). Undefined for
    *  denials that did not originate from an assess call (missing_identity, api_error,
    *  payment_required, identity_verification_required). */
-  data?: AgentScoreData;
+  data?: AssessResult;
   /** Extra fields returned from the `createSessionOnMissing.onBeforeSession` hook. Merged
    *  into the default 403 body; custom `onDenied` handlers can spread these into their own
    *  response shape (e.g. to include a merchant-minted `order_id`). */
@@ -174,39 +174,52 @@ export interface DenialReason {
   linked_wallets?: string[];
 }
 
-export interface AgentScoreData {
+/** Operator verification details from the assess response. Mirrors python's
+ *  `OperatorVerification` dataclass. */
+export interface OperatorVerification {
+  level: string;
+  operator_type: string | null;
+  verified_at: string | null;
+}
+
+/** Account-level KYC facts that apply to every operator under the same account.
+ *  Populated when the API returns account_verification (post-KYC operator).
+ *  Mirrors python's account_verification dict shape. */
+export interface AccountVerification {
+  kyc_level?: string;
+  sanctions_clear?: boolean;
+  age_bracket?: string;
+  jurisdiction?: string;
+  verified_at?: string | null;
+}
+
+/** A single policy check from the assess response. Mirrors python's `PolicyCheck`. */
+export interface PolicyCheck {
+  rule: string;
+  passed: boolean;
+  required?: unknown;
+  actual?: unknown;
+}
+
+/** Policy evaluation result from the assess response. Mirrors python's `PolicyResult`. */
+export interface PolicyResult {
+  all_passed: boolean;
+  checks: PolicyCheck[];
+}
+
+export interface AssessResult {
   decision: string | null;
   decision_reasons: string[];
   identity_method?: string;
-  operator_verification?: {
-    level: string;
-    operator_type: string | null;
-    verified_at: string | null;
-  };
-  /** Account-level KYC facts that apply to every operator under the same account.
-   *  Populated when the API returns account_verification (post-KYC operator). */
-  account_verification?: {
-    kyc_level?: string;
-    sanctions_clear?: boolean;
-    age_bracket?: string;
-    jurisdiction?: string;
-    verified_at?: string | null;
-  };
+  operator_verification?: OperatorVerification;
+  account_verification?: AccountVerification;
   resolved_operator?: string | null;
   /** Wallets linked to the same operator as the resolved identity. Capped at 100 entries
    *  by the API. Useful for advertising in 402 challenges so wallet-auth agents know which
    *  alt-signers will satisfy `wallet_signer_mismatch`. */
   linked_wallets?: string[];
   verify_url?: string;
-  policy_result?: {
-    all_passed: boolean;
-    checks: Array<{
-      rule: string;
-      passed: boolean;
-      required?: unknown;
-      actual?: unknown;
-    }>;
-  } | null;
+  policy_result?: PolicyResult | null;
 }
 
 /**
@@ -245,7 +258,7 @@ export interface GateQuotaInfo {
  *   reason, or invoke the caller's custom denial handler.
  */
 export type EvaluateOutcome =
-  | { kind: 'allow'; data?: AgentScoreData; degraded?: boolean; infraReason?: FailOpenInfraReason; quota?: GateQuotaInfo }
+  | { kind: 'allow'; data?: AssessResult; degraded?: boolean; infraReason?: FailOpenInfraReason; quota?: GateQuotaInfo }
   | { kind: 'deny'; reason: DenialReason };
 
 export interface CaptureWalletOptions {
@@ -325,7 +338,11 @@ export interface AgentScoreCore {
 // Internal types
 // ---------------------------------------------------------------------------
 
-interface AssessResult {
+/** Internal cache entry for the gate's per-`(identity, policy)` assess result memo.
+ *  Distinct from the public `AssessResult` interface (the typed `/v1/assess` response
+ *  shape returned to merchants); this carries the cached decision plus the per-signer
+ *  wallet-match sub-cache. */
+interface CachedAssessResult {
   allow: boolean;
   decision?: string;
   reasons?: string[];
@@ -476,7 +493,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     return s;
   }
 
-  const cache = new TTLCache<AssessResult>(cacheSeconds * 1000);
+  const cache = new TTLCache<CachedAssessResult>(cacheSeconds * 1000);
 
   // Mint a verification session via /v1/sessions and return the resulting
   // identity_verification_required DenialReason — or undefined if the mint failed (network
@@ -616,7 +633,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         const cachedQuota = cachedRaw?.quota as GateQuotaInfo | undefined;
         return {
           kind: 'allow',
-          data: cachedRaw as unknown as AgentScoreData,
+          data: cachedRaw as unknown as AssessResult,
           ...(cachedQuota !== undefined && { quota: cachedQuota }),
         };
       }
@@ -638,7 +655,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
           decision: cached.decision,
           reasons: cached.reasons,
           verify_url: (cached.raw as Record<string, unknown> | undefined)?.verify_url as string | undefined,
-          data: cached.raw as AgentScoreData | undefined,
+          data: cached.raw as AssessResult | undefined,
         },
       };
     }
@@ -676,7 +693,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
           kind: 'deny',
           reason: {
             code: 'token_expired',
-            data: err.details as unknown as AgentScoreData,
+            data: err.details as unknown as AssessResult,
             ...(err.verifyUrl ? { verify_url: err.verifyUrl } : {}),
             ...(err.sessionId ? { session_id: err.sessionId } : {}),
             ...(err.pollSecret ? { poll_secret: err.pollSecret } : {}),
@@ -753,7 +770,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       const quota = data.quota as GateQuotaInfo | undefined;
       return {
         kind: 'allow',
-        data: data as unknown as AgentScoreData,
+        data: data as unknown as AssessResult,
         ...(quota !== undefined && { quota }),
       };
     }
@@ -777,7 +794,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         decision: decision ?? undefined,
         reasons: decisionReasons,
         verify_url: data.verify_url as string | undefined,
-        data: data as unknown as AgentScoreData,
+        data: data as unknown as AssessResult,
       },
     };
   }
@@ -963,7 +980,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       } else {
         // No prior gate cache for this wallet — create a fresh entry with the verdict
         // attached so a subsequent same-pair call hits cache.
-        const entry: AssessResult = { allow: true, raw: assessResponse };
+        const entry: CachedAssessResult = { allow: true, raw: assessResponse };
         entry.signerMatchBySigner = new Map([[signerNorm, signerMatch]]);
         cache.set(claimedNorm, entry);
       }

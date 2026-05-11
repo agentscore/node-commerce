@@ -3,149 +3,265 @@ import {
   UCP_A2A_EXTENSION_URI,
   buildA2AAgentCard,
   ucpA2AExtension,
+  type A2AAgentCardExtension,
+  type A2AAgentCardSignature,
+  type A2AAgentInterface,
+  type A2AAgentSkill,
 } from '../../src/identity/a2a';
-import type { AgentScoreData } from '../../src/core';
 
-const fullData: AgentScoreData = {
-  decision: 'allow',
-  decision_reasons: [],
-  resolved_operator: 'op_abc',
-  verify_url: 'https://agentscore.sh/verify',
-  operator_verification: { level: 'verified', operator_type: 'human', verified_at: '2026-04-01T00:00:00Z' },
-  account_verification: {
-    kyc_level: 'enhanced',
-    sanctions_clear: true,
-    age_bracket: '21+',
-    jurisdiction: 'US',
-    verified_at: '2026-04-01T00:00:00Z',
-  },
+const DEFAULT_SKILL: A2AAgentSkill = {
+  id: 'purchase',
+  name: 'Purchase',
+  description: 'Buy products via agent payments.',
+  tags: ['commerce', 'payment'],
 };
 
-describe('buildA2AAgentCard', () => {
-  it('emits a card with identity claims when data is provided', () => {
+describe('buildA2AAgentCard (A2A v1.0 spec compliance)', () => {
+  it('emits the minimum required spec fields', () => {
     const card = buildA2AAgentCard({
       name: 'Example Merchant',
+      description: 'Buy regulated goods via agent payments.',
       url: 'https://agents.example.com',
-      data: fullData,
+      skills: [DEFAULT_SKILL],
     });
-    expect(card.protocol_version).toBe('1.0');
-    expect(card.card_version).toBe(1);
+    // Per spec §4.4.1 (proto): name, description, supported_interfaces, version,
+    // capabilities, default_input_modes, default_output_modes, skills are REQUIRED.
     expect(card.name).toBe('Example Merchant');
-    expect(card.url).toBe('https://agents.example.com');
-    expect(card.identity).not.toBeNull();
-    expect(card.identity?.operator_id).toBe('op_abc');
-    expect(card.identity?.kyc_level).toBe('enhanced');
-    expect(card.identity?.sanctions_clear).toBe(true);
-    expect(card.identity?.age_bracket).toBe('21+');
-    expect(card.identity?.jurisdiction).toBe('US');
+    expect(card.description).toBe('Buy regulated goods via agent payments.');
+    expect(card.supported_interfaces).toHaveLength(1);
+    expect(card.supported_interfaces[0]?.url).toBe('https://agents.example.com');
+    expect(card.supported_interfaces[0]?.protocol_binding).toBe('HTTP+JSON');
+    expect(card.supported_interfaces[0]?.protocol_version).toBe('1.0');
+    expect(card.version).toBe('1.0.0');
+    expect(card.capabilities).toEqual({});
+    expect(card.default_input_modes).toEqual(['application/json']);
+    expect(card.default_output_modes).toEqual(['application/json']);
+    expect(card.skills).toHaveLength(1);
   });
 
-  it('emits identity: null when data is omitted entirely', () => {
-    const card = buildA2AAgentCard({ name: 'X' });
-    expect(card.identity).toBeNull();
-    expect(card.name).toBe('X');
+  it('skills required non-empty (per spec §4.4.1 proto field 12 [field_behavior=REQUIRED])', () => {
+    expect(() =>
+      buildA2AAgentCard({ name: 'X', description: 'y', url: 'https://x.example', skills: [] }),
+    ).toThrow(/MUST be a non-empty list/);
   });
 
-  it('emits identity: null when data has no resolved_operator', () => {
+  it('does NOT emit invented fields (protocol_version, card_version, endpoints, identity, top-level extensions)', () => {
+    const card = buildA2AAgentCard({
+      name: 'X', description: 'y', url: 'https://x.example', skills: [DEFAULT_SKILL],
+    });
+    const c = card as unknown as Record<string, unknown>;
+    expect(c.protocol_version).toBeUndefined();
+    expect(c.card_version).toBeUndefined();
+    expect(c.endpoints).toBeUndefined();
+    expect(c.identity).toBeUndefined();
+    expect(c.extensions).toBeUndefined();
+  });
+
+  it('skills serialize as top-level objects (not strings inside capabilities)', () => {
+    const card = buildA2AAgentCard({
+      name: 'X', description: 'y', url: 'https://x.example', skills: [DEFAULT_SKILL],
+    });
+    expect(card.skills).toEqual([DEFAULT_SKILL]);
+    expect((card.capabilities as Record<string, unknown>).skills).toBeUndefined();
+  });
+
+  it('extensions live INSIDE capabilities, not at top level', () => {
     const card = buildA2AAgentCard({
       name: 'X',
-      data: { decision: null, decision_reasons: [] },
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      extensions: [ucpA2AExtension()],
     });
-    expect(card.identity).toBeNull();
+    expect((card as unknown as Record<string, unknown>).extensions).toBeUndefined();
+    expect(card.capabilities.extensions).toHaveLength(1);
+    expect(card.capabilities.extensions?.[0]?.uri).toBe(UCP_A2A_EXTENSION_URI);
   });
 
-  it('passes through capabilities + description + extras', () => {
+  it('extensions omitted when empty array passed', () => {
     const card = buildA2AAgentCard({
-      name: 'X',
-      description: 'test agent',
-      capabilities: { endpoints: [{ name: 'pay', method: 'POST' }], skills: ['wine'] },
-      extras: { custom: 'value' },
+      name: 'X', description: 'y', url: 'https://x.example', skills: [DEFAULT_SKILL], extensions: [],
     });
-    expect(card.description).toBe('test agent');
-    expect(card.capabilities?.endpoints?.[0]?.name).toBe('pay');
-    expect(card.capabilities?.skills).toEqual(['wine']);
-    expect(card.extras).toEqual({ custom: 'value' });
+    expect(card.capabilities.extensions).toBeUndefined();
   });
 
-  it('respects issuer + verifyUrl overrides', () => {
+  it('capability flags emitted when set', () => {
     const card = buildA2AAgentCard({
       name: 'X',
-      data: fullData,
-      issuer: 'https://other.example',
-      verifyUrl: 'https://other.example/v',
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      streaming: true,
+      push_notifications: false,
+      extended_agent_card: true,
     });
-    expect(card.identity?.issuer).toBe('https://other.example');
-    expect(card.identity?.verify_url).toBe('https://other.example/v');
+    expect(card.capabilities.streaming).toBe(true);
+    expect(card.capabilities.push_notifications).toBe(false);
+    expect(card.capabilities.extended_agent_card).toBe(true);
   });
 
-  it('falls back to operator_verification fields when account_verification is absent', () => {
-    // Drives the `?? operatorVerification?.level` and `?? operatorVerification?.verified_at`
-    // branches plus the default `'unknown'` / `''` / `verify_url` fallbacks.
+  it('capability flags omitted when unset', () => {
     const card = buildA2AAgentCard({
-      name: 'X',
-      data: {
-        decision: 'allow',
-        decision_reasons: [],
-        resolved_operator: 'op_only_op_verif',
-        operator_verification: {
-          level: 'basic',
-          operator_type: 'agent',
-          verified_at: '2026-01-01T00:00:00Z',
-        },
-      },
+      name: 'X', description: 'y', url: 'https://x.example', skills: [DEFAULT_SKILL],
     });
-    expect(card.identity).not.toBeNull();
-    expect(card.identity?.kyc_level).toBe('basic');
-    expect(card.identity?.sanctions_clear).toBe(false);
-    expect(card.identity?.age_bracket).toBe('unknown');
-    expect(card.identity?.jurisdiction).toBe('');
-    expect(card.identity?.verified_at).toBe('2026-01-01T00:00:00Z');
-    expect(card.identity?.verify_url).toBe('https://agentscore.sh/verify');
+    expect(card.capabilities.streaming).toBeUndefined();
+    expect(card.capabilities.push_notifications).toBeUndefined();
+    expect(card.capabilities.extended_agent_card).toBeUndefined();
   });
 
-  it('falls back to default kyc_level "none" when neither verification block is present', () => {
-    // Drives the trailing `?? 'none'` fallback in the kyc_level chain plus the
-    // `?? null` fallback for verified_at.
+  it('provider emitted when set', () => {
     const card = buildA2AAgentCard({
       name: 'X',
-      data: {
-        decision: 'allow',
-        decision_reasons: [],
-        resolved_operator: 'op_no_verif',
-      },
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      provider: { url: 'https://acme.example', organization: 'Acme' },
     });
-    expect(card.identity).not.toBeNull();
-    expect(card.identity?.kyc_level).toBe('none');
-    expect(card.identity?.verified_at).toBeNull();
+    expect(card.provider).toEqual({ url: 'https://acme.example', organization: 'Acme' });
   });
 
-  it('reads verify_url from data when input.verifyUrl is absent', () => {
-    // Drives the `data.verify_url` branch of the verify_url ?? chain.
+  it('documentation_url emitted when set', () => {
     const card = buildA2AAgentCard({
       name: 'X',
-      data: {
-        decision: 'allow',
-        decision_reasons: [],
-        resolved_operator: 'op_with_verify_url',
-        verify_url: 'https://from-data.example/verify',
-      },
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      documentation_url: 'https://docs.example',
     });
-    expect(card.identity?.verify_url).toBe('https://from-data.example/verify');
+    expect(card.documentation_url).toBe('https://docs.example');
+  });
+
+  it('icon_url emitted when set (per spec §4.4.1 proto field 14)', () => {
+    const card = buildA2AAgentCard({
+      name: 'X',
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      icon_url: 'https://x.example/icon.png',
+    });
+    expect(card.icon_url).toBe('https://x.example/icon.png');
+  });
+
+  it('signatures emitted when set (per spec §4.4.7)', () => {
+    const sig: A2AAgentCardSignature = { protected: 'eyJhbGciOiJFZERTQSJ9', signature: 'abc' };
+    const card = buildA2AAgentCard({
+      name: 'X',
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      signatures: [sig],
+    });
+    expect(card.signatures).toEqual([sig]);
+  });
+
+  it('signatures omitted when empty', () => {
+    const card = buildA2AAgentCard({
+      name: 'X',
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      signatures: [],
+    });
+    expect(card.signatures).toBeUndefined();
+  });
+
+  it('default modes overridable', () => {
+    const card = buildA2AAgentCard({
+      name: 'X',
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      default_input_modes: ['text/plain', 'application/json'],
+      default_output_modes: ['text/plain'],
+    });
+    expect(card.default_input_modes).toEqual(['text/plain', 'application/json']);
+    expect(card.default_output_modes).toEqual(['text/plain']);
+  });
+
+  it('protocol_binding overridable on the auto-built primary interface', () => {
+    const card = buildA2AAgentCard({
+      name: 'X',
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      protocol_binding: 'GRPC',
+      a2a_protocol_version: '1.0',
+    });
+    expect(card.supported_interfaces[0]?.protocol_binding).toBe('GRPC');
+  });
+
+  it('extras merge at top level', () => {
+    const card = buildA2AAgentCard({
+      name: 'X',
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      extras: { vendor_field: 42 },
+    });
+    expect((card as Record<string, unknown>).vendor_field).toBe(42);
+  });
+
+  it('security_schemes emitted when set', () => {
+    const card = buildA2AAgentCard({
+      name: 'X',
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      security_schemes: { bearer: { type: 'http', scheme: 'bearer' } },
+    });
+    expect(card.security_schemes).toEqual({ bearer: { type: 'http', scheme: 'bearer' } });
+  });
+
+  it('multiple supported_interfaces (build via direct construction for non-default cases)', () => {
+    const ifaces: A2AAgentInterface[] = [
+      { url: 'https://x.example/jsonrpc', protocol_binding: 'JSONRPC', protocol_version: '1.0' },
+      { url: 'https://x.example/grpc', protocol_binding: 'GRPC', protocol_version: '1.0' },
+    ];
+    expect(ifaces).toHaveLength(2);
+    expect(ifaces[0]?.protocol_binding).toBe('JSONRPC');
   });
 });
 
-describe('UCP A2A extension', () => {
+describe('A2AAgentCardExtension shape (spec §4.4.4)', () => {
+  it('extension carries required uri + description + required fields', () => {
+    const ext: A2AAgentCardExtension = {
+      uri: 'https://example/ext',
+      description: 'test',
+      required: true,
+    };
+    expect(ext.uri).toBe('https://example/ext');
+    expect(ext.description).toBe('test');
+    expect(ext.required).toBe(true);
+  });
+});
+
+describe('A2AAgentCardSignature shape (spec §4.4.7)', () => {
+  it('signature carries required protected + signature fields', () => {
+    const sig: A2AAgentCardSignature = { protected: 'eyJ...', signature: 'abc' };
+    expect(sig.protected).toBe('eyJ...');
+    expect(sig.signature).toBe('abc');
+  });
+
+  it('header is optional', () => {
+    const sig: A2AAgentCardSignature = { protected: 'eyJ...', signature: 'abc', header: { kid: 'k1' } };
+    expect(sig.header).toEqual({ kid: 'k1' });
+  });
+});
+
+describe('UCP A2A extension helper', () => {
   it('exports the canonical UCP A2A extension URI pinned to 2026-04-08', () => {
     expect(UCP_A2A_EXTENSION_URI).toBe('https://ucp.dev/2026-04-08/specification/reference');
   });
 
-  it('ucpA2AExtension() with no args produces empty-capabilities entry', () => {
+  it('ucpA2AExtension() with no args emits required fields + empty capabilities', () => {
     const ext = ucpA2AExtension();
     expect(ext.uri).toBe(UCP_A2A_EXTENSION_URI);
+    expect(ext.description).toBeTruthy();
+    expect(ext.required).toBe(false);
     expect(ext.params).toEqual({ capabilities: {} });
   });
 
-  it('ucpA2AExtension(map) wraps the capabilities map under params.capabilities', () => {
+  it('ucpA2AExtension(map) passes the capabilities map under params.capabilities', () => {
     const ext = ucpA2AExtension({
       'dev.ucp.shopping.checkout': [{ version: '2026-04-08' }],
       'dev.ucp.shopping.cart': [{ version: '2026-04-08' }],
@@ -158,26 +274,8 @@ describe('UCP A2A extension', () => {
     });
   });
 
-  it('buildA2AAgentCard emits extensions[] when passed', () => {
-    const card = buildA2AAgentCard({
-      name: 'X',
-      data: null,
-      extensions: [ucpA2AExtension()],
-    });
-    expect(card.extensions).toHaveLength(1);
-    expect(card.extensions?.[0]?.uri).toBe(UCP_A2A_EXTENSION_URI);
-    expect(card.extensions?.[0]?.params).toEqual({ capabilities: {} });
-  });
-
-  it('buildA2AAgentCard omits extensions[] when not passed', () => {
-    const card = buildA2AAgentCard({ name: 'X', data: null });
-    expect(card.extensions).toBeUndefined();
-  });
-
-  it('buildA2AAgentCard omits extensions[] when passed an empty array (parity with python)', () => {
-    // Python's to_dict skips `extensions` when empty; node skips the same way so
-    // cross-language profiles canonicalize to identical bytes when both omit.
-    const card = buildA2AAgentCard({ name: 'X', data: null, extensions: [] });
-    expect(card.extensions).toBeUndefined();
+  it('ucpA2AExtension({}, { required: true }) declares UCP support as mandatory', () => {
+    const ext = ucpA2AExtension({}, { required: true });
+    expect(ext.required).toBe(true);
   });
 });

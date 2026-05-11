@@ -12,7 +12,7 @@ import { extractPaymentSignerAddress, readX402PaymentHeader } from '../signer';
 import type {
   AgentIdentity,
   AgentScoreCoreOptions,
-  AgentScoreData,
+  AssessResult,
   CreateSessionOnMissing,
   DenialReason,
   FailOpenInfraReason,
@@ -41,7 +41,7 @@ export interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'crea
 export type GuardResult =
   | {
       allowed: true;
-      data?: AgentScoreData;
+      data?: AssessResult;
       captureWallet?: (opts: {
         walletAddress: string;
         network: 'evm' | 'solana';
@@ -155,7 +155,7 @@ export function withAgentScoreGate<TCtx = unknown>(
   handler: (
     req: Request,
     gate: {
-      data?: AgentScoreData;
+      data?: AssessResult;
       captureWallet?: (opts: {
         walletAddress: string;
         network: 'evm' | 'solana';

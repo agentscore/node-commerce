@@ -23,7 +23,8 @@ npm install hono mppx @x402/core @x402/evm @solana/mpp @solana/kit stripe   # wh
 
 | Subpath | What it provides |
 |---|---|
-| `/identity/{hono,express,fastify,nextjs,web}` | Trust gate middleware: KYC, sanctions, age, jurisdiction. `agentscoreGate(...)`, `getAgentScoreData(c)`, `captureWallet(...)`, `verifyWalletSignerMatch(...)`. Plus shared denial helpers: `denialReasonStatus`, `denialReasonToBody`, `buildSignerMismatchBody`, `buildContactSupportNextSteps`, `verificationAgentInstructions`, `isFixableDenial`, `FIXABLE_DENIAL_REASONS`. |
+| `/identity/{hono,express,fastify}` | Trust gate middleware: KYC, sanctions, age, jurisdiction. Context-getter pattern: `agentscoreGate(opts)` middleware + `getAgentScoreData(ctx)` / `getGateDegradedState(ctx)` / `getGateQuotaInfo(ctx)` accessors, `captureWallet(...)`, `verifyWalletSignerMatch(...)`. Plus shared denial helpers: `denialReasonStatus`, `denialReasonToBody`, `buildSignerMismatchBody`, `buildContactSupportNextSteps`, `verificationAgentInstructions`, `isFixableDenial`, `FIXABLE_DENIAL_REASONS`. |
+| `/identity/{nextjs,web}` | Same gate, wrapper pattern: `withAgentScoreGate(opts, handler)` / `createAgentScoreGate(opts) => guard(req)`. The `data` + `degraded` + `infraReason` fields land directly on the handler arg / guard result (no separate getter). Plus shared `captureWallet`, `verifyWalletSignerMatch`. |
 | `/payment` | `networks`, `USDC`, `rails` registries; `paymentDirective`, `buildPaymentDirective`, `wwwAuthenticateHeader`, `paymentRequiredHeader`, `aliasAmountFields` (v1↔v2 amount field shim: emits both `amount` and `maxAmountRequired` so v1-only x402 parsers like Coinbase awal can read v2 bodies), `settlementOverrideHeader`, `dispatchSettlementByNetwork`, `extractPaymentSigner` (returns `{address, network}`); `createX402Server`, `createMppxServer`; drop-in x402 helpers: `validateX402NetworkConfig` (boot-time guard), `verifyX402Request` (parse + validate inbound X-Payment), `processX402Settle` (verify-then-settle with one call), `classifyX402SettleResult` (maps the tagged settle result to a recommended HTTP status / code / nextSteps so merchants get a controlled envelope without coupling to facilitator-specific error text). |
 | `/discovery` | `isDiscoveryProbeRequest`, `buildDiscoveryProbeResponse` (with optional `x402Sample` for x402-aware crawlers, e.g. `awal x402 details`), `sampleX402AcceptForNetwork` (USDC sample-accept builder for known CAIP-2 networks), `buildWellKnownMpp`, `buildLlmsTxt` + `llmsTxtIdentitySection` + `llmsTxtPaymentSection` (compact + verbose modes), `buildSkillMd` (Claude-Skill-compatible `/skill.md` agent-discovery manifest; strictly agent-facing data only, no internal posture), `agentscoreOpenApiSnippets`, `createBazaarDiscovery`, `noindexNonDiscoveryPaths` (Hono middleware that emits `X-Robots-Tag: noindex` on every path except the agent-discovery surfaces; defaults cover `/openapi.json`, `/llms.txt`, `/skill.md`, `/.well-known/{mpp.json,agent-card.json,ucp,jwks.json}`, `/favicon.{png,ico}`; pure helpers `isDiscoveryPath` + `defaultDiscoveryPaths` for non-Hono frameworks). |
 | `/challenge` | `build402Body`, `buildAcceptedMethods`, `buildIdentityMetadata`, `buildHowToPay`, `buildAgentInstructions` (auto-emits per-rail `compatible_clients`: smoke-verified CLIs the agent should use; vendor override supported), `buildPricingBlock`, `firstEncounterAgentMemory`, `OrderReceipt`; `respond402`, a drop-in 402 emit that preserves mppx's `WWW-Authenticate` and layers x402's `PAYMENT-REQUIRED`. `buildValidationError`: structured 4xx body builder (`{error: {code, message}, required_fields?, example_body?, next_steps?, ...extra}`) so vendors compose body shapes by name instead of inlining at every validation site. |
@@ -193,10 +194,19 @@ return new Response(JSON.stringify(responseBody), { status: 402, headers });
 import { buildA2AAgentCard, buildUCPProfile, ucpA2AExtension } from "@agent-score/commerce";
 
 // Google A2A v1.0 Signed Agent Card; publish at /.well-known/agent-card.json.
-// Per UCP §A2A binding, the card MUST declare the canonical UCP extension URI;
-// pass `ucpA2AExtension()` with empty capabilities until you bind formal UCP
-// capabilities (dev.ucp.shopping.checkout, etc.).
-const card = buildA2AAgentCard({ name, url, capabilities, extensions: [ucpA2AExtension()], data: assess });
+// Per UCP §A2A binding, the card MUST declare the canonical UCP extension URI in
+// `capabilities.extensions[]`; pass `ucpA2AExtension()` with empty capabilities
+// until you bind formal UCP capabilities (dev.ucp.shopping.checkout, etc.).
+// Skills are top-level AgentSkill objects; identity claims live in a separate
+// AgentCardSignature (RFC 7515 JWS) wrapping the serialized card.
+const card = buildA2AAgentCard({
+  name,
+  description,
+  url,
+  version: "1.0.0",
+  skills: [{ id: "purchase", name: "Purchase", description: "Buy products via agent payments.", tags: ["commerce", "payment"] }],
+  extensions: [ucpA2AExtension()],
+});
 
 // Google Universal Commerce Protocol; publish at /.well-known/ucp
 // Output shape: { ucp: { version, services, capabilities, payment_handlers,
@@ -209,7 +219,7 @@ const profile = buildUCPProfile({
     'dev.ucp.shopping': [
       { version: '2026-04-08', spec: 'https://ucp.dev/2026-04-08/specification/overview',
         transport: 'mcp', endpoint: 'https://merchant.example/api/ucp/mcp',
-        schema: 'https://ucp.dev/services/shopping/openrpc.json' },
+        schema: 'https://ucp.dev/services/shopping/mcp.openrpc.json' },
     ],
   },
   payment_handlers: {
@@ -220,7 +230,11 @@ const profile = buildUCPProfile({
       config: { recipient: TEMPO_ADDR },
     }],
   },
-  signing_keys, data: assess,
+  signing_keys,
+  // Optional: declare the merchant's gate policy as an `sh.agentscore.identity` capability
+  // binding inside the public profile. Static policy declaration only — no per-operator data.
+  // Per-operator identity attestation lives on the AP2 risk-signal endpoint, not here.
+  agentscore_gate: { require_kyc: true, min_age: 21, allowed_jurisdictions: ['US'] },
 });
 ```
 
@@ -379,7 +393,7 @@ When `failOpen: true` AND the failure is infra-shape, the gate carries `degraded
 
 For regulated commerce (alcohol, age-gated, sanctioned-jurisdiction-relevant) keep the default `failOpen: false`: outage is the correct posture, and bypassing compliance on infra failure is a compliance gap. For low-stakes commerce or high-uptime SLAs, opt in and use the `degraded` flag as the audit trail.
 
-The `getGateDegradedState` helper is exported by every framework adapter (Hono, Express, Fastify, Next.js, Web Fetch). For `withAgentScoreGate` (Next.js / Web Fetch), the `degraded` + `infraReason` fields land directly on the `gate` object passed to your handler.
+The `getGateDegradedState` helper is exported by the context-getter adapters (Hono, Express, Fastify). For the wrapper-pattern adapters (Next.js, Web Fetch via `withAgentScoreGate` / `createAgentScoreGate`), the `degraded` + `infraReason` fields land directly on the `gate` object passed to your handler — no separate getter.
 
 ## Examples
 

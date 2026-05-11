@@ -11,11 +11,11 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import {
-  getAgentScoreData as getExpressAgentScoreData,
+  getAgentScoreData as getExpressAssessResult,
   getGateQuotaInfo as getExpressGateQuotaInfo,
 } from '../src/identity/express';
 import {
-  getAgentScoreData as getFastifyAgentScoreData,
+  getAgentScoreData as getFastifyAssessResult,
   getGateQuotaInfo as getFastifyGateQuotaInfo,
 } from '../src/identity/fastify';
 import { getGateQuotaInfo as getHonoGateQuotaInfo } from '../src/identity/hono';
@@ -33,14 +33,14 @@ const FAKE_QUOTA = { limit: 1000, used: 780, reset: '2026-06-01T00:00:00Z' };
 const FAKE_ASSESS_DATA = { decision: 'allow', operatorToken: null } as const;
 
 describe('express getAgentScoreData', () => {
-  it('returns the attached AgentScoreData', () => {
+  it('returns the attached AssessResult', () => {
     const req = { agentscore: FAKE_ASSESS_DATA } as unknown as ExpressRequest;
-    expect(getExpressAgentScoreData(req)).toBe(FAKE_ASSESS_DATA);
+    expect(getExpressAssessResult(req)).toBe(FAKE_ASSESS_DATA);
   });
 
   it('returns undefined when nothing is attached', () => {
     const req = {} as unknown as ExpressRequest;
-    expect(getExpressAgentScoreData(req)).toBeUndefined();
+    expect(getExpressAssessResult(req)).toBeUndefined();
   });
 });
 
@@ -62,14 +62,14 @@ describe('express getGateQuotaInfo', () => {
 });
 
 describe('fastify getAgentScoreData', () => {
-  it('returns the attached AgentScoreData', () => {
+  it('returns the attached AssessResult', () => {
     const request = { agentscore: FAKE_ASSESS_DATA } as unknown as FastifyRequest;
-    expect(getFastifyAgentScoreData(request)).toBe(FAKE_ASSESS_DATA);
+    expect(getFastifyAssessResult(request)).toBe(FAKE_ASSESS_DATA);
   });
 
   it('returns undefined when nothing is attached', () => {
     const request = {} as unknown as FastifyRequest;
-    expect(getFastifyAgentScoreData(request)).toBeUndefined();
+    expect(getFastifyAssessResult(request)).toBeUndefined();
   });
 });
 

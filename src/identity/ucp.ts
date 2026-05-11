@@ -18,7 +18,6 @@
  * Spec reference: https://ucp.dev/
  */
 
-import type { AgentScoreData } from '../core';
 
 /**
  * UCP per-element shape note: each binding interface (`UCPServiceBinding`,
@@ -45,29 +44,36 @@ export interface UCPSigningKey {
 /**
  * Construct a UCPSigningKey from a public JWK dict (e.g. the `publicJWK` returned by
  * `generateUCPSigningKey()`). Validates required fields and rejects symmetric keys that
- * can't publicly verify a JWS in trust-mode UCP. Symmetric to Python's
- * `UCPSigningKey.from_jwk(public_jwk)` classmethod.
+ * can't publicly verify a JWS in trust-mode UCP. Mirrors python's
+ * `UCPSigningKey.from_jwk(public_jwk)` classmethod via the `UCPSigningKey.fromJWK`
+ * static-method-style namespace export below.
  */
-export function ucpSigningKeyFromJWK(jwk: Record<string, unknown>): UCPSigningKey {
+function ucpSigningKeyFromJWKImpl(jwk: Record<string, unknown>): UCPSigningKey {
   if (!jwk || typeof jwk !== 'object') {
-    throw new Error(`ucpSigningKeyFromJWK expected a non-null object; got ${typeof jwk}.`);
+    throw new Error(`UCPSigningKey.fromJWK expected a non-null object; got ${typeof jwk}.`);
   }
   if (typeof jwk.kid !== 'string' || !jwk.kid) {
-    throw new Error('ucpSigningKeyFromJWK: JWK missing required field `kid` (or non-string).');
+    throw new Error('UCPSigningKey.fromJWK: JWK missing required field `kid` (or non-string).');
   }
   if (typeof jwk.kty !== 'string' || !jwk.kty) {
-    throw new Error('ucpSigningKeyFromJWK: JWK missing required field `kty` (or non-string).');
+    throw new Error('UCPSigningKey.fromJWK: JWK missing required field `kty` (or non-string).');
   }
   if (jwk.kty !== 'OKP' && jwk.kty !== 'EC' && jwk.kty !== 'RSA') {
     throw new Error(
-      `ucpSigningKeyFromJWK: kty=${JSON.stringify(jwk.kty)} is not a supported asymmetric key type (expected OKP, EC, or RSA). Symmetric \`oct\` keys are rejected because they cannot publicly verify a JWS in the trust-mode UCP flow.`,
+      `UCPSigningKey.fromJWK: kty=${JSON.stringify(jwk.kty)} is not a supported asymmetric key type (expected OKP, EC, or RSA). Symmetric \`oct\` keys are rejected because they cannot publicly verify a JWS in the trust-mode UCP flow.`,
     );
   }
   if ((jwk.kty === 'EC' || jwk.kty === 'OKP') && (typeof jwk.crv !== 'string' || !jwk.crv)) {
-    throw new Error(`ucpSigningKeyFromJWK: kty=${jwk.kty} requires a non-empty \`crv\` field (e.g., "P-256" for EC, "Ed25519" for OKP).`);
+    throw new Error(`UCPSigningKey.fromJWK: kty=${jwk.kty} requires a non-empty \`crv\` field (e.g., "P-256" for EC, "Ed25519" for OKP).`);
   }
   return jwk as unknown as UCPSigningKey;
 }
+
+/** Static-method-style namespace on the `UCPSigningKey` interface — mirrors python's
+ *  `UCPSigningKey.from_jwk(jwk)` classmethod. Use as `UCPSigningKey.fromJWK(jwk)`. */
+export const UCPSigningKey = {
+  fromJWK: ucpSigningKeyFromJWKImpl,
+};
 
 /** Transport binding — keyed under a service name (e.g., `dev.ucp.shopping`). */
 export interface UCPServiceBinding {
@@ -108,7 +114,8 @@ export interface UCPCapabilityBinding {
     protocol?: { min: string; max?: string };
     capabilities?: Record<string, { min: string; max?: string }>;
   };
-  /** Vendor-specific extras (e.g., AgentScore claims block on `sh.agentscore.identity`). */
+  /** Vendor-specific extras allowed per UCP convention (e.g., the AgentScore identity
+   *  capability adds a vendor-namespaced policy declaration here). */
   [k: string]: unknown;
 }
 
@@ -175,15 +182,18 @@ export interface BuildUCPProfileInput {
    *  bindings under `'dev.ucp.shopping'`. */
   services?: Record<string, UCPServiceBinding[]>;
   /** Capabilities map, keyed by capability name. The `sh.agentscore.identity` capability
-   *  is auto-added when `data` is provided. */
+   *  is auto-added when `agentscore_gate` is provided. */
   capabilities?: Record<string, UCPCapabilityBinding[]>;
   /** Payment handlers map, keyed by handler reverse-DNS name. */
   payment_handlers?: Record<string, UCPPaymentHandlerBinding[]>;
   /** JWKS — public keys the merchant signs with. REQUIRED by spec. */
   signing_keys: UCPSigningKey[];
-  /** AgentScore assess data — adds an `sh.agentscore.identity` capability + claims
-   *  block when present. */
-  data?: AgentScoreData | null;
+  /** Merchant gate policy declaration. When provided, the SDK auto-injects an
+   *  `sh.agentscore.identity` capability binding into `capabilities`, with the
+   *  policy as the binding's `config`. Static merchant declaration only — no
+   *  per-operator data ever ends up on the public profile. Per-operator identity
+   *  attestation lives on the AP2 risk-signal endpoint, not here. */
+  agentscore_gate?: AgentScoreGatePolicy;
   /** Optional override for the AgentScore capability schema URL. Field is snake_cased
    *  for cross-language parity with the Python sibling. */
   agentscore_schema_url?: string;
@@ -203,15 +213,35 @@ const DEFAULT_VERSION = '2026-04-08';
 // The bare `agentscore-identity` form fails the spec regex; vendor-namespacing under
 // `sh.agentscore` is honest about the capability being our extension, not UCP-canonical.
 const AGENTSCORE_CAPABILITY_NAME = 'sh.agentscore.identity';
-const AGENTSCORE_CAPABILITY_VERSION = '1';
+// Date-format version per UCP convention (matches every other binding's version field).
+const AGENTSCORE_CAPABILITY_VERSION = '2026-04-08';
+
+/** Merchant gate policy declared on the UCP profile via `sh.agentscore.identity` capability config.
+ *  All fields optional; merchant declares which AgentScore checks the gate enforces. Snake-case
+ *  field names match the AgentScore API's `/v1/assess` policy contract verbatim — no conversion
+ *  layer between this declaration and what the gate actually enforces at runtime. */
+export interface AgentScoreGatePolicy {
+  /** Gate denies if the operator/account behind the agent is not Stripe-Identity-verified. */
+  require_kyc?: boolean;
+  /** Gate denies if the operator/account is flagged by OpenSanctions screening. */
+  require_sanctions_clear?: boolean;
+  /** Gate denies if the verified age (from KYC) is below this threshold. Common values: 18, 21. */
+  min_age?: number;
+  /** ISO-3166-1 alpha-2 country codes the gate accepts. Empty/absent allows any. Mutually exclusive
+   *  with `blocked_jurisdictions` (set one or the other, not both). */
+  allowed_jurisdictions?: string[];
+  /** ISO-3166-1 alpha-2 country codes the gate denies. Empty/absent denies none. Mutually exclusive
+   *  with `allowed_jurisdictions`. */
+  blocked_jurisdictions?: string[];
+}
 const AGENTSCORE_DEFAULT_SPEC_URL = 'https://agentscore.sh/specification/identity';
 const AGENTSCORE_DEFAULT_SCHEMA_URL = 'https://agentscore.sh/schemas/ucp/sh-agentscore-identity-v1.json';
-// Multi-parent extension — `sh.agentscore.identity` carries claims relevant at both
-// checkout-build (compliance gate) and cart-build (price-gate eligibility, jurisdiction-
-// restricted items in cart) time. Mirrors the multi-parent convention in the live
-// ecosystem (Shopify's `dev.shopify.catalog.storefront` extends both `catalog.search`
-// and `catalog.lookup`; UCP-canonical `dev.ucp.shopping.discount` extends both checkout
-// and cart).
+// Multi-parent extension — `sh.agentscore.identity` declares merchant policy relevant at
+// both checkout-build (compliance gate) and cart-build (price-gate eligibility, jurisdiction-
+// restricted items in cart) time, so an agent reading either parent capability picks up the
+// policy contract. Mirrors the multi-parent convention in the live ecosystem
+// (Shopify's `dev.shopify.catalog.storefront` extends both `catalog.search` and
+// `catalog.lookup`; UCP-canonical `dev.ucp.shopping.discount` extends both checkout and cart).
 const AGENTSCORE_EXTENDS = ['dev.ucp.shopping.checkout', 'dev.ucp.shopping.cart'];
 
 const RESERVED_TOP_LEVEL = new Set([
@@ -241,9 +271,12 @@ const RESERVED_UCP_FIELDS = new Set([
  * trust-mode verifiers.
  *
  * Auto-injects `sh.agentscore.identity` as a vendor capability extending both
- * `dev.ucp.shopping.checkout` and `dev.ucp.shopping.cart` when `data` carries a
- * resolved operator. Verifiers that recognize the AgentScore namespace can parse
- * the `claims` block; vanilla UCP agents see a normal extension capability.
+ * `dev.ucp.shopping.checkout` and `dev.ucp.shopping.cart` when `agentscore_gate`
+ * is provided. The capability's `config` carries the merchant's static gate
+ * policy declaration (require_kyc / require_sanctions_clear / min_age /
+ * allowed_jurisdictions / blocked_jurisdictions). NO per-operator data is ever
+ * placed on the public profile — per-operator identity attestation flows through
+ * the AP2 risk-signal endpoint, not here.
  *
  * Example:
  * ```ts
@@ -255,7 +288,7 @@ const RESERVED_UCP_FIELDS = new Set([
  *     'dev.ucp.shopping': [
  *       { version: '2026-04-08', spec: 'https://ucp.dev/2026-04-08/specification/overview',
  *         transport: 'mcp', endpoint: 'https://merchant.example/api/ucp/mcp',
- *         schema: 'https://ucp.dev/services/shopping/openrpc.json' },
+ *         schema: 'https://ucp.dev/services/shopping/mcp.openrpc.json' },
  *     ],
  *   },
  *   payment_handlers: {
@@ -268,10 +301,41 @@ const RESERVED_UCP_FIELDS = new Set([
  *     }],
  *   },
  *   signing_keys: [signingKey],
+ *   agentscore_gate: { require_kyc: true, min_age: 21, allowed_jurisdictions: ['US'] },
  * });
  * ```
  */
 export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
+  // Per UCP spec service.json: rest/mcp/a2a transports REQUIRE endpoint;
+  // embedded does not. Validate caller-supplied services so a misconfigured
+  // profile fails locally instead of being rejected by spec-strict platforms.
+  for (const [name, bindings] of Object.entries(input.services ?? {})) {
+    for (const binding of bindings) {
+      if (
+        (binding.transport === 'rest' || binding.transport === 'mcp' || binding.transport === 'a2a')
+        && (binding.endpoint === undefined || binding.endpoint === null || binding.endpoint === '')
+      ) {
+        throw new Error(
+          `buildUCPProfile: service "${name}" transport=${binding.transport} requires \`endpoint\`. Per UCP spec service.json business_schema, rest/mcp/a2a bindings MUST carry an endpoint URL.`,
+        );
+      }
+    }
+  }
+
+  // Per UCP spec payment_handler.json: available_instruments has minItems:1.
+  // Deep-copy each binding and drop available_instruments when empty so a caller
+  // passing `[]` doesn't ship an invalid profile.
+  const paymentHandlers: Record<string, UCPPaymentHandlerBinding[]> = {};
+  for (const [name, bindings] of Object.entries(input.payment_handlers ?? {})) {
+    paymentHandlers[name] = bindings.map((binding) => {
+      if (Array.isArray(binding.available_instruments) && binding.available_instruments.length === 0) {
+        const { available_instruments: _drop, ...rest } = binding;
+        return rest as UCPPaymentHandlerBinding;
+      }
+      return binding;
+    });
+  }
+
   // Deep-clone the capabilities map so we can safely mutate (auto-add the AgentScore
   // identity capability) without altering the caller's input.
   const capabilities: Record<string, UCPCapabilityBinding[]> = {};
@@ -279,45 +343,31 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
     capabilities[name] = [...bindings];
   }
 
-  if (input.data) {
-    const operatorId = input.data.resolved_operator;
-    if (operatorId) {
-      const operatorVerification = input.data.operator_verification;
-      const accountVerification = input.data.account_verification;
-      // `||` (not `??`) coerces both null/undefined AND empty string to the default,
-      // matching the python sibling. The API can return `account_verification` with
-      // either null or `""` for un-set fields; profiles signed in one language must
-      // verify in the other across both shapes.
-      const claims: Record<string, unknown> = {
-        operator_id: operatorId,
-        kyc_level: accountVerification?.kyc_level || operatorVerification?.level || 'none',
-        sanctions_clear: accountVerification?.sanctions_clear === true,
-        age_bracket: accountVerification?.age_bracket || 'unknown',
-        jurisdiction: accountVerification?.jurisdiction || '',
-        verified_at: accountVerification?.verified_at || operatorVerification?.verified_at || null,
-        verify_url: input.data.verify_url ?? null,
-        issuer: 'https://agentscore.sh',
-      };
-      const agentscoreBinding: UCPCapabilityBinding = {
-        version: AGENTSCORE_CAPABILITY_VERSION,
-        spec: input.agentscore_spec_url ?? AGENTSCORE_DEFAULT_SPEC_URL,
-        schema: input.agentscore_schema_url ?? AGENTSCORE_DEFAULT_SCHEMA_URL,
-        extends: AGENTSCORE_EXTENDS,
-        // `claims` is our vendor extra on the binding; allowed per spec via the
-        // `[k: string]: unknown` index signature on UCPCapabilityBinding.
-        claims,
-      };
-      const existing = capabilities[AGENTSCORE_CAPABILITY_NAME];
-      if (existing) existing.push(agentscoreBinding);
-      else capabilities[AGENTSCORE_CAPABILITY_NAME] = [agentscoreBinding];
-    }
+  // Auto-inject `sh.agentscore.identity` capability when the merchant declares a gate
+  // policy. Static merchant-policy declaration only — no per-operator data on the public
+  // profile. Per-operator identity attestation flows through the AP2 risk-signal endpoint
+  // or per-request 4xx response bodies, not here.
+  if (input.agentscore_gate) {
+    const gateConfig = { ...input.agentscore_gate };
+    const agentscoreBinding: UCPCapabilityBinding = {
+      version: AGENTSCORE_CAPABILITY_VERSION,
+      spec: input.agentscore_spec_url ?? AGENTSCORE_DEFAULT_SPEC_URL,
+      schema: input.agentscore_schema_url ?? AGENTSCORE_DEFAULT_SCHEMA_URL,
+      extends: AGENTSCORE_EXTENDS,
+    };
+    // Omit `config` when empty so node + python emit byte-identical canonical output
+    // (python's UCPCapabilityBinding.to_dict already drops empty config).
+    if (Object.keys(gateConfig).length > 0) agentscoreBinding.config = gateConfig;
+    const existing = capabilities[AGENTSCORE_CAPABILITY_NAME];
+    if (existing) existing.push(agentscoreBinding);
+    else capabilities[AGENTSCORE_CAPABILITY_NAME] = [agentscoreBinding];
   }
 
   const ucp: UCPProfileBody = {
     version: input.version ?? DEFAULT_VERSION,
     services: input.services ?? {},
     capabilities,
-    payment_handlers: input.payment_handlers ?? {},
+    payment_handlers: paymentHandlers,
   };
   if (input.name !== undefined) ucp.name = input.name;
   if (input.supported_versions !== undefined) ucp.supported_versions = input.supported_versions;

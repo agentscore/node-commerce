@@ -9,7 +9,7 @@ Every helper is extracted from a real consumer, not speculated.
 | Subpath | What it is |
 |---|---|
 | `@agent-score/commerce/identity/{hono,express,fastify,nextjs,web}` | Trust gate middleware (KYC, age, sanctions, jurisdiction) |
-| `@agent-score/commerce/identity/policy` | Framework-agnostic per-product / per-tier compliance policy helpers: `PolicyBlock`, `policyToGateOptions`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed` |
+| `@agent-score/commerce/identity/policy` | Framework-agnostic per-product / per-tier compliance policy helpers: `PolicyBlock`, `buildGateOptionsFromPolicy`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed` |
 | `@agent-score/commerce/payment` | Networks/USDC/rails registries, paymentauth.org directive builders, `createX402Server` (peer-dep `@x402/core` + `@coinbase/x402` for the Coinbase facilitator), `buildX402AcceptsFor402` (one-call helper for the 402-emit path: builds the requirements via the registered scheme so `extra.name` matches the on-chain USDC contract per network), `createMppxServer` (peer-dep `mppx`), `processX402Settle` (verify+settle in one call), dispatch-by-network, signer extraction, WWW-Authenticate header, Settlement-Overrides header |
 | `@agent-score/commerce/discovery` | Discovery probe middleware, Bazaar wrapper, `/.well-known/mpp.json` builder, `llms.txt` builder, `skill.md` builder (Claude-Skill-compatible agent-discovery manifest), OpenAPI snippets, `noindexNonDiscoveryPaths` Hono middleware |
 | `@agent-score/commerce/challenge` | 402-body builders: accepted_methods, identity metadata, how_to_pay, agent_instructions, build402Body, `buildValidationError` (4xx body builder) |
@@ -18,7 +18,7 @@ Every helper is extracted from a real consumer, not speculated.
 
 ## Architecture
 
-Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framework identity adapters expose the same surface (`agentscoreGate`, `captureWallet`, `getAgentScoreData`, `verifyWalletSignerMatch`, `getGateDegradedState`, `getGateQuotaInfo`) with network-aware address normalization (EVM lowercased, Solana base58 preserved verbatim).
+Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framework identity adapters split by mounting style: hono/express/fastify expose the context-getter surface (`agentscoreGate(opts)` middleware + `getAgentScoreData(ctx)` / `getGateDegradedState(ctx)` / `getGateQuotaInfo(ctx)` accessors); nextjs/web expose the wrapper surface (`withAgentScoreGate(opts, handler)` / `createAgentScoreGate(opts) => guard(req)` which pass `data` + `degraded` + `infraReason` directly on the handler arg / guard result). All five share `captureWallet`, `verifyWalletSignerMatch`, and network-aware address normalization (EVM lowercased, Solana base58 preserved verbatim).
 
 | Directory | Contents |
 |---|---|
@@ -30,7 +30,7 @@ Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framew
 | `src/stripe-multichain/` | Stripe multichain PaymentIntent helpers |
 | `src/api/` | `AgentScore` re-export from sdk |
 | `examples/` | Runnable single-file Hono apps for each common scenario |
-| `tests/` | Vitest, one file per surface, ~750+ tests |
+| `tests/` | Vitest, one file per surface |
 
 Peer-dep pattern: payment/x402/mppx/stripe modules `dynamic import` at runtime, so vendors install only what they use (`@x402/core`, `@x402/evm`, `@coinbase/x402`, `mppx`, `@solana/mpp`, `@solana/kit`, `stripe`). Missing peer dep throws a guiding error with the install command. x402 in this SDK is EVM-only; Solana SPL payments go through MPP `solana/charge` (`@solana/mpp/server`).
 
@@ -46,8 +46,8 @@ Peer-dep pattern: payment/x402/mppx/stripe modules `dynamic import` at runtime, 
 | `stripe-multichain-merchant.ts` | Stripe-anchored multichain (PaymentIntent → tempo/base/solana deposit addresses) |
 | `variable-cost-merchant.ts` | Pay-per-actual-usage on **two protocols**: x402 upto (Permit2 + Settlement-Overrides) AND MPP tempo session (channel + SSE + mid-stream vouchers) |
 | `compliance-merchant.ts` | Regulated-goods merchant: full compliance gate + custom `onDenied` composing the denial helpers (`verificationAgentInstructions`, `isFixableDenial`, `buildSignerMismatchBody`, `buildContactSupportNextSteps`, `denialReasonToBody`/`denialReasonStatus`) |
-| `per-product-policy-merchant.ts` | Multi-product merchant where each product carries its own compliance policy: wine has hard gate (KYC + 21 + state allowlist), tee has none (anonymous), limited print uses `enforcement: 'soft'` (request KYC, accept anonymous, stamp `identity_status: 'unverified'`). Demonstrates `PolicyBlock`, `policyToGateOptions`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed`. |
-| `signed-ucp-merchant.ts` | Signed UCP profile (`/.well-known/ucp`) + JWKS endpoint (`/.well-known/jwks.json`). AgentScore's `agentscore-profile+jws` is a vendor extension on top of UCP for trust-mode verifiers (regulated-commerce, AP2-aware) that opt into auditable cryptographic provenance — UCP §6 itself does NOT mandate signing; production UCP merchants commonly ship unsigned. Wires ephemeral-for-dev / env-JWK-for-prod signing, kid rotation, and `Cache-Control` posture. Uses `generateUCPSigningKey`, `signUCPProfile`, `buildJWKSResponse`, `ucpSigningKeyFromJWK`, `UCPVerificationError`. |
+| `per-product-policy-merchant.ts` | Multi-product merchant where each product carries its own compliance policy: wine has hard gate (KYC + 21 + state allowlist), tee has none (anonymous), limited print uses `enforcement: 'soft'` (request KYC, accept anonymous, stamp `identity_status: 'unverified'`). Demonstrates `PolicyBlock`, `buildGateOptionsFromPolicy`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed`. |
+| `signed-ucp-merchant.ts` | Signed UCP profile (`/.well-known/ucp`) + JWKS endpoint (`/.well-known/jwks.json`). AgentScore's `agentscore-profile+jws` is a vendor extension on top of UCP for trust-mode verifiers (regulated-commerce, AP2-aware) that opt into auditable cryptographic provenance — UCP §6 itself does NOT mandate signing; production UCP merchants commonly ship unsigned. Wires ephemeral-for-dev / env-JWK-for-prod signing, kid rotation, and `Cache-Control` posture. Uses `generateUCPSigningKey`, `signUCPProfile`, `buildJWKSResponse`, `UCPSigningKey.fromJWK`, `UCPVerificationError`. |
 
 ## Identity model
 

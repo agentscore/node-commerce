@@ -13,7 +13,7 @@ import type {
   AgentIdentity,
   AgentScoreCore,
   AgentScoreCoreOptions,
-  AgentScoreData,
+  AssessResult,
   CreateSessionOnMissing,
   DenialReason,
   FailOpenInfraReason,
@@ -116,8 +116,8 @@ const agentscoreGatePlugin: FastifyPluginAsync<AgentScoreGateOptions> = async (f
  * Retrieve AgentScore assess data attached to a Fastify request by the gate. Returns
  * `undefined` if the gate did not run or attached no data.
  */
-export function getAgentScoreData(request: FastifyRequest): AgentScoreData | undefined {
-  return (request as unknown as Record<string, AgentScoreData | undefined>).agentscore;
+export function getAgentScoreData(request: FastifyRequest): AssessResult | undefined {
+  return (request as unknown as Record<string, AssessResult | undefined>).agentscore;
 }
 
 /**

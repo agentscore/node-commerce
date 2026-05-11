@@ -5,7 +5,7 @@
     "": {
       "name": "@agent-score/gate",
       "dependencies": {
-        "@agent-score/sdk": "^2.2.0",
+        "@agent-score/sdk": "^2.2.1",
       },
       "devDependencies": {
         "@coinbase/x402": "^2.1.0",
@@ -60,7 +60,7 @@
   "packages": {
     "@adraffy/ens-normalize": ["@adraffy/ens-normalize@1.11.1", "", {}, "sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ=="],
 
-    "@agent-score/sdk": ["@agent-score/sdk@2.2.0", "", {}, "sha512-o5pQCic9PkzmlxuUVQ64TD8xk755QnAWOO9He7vfcZVzfzG1b885yUpn7IFhH9Q7CtWmbif7zQFs+vk2ZMYZgw=="],
+    "@agent-score/sdk": ["@agent-score/sdk@2.2.1", "", {}, "sha512-amnhoGkzRjHtafhKfoukCiYBjVsyeiQiouQ+6vBSsixkma3oZfjpxG3JelS4L8SSqWQ6bv8v9K8rdkJJjR+27A=="],
 
     "@babel/helper-string-parser": ["@babel/helper-string-parser@7.27.1", "", {}, "sha512-qMlSxKbpRlAridDExk92nSobyDdpPijUq2DW6oDnUqd0iOGxmQjyqhMIihI9+zv4LPyZdRje2cavWPbCbWm3eA=="],
 
