@@ -50,7 +50,7 @@ export interface MultichainPaymentIntentResult {
  * address on whichever chain they prefer (via x402 or MPP), and Stripe auto-captures
  * the PI when funds land.
  *
- * This is the path used by martin-estate for the multi-chain x402 + Tempo flow.
+ * This is the canonical path for the multi-chain x402 + Tempo flow.
  * Distinct from the Stripe SPT (Shared Payment Token) flow, which is handled via
  * `createMppxStripe` + the agent's own Stripe account or `link-cli`.
  */

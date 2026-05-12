@@ -74,7 +74,7 @@ export interface BuildAcceptedMethodsInput {
 /**
  * Build the `accepted_methods[]` array for an enriched 402 body. Each rail entry is
  * conditionally included based on whether the vendor passed it. Per-rail shapes follow
- * the conventions established in martin-estate's reference 402.
+ * a canonical 402 shape across rails.
  */
 export function buildAcceptedMethods(input: BuildAcceptedMethodsInput): AcceptedMethodEntry[] {
   const out: AcceptedMethodEntry[] = [];

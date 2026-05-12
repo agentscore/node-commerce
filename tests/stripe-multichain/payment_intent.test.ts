@@ -36,12 +36,12 @@ describe('createMultichainPaymentIntent', () => {
       stripe,
       amount: 100,
       idempotencyKey: 'order-123',
-      metadata: { order_id: 'order-123', merchant: 'martin-estate' },
+      metadata: { order_id: 'order-123', merchant: 'example-merchant' },
     });
     const [params, opts] = stripe._create.mock.calls[0]!;
     expect((params as { metadata: Record<string, string> }).metadata).toEqual({
       order_id: 'order-123',
-      merchant: 'martin-estate',
+      merchant: 'example-merchant',
     });
     expect(opts).toEqual({ idempotencyKey: 'order-123' });
   });
