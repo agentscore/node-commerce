@@ -6,9 +6,8 @@
  * to test the marshaling.
  *
  * Body shape: `{ error: { code, message }, ... }` — matches the canonical AgentScore
- * core API response shape (`core/api/src/lib/auth.ts`, `lib/rate-limit.ts`, etc.) and
- * martin-estate's pre-commerce shape, so downstream agents see one consistent
- * `error.code` + `error.message` pair regardless of which layer produced the denial.
+ * error envelope so downstream agents see one consistent `error.code` +
+ * `error.message` pair regardless of which layer produced the denial.
  */
 
 import type { DenialCode, DenialReason } from './core.js';

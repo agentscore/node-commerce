@@ -5,7 +5,7 @@ describe('buildSkillMd', () => {
   const baseInput = {
     name: 'example-merchant-commerce',
     description: 'Buy from Example Merchant via an AI agent',
-    homepage: 'https://martin-estate.com',
+    homepage: 'https://example-merchant.com',
     merchantName: 'Example Merchant',
     acceptedRails: ['tempo_mpp', 'x402_base', 'solana_mpp', 'stripe'] as const,
     endpoints: [
@@ -23,7 +23,7 @@ describe('buildSkillMd', () => {
       expect(out).toContain('description: "Buy from Example Merchant via an AI agent"');
       expect(out).toContain('metadata:');
       expect(out).toContain('  version: "1"');
-      expect(out).toContain('  homepage: "https://martin-estate.com"');
+      expect(out).toContain('  homepage: "https://example-merchant.com"');
     });
 
     it('emits version as a quoted string per spec (string keys to string values)', () => {
@@ -80,7 +80,7 @@ describe('buildSkillMd', () => {
       expect(out).toContain('  author: "agentscore"');
       expect(out).toContain('  vendor_id: "me-001"');
       expect(out).toContain('  version: "1"');
-      expect(out).toContain('  homepage: "https://martin-estate.com"');
+      expect(out).toContain('  homepage: "https://example-merchant.com"');
       expect(out).not.toContain('IGNORED');
     });
   });
@@ -95,7 +95,7 @@ describe('buildSkillMd', () => {
     });
 
     it('rejects name with uppercase characters', () => {
-      expect(() => buildSkillMd({ ...baseInput, name: 'Martin-Estate' })).toThrow(/lowercase/);
+      expect(() => buildSkillMd({ ...baseInput, name: 'Example-Merchant' })).toThrow(/lowercase/);
     });
 
     it('rejects name with leading hyphen', () => {
@@ -153,24 +153,24 @@ describe('buildSkillMd', () => {
     it('emits the SKILL.md self-reference', () => {
       const out = buildSkillMd(baseInput);
       expect(out).toContain('## Important Files');
-      expect(out).toContain('| **SKILL.md** (this file) | `https://martin-estate.com/skill.md` |');
+      expect(out).toContain('| **SKILL.md** (this file) | `https://example-merchant.com/skill.md` |');
     });
 
     it('appends caller-supplied files', () => {
       const out = buildSkillMd({
         ...baseInput,
         files: [
-          { label: 'llms.txt', url: 'https://martin-estate.com/llms.txt' },
-          { label: 'OpenAPI', url: 'https://martin-estate.com/openapi.json' },
+          { label: 'llms.txt', url: 'https://example-merchant.com/llms.txt' },
+          { label: 'OpenAPI', url: 'https://example-merchant.com/openapi.json' },
         ],
       });
-      expect(out).toContain('| llms.txt | `https://martin-estate.com/llms.txt` |');
-      expect(out).toContain('| OpenAPI | `https://martin-estate.com/openapi.json` |');
+      expect(out).toContain('| llms.txt | `https://example-merchant.com/llms.txt` |');
+      expect(out).toContain('| OpenAPI | `https://example-merchant.com/openapi.json` |');
     });
 
     it('strips trailing slash from homepage when computing skill.md URL', () => {
-      const out = buildSkillMd({ ...baseInput, homepage: 'https://martin-estate.com/' });
-      expect(out).toContain('`https://martin-estate.com/skill.md`');
+      const out = buildSkillMd({ ...baseInput, homepage: 'https://example-merchant.com/' });
+      expect(out).toContain('`https://example-merchant.com/skill.md`');
       expect(out).not.toContain('//skill.md');
     });
 
@@ -391,12 +391,12 @@ describe('buildSkillMd', () => {
       const out = buildSkillMd({
         ...baseInput,
         supportLinks: [
-          { label: 'Homepage', url: 'https://martin-estate.com' },
+          { label: 'Homepage', url: 'https://example-merchant.com' },
           { label: 'Pay CLI', url: 'https://github.com/agentscore/pay' },
         ],
       });
       expect(out).toContain('## Support');
-      expect(out).toContain('- **Homepage**: https://martin-estate.com');
+      expect(out).toContain('- **Homepage**: https://example-merchant.com');
       expect(out).toContain('- **Pay CLI**: https://github.com/agentscore/pay');
     });
   });
