@@ -26,6 +26,31 @@
  * python sibling models these as dataclasses with an explicit `extras: dict` field. Both
  * designs offer equivalent guarantees through different mechanisms.
  */
+// ─── Payment handler builders ─────────────────────────────────────────────
+// Vendors compose UCP `payment_handlers` blocks by spreading these helpers.
+// The helpers fill in id/version/spec/schema/config wrapper so vendors only
+// supply merchant-specific data (networks + recipients + profile_id).
+//
+//   payment_handlers: {
+//     ...mppPaymentHandler({ networks: [...] }),
+//     ...x402PaymentHandler({ networks: [...] }),
+//     ...stripeSptPaymentHandler({ profile_id: '...' }),
+//   }
+//
+// Each helper returns `{ [reverse-DNS-key]: [binding] }` so spreading into
+// the parent map composes cleanly. The reverse-DNS keys + spec/schema URLs
+// + handler `version` are owned by these constants; bumping a handler spec
+// version is a one-line change here, not 20 lines across consumers.
+
+import {
+  type RecipientLike,
+  type SolanaMppRailSpec,
+  type StripeRailSpec,
+  type TempoRailSpec,
+  type TempoSessionRailSpec,
+  type X402BaseRailSpec,
+} from '../payment/rail_spec';
+
 export interface UCPSigningKey {
   /** JWK kid (key id). */
   kid: string;
@@ -394,68 +419,102 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
 
 export const AGENTSCORE_UCP_CAPABILITY = AGENTSCORE_CAPABILITY_NAME;
 
-// ─── Payment handler builders ─────────────────────────────────────────────
-// Vendors compose UCP `payment_handlers` blocks by spreading these helpers.
-// The helpers fill in id/version/spec/schema/config wrapper so vendors only
-// supply merchant-specific data (networks + recipients + profile_id).
-//
-//   payment_handlers: {
-//     ...mppPaymentHandler({ networks: [...] }),
-//     ...x402PaymentHandler({ networks: [...] }),
-//     ...stripeSptPaymentHandler({ profile_id: '...' }),
-//   }
-//
-// Each helper returns `{ [reverse-DNS-key]: [binding] }` so spreading into
-// the parent map composes cleanly. The reverse-DNS keys + spec/schema URLs
-// + handler `version` are owned by these constants; bumping a handler spec
-// version is a one-line change here, not 20 lines across consumers.
-
 const HANDLER_VERSION = '2026-04-08';
 const SPEC_BASE = 'https://agentscore.sh/specification/payment-handlers';
 const SCHEMA_BASE = 'https://agentscore.sh/schemas/payment-handlers';
 
-type MppNetwork =
-  | 'tempo-mainnet'
-  | 'tempo-testnet'
-  | 'mpp-solana-mainnet'
-  | 'mpp-solana-devnet'
-  | (string & {}); // open for forward-compat (mpp-stellar-pubnet, mpp-lightning-mainnet, …)
+// CAIP-2 → UCP-namespace network-name mapping. UCP payment_handler bindings publish
+// network strings in the UCP namespace (`base-8453`, `solana-mainnet-beta`); RailSpecs
+// carry the CAIP-2 form (`eip155:8453`, `solana:5eykt4...`). Unknown values pass
+// through verbatim — vendors who pin a non-standard rail can override the spec's
+// network field directly.
+const CAIP2_TO_UCP_NETWORK: Record<string, string> = {
+  'eip155:8453': 'base-8453',
+  'eip155:84532': 'base-84532',
+  'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp': 'solana-mainnet-beta',
+  'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1': 'solana-devnet',
+};
 
-export interface MppNetworkEntry {
-  network: MppNetwork;
-  /** EVM-style chain id (e.g. 4217 for Tempo mainnet). Omit for non-EVM networks. */
-  chain_id?: number;
-  /** Static settlement address. Omit for per-order recipients (e.g. Stripe-derived deposits). */
-  recipient?: string;
-  [k: string]: unknown;
+function ucpNetworkName(caip2OrUcp: string | undefined, fallback: string): string {
+  if (caip2OrUcp === undefined) return fallback;
+  return CAIP2_TO_UCP_NETWORK[caip2OrUcp] ?? caip2OrUcp;
 }
 
-
-type X402Network =
-  | `base-${number}`
-  | 'solana-mainnet-beta'
-  | 'solana-devnet'
-  | 'stellar-pubnet'
-  | 'stellar-testnet'
-  | (string & {});
-
-export interface X402NetworkEntry {
-  network: X402Network;
-  /** Static settlement address. Omit for per-order recipients. */
-  recipient?: string;
-  [k: string]: unknown;
+/**
+ * Return the recipient as a string when it's already concrete; `undefined` for factories.
+ * Per-order factory recipients cannot be advertised in the static UCP profile — the
+ * authoritative recipient ships in the 402 body at request time instead.
+ */
+function staticRecipient(r: RecipientLike): string | undefined {
+  return typeof r === 'string' ? r : undefined;
 }
 
+function tempoToNetworkEntry(spec: TempoRailSpec): Record<string, unknown> {
+  const entry: Record<string, unknown> = {
+    network: spec.testnet ? 'tempo-testnet' : (spec.network ?? 'tempo-mainnet'),
+    chain_id: spec.chainId ?? 4217,
+  };
+  const recipient = staticRecipient(spec.recipient);
+  if (recipient !== undefined) entry.recipient = recipient;
+  return entry;
+}
+
+function solanaMppToNetworkEntry(spec: SolanaMppRailSpec): Record<string, unknown> {
+  const entry: Record<string, unknown> = {
+    network: ucpNetworkName(spec.network, 'solana-mainnet-beta'),
+  };
+  const recipient = staticRecipient(spec.recipient);
+  if (recipient !== undefined) entry.recipient = recipient;
+  return entry;
+}
+
+function tempoSessionToNetworkEntry(spec: TempoSessionRailSpec): Record<string, unknown> {
+  const entry: Record<string, unknown> = {
+    network: spec.testnet ? 'tempo-testnet' : 'tempo-mainnet',
+    escrow_contract: spec.escrowContract,
+  };
+  const recipient = staticRecipient(spec.recipient);
+  if (recipient !== undefined) entry.recipient = recipient;
+  return entry;
+}
+
+type MppRailSpec = TempoRailSpec | SolanaMppRailSpec | TempoSessionRailSpec;
+
+function isTempoRailSpec(s: MppRailSpec): s is TempoRailSpec {
+  return !('escrowContract' in s) && !('rpcUrl' in s) && !('tokenProgram' in s);
+}
+
+function isTempoSessionRailSpec(s: MppRailSpec): s is TempoSessionRailSpec {
+  return 'escrowContract' in s && 'store' in s;
+}
+
+function mppRailToNetworkEntry(spec: MppRailSpec): Record<string, unknown> {
+  if (isTempoSessionRailSpec(spec)) return tempoSessionToNetworkEntry(spec);
+  if ('rpcUrl' in spec || 'tokenProgram' in spec || (spec.network?.startsWith('solana:') ?? false)) {
+    return solanaMppToNetworkEntry(spec as SolanaMppRailSpec);
+  }
+  if (isTempoRailSpec(spec)) return tempoToNetworkEntry(spec);
+  // Default: treat as TempoRailSpec — covers the common case where the caller passes
+  // a bare `{recipient}` with no network/chain_id override.
+  return tempoToNetworkEntry(spec as TempoRailSpec);
+}
 
 /**
  * Build the `sh.agentscore.payment.mpp` payment handler block for a UCP profile.
+ *
+ * Pass any mix of `TempoRailSpec`, `SolanaMppRailSpec`, and `TempoSessionRailSpec`.
  *
  * @example
  * ```ts
  * buildUCPProfile({
  *   ...,
  *   payment_handlers: {
- *     ...mppPaymentHandler({ networks: [{ network: 'tempo-mainnet', chain_id: 4217 }] }),
+ *     ...mppPaymentHandler({
+ *       networks: [
+ *         { recipient: '0xtempo' },        // TempoRailSpec
+ *         { recipient: 'solanaaddr', network: 'solana:5eykt4...' },  // SolanaMppRailSpec
+ *       ],
+ *     }),
  *   },
  * });
  * ```
@@ -463,7 +522,7 @@ export interface X402NetworkEntry {
 export function mppPaymentHandler({
   networks,
 }: {
-  networks: MppNetworkEntry[];
+  networks: MppRailSpec[];
 }): Record<string, UCPPaymentHandlerBinding[]> {
   return {
     'sh.agentscore.payment.mpp': [{
@@ -471,9 +530,18 @@ export function mppPaymentHandler({
       version: HANDLER_VERSION,
       spec: `${SPEC_BASE}/mpp`,
       schema: `${SCHEMA_BASE}/mpp.json`,
-      config: { networks },
+      config: { networks: networks.map(mppRailToNetworkEntry) },
     }],
   };
+}
+
+function x402RailToNetworkEntry(spec: X402BaseRailSpec): Record<string, unknown> {
+  const entry: Record<string, unknown> = {
+    network: ucpNetworkName(spec.network, 'base-8453'),
+  };
+  const recipient = staticRecipient(spec.recipient);
+  if (recipient !== undefined) entry.recipient = recipient;
+  return entry;
 }
 
 /**
@@ -484,7 +552,7 @@ export function mppPaymentHandler({
  * buildUCPProfile({
  *   ...,
  *   payment_handlers: {
- *     ...x402PaymentHandler({ networks: [{ network: 'base-8453', recipient: '0xabc...' }] }),
+ *     ...x402PaymentHandler({ networks: [{ recipient: '0xabc...' }] }),
  *   },
  * });
  * ```
@@ -492,7 +560,7 @@ export function mppPaymentHandler({
 export function x402PaymentHandler({
   networks,
 }: {
-  networks: X402NetworkEntry[];
+  networks: X402BaseRailSpec[];
 }): Record<string, UCPPaymentHandlerBinding[]> {
   return {
     'sh.agentscore.payment.x402': [{
@@ -500,7 +568,7 @@ export function x402PaymentHandler({
       version: HANDLER_VERSION,
       spec: `${SPEC_BASE}/x402`,
       schema: `${SCHEMA_BASE}/x402.json`,
-      config: { networks },
+      config: { networks: networks.map(x402RailToNetworkEntry) },
     }],
   };
 }
@@ -513,16 +581,15 @@ export function x402PaymentHandler({
  * buildUCPProfile({
  *   ...,
  *   payment_handlers: {
- *     ...stripeSptPaymentHandler({ profile_id: 'profile_5xKvNqM9BaH' }),
+ *     ...stripeSptPaymentHandler({ spec: { profileId: 'profile_5xKvNqM9BaH' } }),
  *   },
  * });
  * ```
  */
 export function stripeSptPaymentHandler({
-  profile_id,
+  spec,
 }: {
-  /** Stripe profile id (the merchant-side network identifier the agent's SPT is scoped to). */
-  profile_id: string;
+  spec: StripeRailSpec;
 }): Record<string, UCPPaymentHandlerBinding[]> {
   return {
     'sh.agentscore.payment.stripe_spt': [{
@@ -530,7 +597,7 @@ export function stripeSptPaymentHandler({
       version: HANDLER_VERSION,
       spec: `${SPEC_BASE}/stripe_spt`,
       schema: `${SCHEMA_BASE}/stripe_spt.json`,
-      config: { rail: 'stripe-spt', profile_id },
+      config: { rail: 'stripe-spt', profile_id: spec.profileId ?? null },
     }],
   };
 }
