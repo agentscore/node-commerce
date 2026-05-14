@@ -22,11 +22,6 @@ export const X402_SUPPORTED_BASE_NETWORKS = new Set<string>([
   networks.base.sepolia.caip2,
 ]);
 
-export interface ValidateX402NetworkConfigInput {
-  /** CAIP-2 base network string (e.g. `'eip155:8453'`). */
-  baseNetwork: string;
-}
-
 /**
  * Boot-time guard: throws if the base network isn't supported. Call once at module
  * init / server boot.
@@ -35,26 +30,15 @@ export interface ValidateX402NetworkConfigInput {
  * options — agents tracking down a misconfigured deploy don't need to grep for the
  * supported list.
  */
-export function validateX402NetworkConfig(input: ValidateX402NetworkConfigInput): void {
-  if (!X402_SUPPORTED_BASE_NETWORKS.has(input.baseNetwork)) {
+export function validateX402NetworkConfig({ baseNetwork }: { baseNetwork: string }): void {
+  if (!X402_SUPPORTED_BASE_NETWORKS.has(baseNetwork)) {
     throw new Error(
-      `X402_BASE_NETWORK=${input.baseNetwork} is not supported. Use one of: ${[...X402_SUPPORTED_BASE_NETWORKS].join(', ')}`,
+      `X402_BASE_NETWORK=${baseNetwork} is not supported. Use one of: ${[...X402_SUPPORTED_BASE_NETWORKS].join(', ')}`,
     );
   }
 }
 
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
-
-export interface VerifyX402RequestInput {
-  /** The incoming Request — `verifyX402Request` reads the X-Payment / payment-signature header. */
-  request: Request;
-  /** Async lookup that returns true when the address was minted by this merchant
-   *  (typically `piCache.hasAddress`). The check validates that the credential's
-   *  deposit address matches one the merchant actually minted. */
-  isCachedAddress: (address: string) => Promise<boolean>;
-  /** The merchant's accepted Base network. CAIP-2, e.g. `'eip155:8453'`. */
-  acceptedNetwork: string;
-}
 
 export type VerifyX402RequestResult =
   | {
@@ -112,10 +96,23 @@ function regenerateBody(message: string, userMessage: string) {
  * Reads the header from `payment-signature` first, falling back to `x-payment` (both
  * are in the wild as the binary-friendly transport name evolved).
  */
-export async function verifyX402Request(input: VerifyX402RequestInput): Promise<VerifyX402RequestResult> {
+export async function verifyX402Request({
+  request,
+  isCachedAddress,
+  acceptedNetwork,
+}: {
+  /** The incoming Request — `verifyX402Request` reads the X-Payment / payment-signature header. */
+  request: Request;
+  /** Async lookup that returns true when the address was minted by this merchant
+   *  (typically `piCache.hasAddress`). The check validates that the credential's
+   *  deposit address matches one the merchant actually minted. */
+  isCachedAddress: (address: string) => Promise<boolean>;
+  /** The merchant's accepted Base network. CAIP-2, e.g. `'eip155:8453'`. */
+  acceptedNetwork: string;
+}): Promise<VerifyX402RequestResult> {
   const headerValue =
-    input.request.headers.get('payment-signature')
-    ?? input.request.headers.get('x-payment');
+    request.headers.get('payment-signature')
+    ?? request.headers.get('x-payment');
   if (!headerValue) {
     return {
       ok: false,
@@ -144,13 +141,13 @@ export async function verifyX402Request(input: VerifyX402RequestInput): Promise<
   const signedNetwork = payload.accepted?.network;
   const signedPayTo = payload.accepted?.payTo;
 
-  if (!signedNetwork || signedNetwork !== input.acceptedNetwork) {
+  if (!signedNetwork || signedNetwork !== acceptedNetwork) {
     if (signedNetwork && signedNetwork.toLowerCase().startsWith('solana:')) {
       return {
         ok: false,
         status: 400,
         body: regenerateBody(
-          `x402 on ${signedNetwork} is not accepted; Solana payments must use the \`solana/charge\` rail advertised in the 402 challenge. This server accepts x402 on ${input.acceptedNetwork} only.`,
+          `x402 on ${signedNetwork} is not accepted; Solana payments must use the \`solana/charge\` rail advertised in the 402 challenge. This server accepts x402 on ${acceptedNetwork} only.`,
           'Solana payments are not accepted over x402 at this merchant. Pick the `solana/charge` rail from the 402 challenge and re-sign.',
         ),
       };
@@ -159,7 +156,7 @@ export async function verifyX402Request(input: VerifyX402RequestInput): Promise<
       ok: false,
       status: 400,
       body: regenerateBody(
-        `Unsupported x402 network ${signedNetwork ?? '<missing>'}; this server accepts ${input.acceptedNetwork}.`,
+        `Unsupported x402 network ${signedNetwork ?? '<missing>'}; this server accepts ${acceptedNetwork}.`,
         'The credential signed for an unsupported network. Pick the accepted network from the 402 challenge and re-sign.',
       ),
     };
@@ -178,7 +175,7 @@ export async function verifyX402Request(input: VerifyX402RequestInput): Promise<
     };
   }
 
-  if (!(await input.isCachedAddress(signedPayTo))) {
+  if (!(await isCachedAddress(signedPayTo))) {
     return {
       ok: false,
       status: 400,
