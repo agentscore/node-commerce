@@ -16,7 +16,30 @@ export const STRIPE_TEST_TX_HASH_SUCCESS =
 export const STRIPE_TEST_TX_HASH_FAILED =
   '0x000000000000000000000000000000000000000000000000000000testfailed';
 
-export interface SimulateCryptoDepositInput {
+const DEFAULT_BUYER_WALLET: Record<string, string> = {
+  base: '0x0000000000000000000000000000000000000001',
+  tempo: '0x0000000000000000000000000000000000000001',
+  solana: '11111111111111111111111111111111',
+};
+
+/**
+ * Call Stripe's `test_helpers/payment_intents/{id}/simulate_crypto_deposit` endpoint. Used
+ * in testnet/dev to simulate a deposit landing on a PaymentIntent so the integration
+ * end-to-end can be exercised without on-chain transfers.
+ *
+ * Throws on non-2xx responses (returns Stripe's error body in the message).
+ */
+export async function simulateCryptoDeposit({
+  paymentIntentId,
+  network,
+  buyerWallet,
+  tokenCurrency,
+  transactionHash,
+  stripeSecretKey,
+  stripeVersion,
+  stripeApiBase,
+  extra,
+}: {
   /** Stripe PaymentIntent id to simulate a deposit on. */
   paymentIntentId: string;
   /** Network the simulated deposit lands on. */
@@ -35,59 +58,26 @@ export interface SimulateCryptoDepositInput {
   stripeApiBase?: string;
   /** Arbitrary additional form params to merge into the request body. */
   extra?: Record<string, string>;
-}
-
-const DEFAULT_BUYER_WALLET: Record<string, string> = {
-  base: '0x0000000000000000000000000000000000000001',
-  tempo: '0x0000000000000000000000000000000000000001',
-  solana: '11111111111111111111111111111111',
-};
-
-/**
- * Call Stripe's `test_helpers/payment_intents/{id}/simulate_crypto_deposit` endpoint. Used
- * in testnet/dev to simulate a deposit landing on a PaymentIntent so the integration
- * end-to-end can be exercised without on-chain transfers.
- *
- * Throws on non-2xx responses (returns Stripe's error body in the message).
- */
-export async function simulateCryptoDeposit(input: SimulateCryptoDepositInput): Promise<void> {
-  const url = `${input.stripeApiBase ?? 'https://api.stripe.com'}/v1/test_helpers/payment_intents/${input.paymentIntentId}/simulate_crypto_deposit`;
+}): Promise<void> {
+  const url = `${stripeApiBase ?? 'https://api.stripe.com'}/v1/test_helpers/payment_intents/${paymentIntentId}/simulate_crypto_deposit`;
   const params = new URLSearchParams({
-    network: input.network,
-    buyer_wallet: input.buyerWallet ?? DEFAULT_BUYER_WALLET[input.network] ?? '',
+    network,
+    buyer_wallet: buyerWallet ?? DEFAULT_BUYER_WALLET[network] ?? '',
   });
-  if (input.tokenCurrency) params.set('token_currency', input.tokenCurrency);
-  if (input.transactionHash) params.set('transaction_hash', input.transactionHash);
-  for (const [k, v] of Object.entries(input.extra ?? {})) {
+  if (tokenCurrency) params.set('token_currency', tokenCurrency);
+  if (transactionHash) params.set('transaction_hash', transactionHash);
+  for (const [k, v] of Object.entries(extra ?? {})) {
     params.set(k, v);
   }
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${input.stripeSecretKey}`,
+    Authorization: `Bearer ${stripeSecretKey}`,
     'Content-Type': 'application/x-www-form-urlencoded',
   };
-  if (input.stripeVersion) headers['Stripe-Version'] = input.stripeVersion;
+  if (stripeVersion) headers['Stripe-Version'] = stripeVersion;
   const res = await fetch(url, { method: 'POST', headers, body: params.toString() });
   if (!res.ok) {
     throw new Error(`Stripe simulate_crypto_deposit failed: ${res.status} ${await res.text()}`);
   }
-}
-
-export interface SimulateDepositIfTestModeInput {
-  /** Stripe PaymentIntent id resolver — given a deposit address, return the PI id (or undefined
-   *  if the cache TTL expired between 402 emit and settlement). Typically `cache.getPaymentIntentId`. */
-  getPaymentIntentId: (depositAddress: string) => string | undefined;
-  /** The deposit address that was paid to (recipient). */
-  depositAddress: string;
-  /** Network the simulated deposit lands on. */
-  network: 'tempo' | 'base' | 'solana';
-  /** Optional simulated buyer wallet (defaults per network in `simulateCryptoDeposit`). */
-  buyerWallet?: string;
-  /** Token currency to pass through to Stripe (typically `'usdc'`). */
-  tokenCurrency?: string;
-  /** Stripe secret key. The wrapper checks this starts with `sk_test_` and skips otherwise. */
-  stripeSecretKey: string;
-  /** Stripe API version (e.g. `'2026-03-04.preview'` for the deposit-mode preview). */
-  stripeVersion?: string;
 }
 
 /**
@@ -105,29 +95,53 @@ export interface SimulateDepositIfTestModeInput {
  *
  * Use case is exclusively dev/testnet end-to-end — production servers (sk_live_) no-op.
  */
-export async function simulateDepositIfTestMode(input: SimulateDepositIfTestModeInput): Promise<void> {
-  if (!input.stripeSecretKey.startsWith('sk_test_')) return;
-  const piId = input.getPaymentIntentId(input.depositAddress);
+export async function simulateDepositIfTestMode({
+  getPaymentIntentId,
+  depositAddress,
+  network,
+  buyerWallet,
+  tokenCurrency,
+  stripeSecretKey,
+  stripeVersion,
+}: {
+  /** Stripe PaymentIntent id resolver — given a deposit address, return the PI id (or undefined
+   *  if the cache TTL expired between 402 emit and settlement). Typically `cache.getPaymentIntentId`. */
+  getPaymentIntentId: (depositAddress: string) => string | undefined;
+  /** The deposit address that was paid to (recipient). */
+  depositAddress: string;
+  /** Network the simulated deposit lands on. */
+  network: 'tempo' | 'base' | 'solana';
+  /** Optional simulated buyer wallet (defaults per network in `simulateCryptoDeposit`). */
+  buyerWallet?: string;
+  /** Token currency to pass through to Stripe (typically `'usdc'`). */
+  tokenCurrency?: string;
+  /** Stripe secret key. The wrapper checks this starts with `sk_test_` and skips otherwise. */
+  stripeSecretKey: string;
+  /** Stripe API version (e.g. `'2026-03-04.preview'` for the deposit-mode preview). */
+  stripeVersion?: string;
+}): Promise<void> {
+  if (!stripeSecretKey.startsWith('sk_test_')) return;
+  const piId = getPaymentIntentId(depositAddress);
   if (!piId) {
     console.warn(
-      `[stripe] Skipping deposit simulation — no PI cached for deposit address ${input.depositAddress.slice(0, 10)}… (network=${input.network}). The PI cache TTL may have expired between 402 emission and settlement.`,
+      `[stripe] Skipping deposit simulation — no PI cached for deposit address ${depositAddress.slice(0, 10)}… (network=${network}). The PI cache TTL may have expired between 402 emission and settlement.`,
     );
     return;
   }
   try {
     await simulateCryptoDeposit({
       paymentIntentId: piId,
-      network: input.network,
-      ...(input.buyerWallet !== undefined && { buyerWallet: input.buyerWallet }),
-      tokenCurrency: input.tokenCurrency ?? 'usdc',
+      network,
+      ...(buyerWallet !== undefined && { buyerWallet }),
+      tokenCurrency: tokenCurrency ?? 'usdc',
       transactionHash: STRIPE_TEST_TX_HASH_SUCCESS,
-      stripeSecretKey: input.stripeSecretKey,
-      ...(input.stripeVersion !== undefined && { stripeVersion: input.stripeVersion }),
+      stripeSecretKey,
+      ...(stripeVersion !== undefined && { stripeVersion }),
     });
-    console.warn(`[stripe] ✓ Simulated ${input.network} deposit for PI ${piId}`);
+    console.warn(`[stripe] ✓ Simulated ${network} deposit for PI ${piId}`);
   } catch (err) {
     console.error(
-      `[stripe] ✗ Failed to simulate ${input.network} deposit for PI ${piId}:`,
+      `[stripe] ✗ Failed to simulate ${network} deposit for PI ${piId}:`,
       err instanceof Error ? err.message : err,
     );
   }

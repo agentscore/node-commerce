@@ -22,21 +22,6 @@ export interface StripePaymentIntent {
   [key: string]: unknown;
 }
 
-export interface CreateMultichainPaymentIntentInput {
-  /** A configured Stripe SDK instance. */
-  stripe: StripeClientLike;
-  /** Amount in cents (Stripe convention — $1.00 = 100). */
-  amount: number;
-  /** Currency code. Default 'usd'. */
-  currency?: string;
-  /** Networks to advertise to Stripe deposit_options. Default ['tempo', 'base', 'solana']. */
-  networks?: string[];
-  /** Metadata to attach to the PI (visible in Stripe dashboard). */
-  metadata?: Record<string, string>;
-  /** Idempotency key — agent retries of the same purchase won't create duplicate PIs. */
-  idempotencyKey?: string;
-}
-
 export interface MultichainPaymentIntentResult {
   /** Stripe PaymentIntent ID. */
   paymentIntentId: string;
@@ -54,25 +39,43 @@ export interface MultichainPaymentIntentResult {
  * Distinct from the Stripe SPT (Shared Payment Token) flow, which is handled via
  * `createMppxStripe` + the agent's own Stripe account or `link-cli`.
  */
-export async function createMultichainPaymentIntent(
-  input: CreateMultichainPaymentIntentInput,
-): Promise<MultichainPaymentIntentResult> {
-  const pi = await input.stripe.paymentIntents.create(
+export async function createMultichainPaymentIntent({
+  stripe,
+  amount,
+  currency = 'usd',
+  networks,
+  metadata,
+  idempotencyKey,
+}: {
+  /** A configured Stripe SDK instance. */
+  stripe: StripeClientLike;
+  /** Amount in cents (Stripe convention — $1.00 = 100). */
+  amount: number;
+  /** Currency code. Default 'usd'. */
+  currency?: string;
+  /** Networks to advertise to Stripe deposit_options. Default ['tempo', 'base', 'solana']. */
+  networks?: string[];
+  /** Metadata to attach to the PI (visible in Stripe dashboard). */
+  metadata?: Record<string, string>;
+  /** Idempotency key — agent retries of the same purchase won't create duplicate PIs. */
+  idempotencyKey?: string;
+}): Promise<MultichainPaymentIntentResult> {
+  const pi = await stripe.paymentIntents.create(
     {
-      amount: input.amount,
-      currency: input.currency ?? 'usd',
+      amount,
+      currency,
       payment_method_types: ['crypto'],
       payment_method_data: { type: 'crypto' },
       payment_method_options: {
         crypto: {
           mode: 'deposit',
-          deposit_options: { networks: input.networks ?? ['tempo', 'base', 'solana'] },
+          deposit_options: { networks: networks ?? ['tempo', 'base', 'solana'] },
         },
       },
       confirm: true,
-      ...(input.metadata ? { metadata: input.metadata } : {}),
+      ...(metadata ? { metadata } : {}),
     },
-    input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined,
+    idempotencyKey ? { idempotencyKey } : undefined,
   );
 
   const depositAddresses: Record<string, string> = {};

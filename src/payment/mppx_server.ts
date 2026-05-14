@@ -3,9 +3,7 @@ import { USDC } from './usdc';
 
 export type SolanaMppNetwork = 'mainnet-beta' | 'devnet' | 'localnet';
 
-export interface CreateMppxServerOptions {
-  /** Symbolic rail config — commerce wires the boilerplate (tempo.charge, mppStripe.charge, solana.charge, etc.). */
-  rails?: {
+interface CreateMppxServerRails {
     /** One-shot Tempo USDC charge (intent: 'charge'). */
     tempo?: {
       recipient: string;
@@ -69,17 +67,12 @@ export interface CreateMppxServerOptions {
       /** Optional supported chains; defaults to mppx defaults. */
       chains?: unknown;
     };
-    /** Stripe SPT (Shared Payment Token) — see also @agent-score/commerce/stripe-multichain. */
-    stripe?: {
-      profileId: string;
-      secretKey: string;
-      paymentMethodTypes?: string[];
-    };
+  /** Stripe SPT (Shared Payment Token) — see also @agent-score/commerce/stripe-multichain. */
+  stripe?: {
+    profileId: string;
+    secretKey: string;
+    paymentMethodTypes?: string[];
   };
-  /** Advanced: pass mppx method instances directly (in addition to or instead of `rails`). */
-  methods?: unknown[];
-  /** MPP secret key (merchant's). */
-  secretKey: string;
 }
 
 interface MppxModule {
@@ -129,7 +122,18 @@ interface SolanaMppModule {
  *
  * `mppx` is an OPTIONAL peer dependency — install it only if you accept MPP rails.
  */
-export async function createMppxServer(opts: CreateMppxServerOptions): Promise<unknown> {
+export async function createMppxServer({
+  rails,
+  methods: extraMethods,
+  secretKey,
+}: {
+  /** Symbolic rail config — commerce wires the boilerplate (tempo.charge, mppStripe.charge, solana.charge, etc.). */
+  rails?: CreateMppxServerRails;
+  /** Advanced: pass mppx method instances directly (in addition to or instead of `rails`). */
+  methods?: unknown[];
+  /** MPP secret key (merchant's). */
+  secretKey: string;
+}): Promise<unknown> {
   const mppx = await dynamicImport<MppxModule>('mppx/server');
   /* v8 ignore start -- peer-dep-absence guard; mppx is installed in the test env */
   if (!mppx?.Mppx?.create) {
@@ -137,15 +141,15 @@ export async function createMppxServer(opts: CreateMppxServerOptions): Promise<u
   }
   /* v8 ignore stop */
 
-  const methods: unknown[] = [...(opts.methods ?? [])];
+  const methods: unknown[] = [...(extraMethods ?? [])];
 
-  if (opts.rails?.tempo) {
+  if (rails?.tempo) {
     /* v8 ignore start -- peer-dep version-mismatch guard; current mppx ships tempo.charge */
     if (!mppx.tempo?.charge) {
       throw new Error('mppx.tempo.charge not available — check installed mppx version.');
     }
     /* v8 ignore stop */
-    const t = opts.rails.tempo;
+    const t = rails.tempo;
     const defaultCurrency = t.testnet ? USDC.tempo.testnet.address : USDC.tempo.mainnet.address;
     methods.push(
       mppx.tempo.charge({
@@ -156,7 +160,7 @@ export async function createMppxServer(opts: CreateMppxServerOptions): Promise<u
     );
   }
 
-  if (opts.rails?.tempo_session) {
+  if (rails?.tempo_session) {
     /* v8 ignore start -- peer-dep version-mismatch guard; current mppx ships tempo.session */
     if (!mppx.tempo?.session) {
       throw new Error(
@@ -164,7 +168,7 @@ export async function createMppxServer(opts: CreateMppxServerOptions): Promise<u
       );
     }
     /* v8 ignore stop */
-    const s = opts.rails.tempo_session;
+    const s = rails.tempo_session;
     const defaultCurrency = s.testnet ? USDC.tempo.testnet.address : USDC.tempo.mainnet.address;
     methods.push(
       mppx.tempo.session({
@@ -178,14 +182,14 @@ export async function createMppxServer(opts: CreateMppxServerOptions): Promise<u
     );
   }
 
-  if (opts.rails?.solana) {
+  if (rails?.solana) {
     const solanaMpp = await dynamicImport<SolanaMppModule>('@solana/mpp/server');
     if (!solanaMpp?.charge) {
       throw new Error(
         '@solana/mpp not installed — `npm install @solana/mpp @solana/kit` to use the solana rail.',
       );
     }
-    const s = opts.rails.solana;
+    const s = rails.solana;
     const network: SolanaMppNetwork = s.network ?? 'mainnet-beta';
     const defaultMint =
       network === 'mainnet-beta' ? USDC.solana.mainnet.mint : USDC.solana.devnet.mint;
@@ -210,12 +214,12 @@ export async function createMppxServer(opts: CreateMppxServerOptions): Promise<u
     methods.push(wrapSolanaChargeWithFinalizedBlockhash(baseMethod, rpcUrl));
   }
 
-  if (opts.rails?.stripe) {
-    const stripeMethod = await createMppxStripe(opts.rails.stripe);
+  if (rails?.stripe) {
+    const stripeMethod = await createMppxStripe(rails.stripe);
     methods.push(stripeMethod);
   }
 
-  return mppx.Mppx.create({ methods, secretKey: opts.secretKey });
+  return mppx.Mppx.create({ methods, secretKey });
 }
 
 async function dynamicImport<T>(moduleName: string): Promise<T | null> {
