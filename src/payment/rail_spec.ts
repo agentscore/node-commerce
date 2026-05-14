@@ -1,11 +1,11 @@
 /**
  * Canonical `*RailSpec` types — one shape per rail, consumed by every helper.
  *
- * Pre-304 a merchant accepting Tempo + Base + Solana + Stripe restated the same
- * recipient four times in four different shapes (`buildAcceptedMethods`,
- * `buildHowToPay`, `mppPaymentHandler`, `createMppxServer` each had its own
- * per-rail config). This module unifies those into one `*RailSpec` per rail;
- * every helper accepts the same instance.
+ * A merchant accepting Tempo + Base + Solana + Stripe declares one `*RailSpec`
+ * per rail and passes it to every helper (`buildAcceptedMethods`,
+ * `buildHowToPay`, `mppPaymentHandler`, `createMppxServer`, ...). One canonical
+ * shape per rail means the recipient address, network identifier, and token
+ * defaults are declared once and reused everywhere.
  *
  * `RecipientLike` is polymorphic over `string | (() => string | Promise<string>)`
  * so per-order recipients (Stripe-multichain mints fresh deposit addresses per
@@ -20,9 +20,8 @@ export type RecipientLike = string | (() => string | Promise<string>);
 /**
  * Resolve a `RecipientLike` to a concrete address string. Accepts a string
  * (returned verbatim), a sync callable (called once), or an async callable
- * (awaited once). The orchestrator (TEC-305) calls this once per session and
- * caches the resolved value; helpers within a session never re-invoke the
- * factory.
+ * (awaited once). Helpers call this on every invocation; callers that want
+ * once-per-session resolution should cache externally.
  */
 export async function resolveRecipient(r: RecipientLike): Promise<string> {
   if (typeof r === 'string') return r;

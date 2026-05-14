@@ -1,3 +1,12 @@
+import {
+  RAIL_SPEC_DEFAULTS,
+  type SolanaMppRailSpec,
+  type StripeRailSpec,
+  type TempoRailSpec,
+  type X402BaseRailSpec,
+  resolveRecipient,
+} from '../payment/rail_spec';
+
 export interface TempoMethodEntry {
   method: 'tempo/charge';
   network: string;
@@ -25,7 +34,6 @@ export interface SolanaMppMethodEntry {
   symbol: string;
   decimals: number;
   pay_to: string;
-  fee_payer_key?: string;
 }
 
 export interface StripeMethodEntry {
@@ -40,96 +48,65 @@ export type AcceptedMethodEntry =
   | SolanaMppMethodEntry
   | StripeMethodEntry;
 
-export interface TempoAcceptedMethodConfig {
-  recipient: string;
-  network?: string;
-  chainId?: number;
-  token?: string;
-  symbol?: string;
-  decimals?: number;
-}
-
-export interface X402BaseAcceptedMethodConfig {
-  recipient: string;
-  network?: string;
-  chainId?: number;
-  token?: string;
-  symbol?: string;
-  decimals?: number;
-}
-
-export interface SolanaMppAcceptedMethodConfig {
-  recipient: string;
-  network?: string;
-  token?: string;
-  symbol?: string;
-  decimals?: number;
-  feePayerKey?: string;
-}
-
-export interface StripeAcceptedMethodConfig {
-  profileId?: string | null;
-  rails?: ('card' | 'link' | 'shared_payment_token')[];
-}
-
 /**
- * Build the `accepted_methods[]` array for an enriched 402 body. Each rail entry is
- * conditionally included based on whether the vendor passed it. Per-rail shapes follow
- * a canonical 402 shape across rails.
+ * Build the `accepted_methods[]` array for an enriched 402 body. Each rail entry
+ * is conditionally included when the vendor passes a `*RailSpec` for that rail.
+ * Each spec's `recipient` is resolved via `resolveRecipient` so per-order
+ * factories (e.g. Stripe-multichain mints fresh deposits per PaymentIntent)
+ * flow through identically to static-treasury strings.
  */
-export function buildAcceptedMethods({
+export async function buildAcceptedMethods({
   tempo,
   x402_base,
   solana_mpp,
   stripe,
 }: {
-  tempo?: TempoAcceptedMethodConfig;
-  x402_base?: X402BaseAcceptedMethodConfig;
-  solana_mpp?: SolanaMppAcceptedMethodConfig;
-  stripe?: StripeAcceptedMethodConfig;
-}): AcceptedMethodEntry[] {
+  tempo?: TempoRailSpec;
+  x402_base?: X402BaseRailSpec;
+  solana_mpp?: SolanaMppRailSpec;
+  stripe?: StripeRailSpec;
+}): Promise<AcceptedMethodEntry[]> {
   const out: AcceptedMethodEntry[] = [];
 
   if (tempo) {
     out.push({
       method: 'tempo/charge',
-      network: tempo.network ?? 'tempo-mainnet',
-      chain_id: tempo.chainId ?? 4217,
-      token: tempo.token ?? '0x20C000000000000000000000b9537d11c60E8b50',
-      symbol: tempo.symbol ?? 'USDC.e',
-      decimals: tempo.decimals ?? 6,
-      pay_to: tempo.recipient,
+      network: tempo.network ?? RAIL_SPEC_DEFAULTS.tempo.network,
+      chain_id: tempo.chainId ?? RAIL_SPEC_DEFAULTS.tempo.chainId,
+      token: tempo.token ?? RAIL_SPEC_DEFAULTS.tempo.token,
+      symbol: tempo.symbol ?? RAIL_SPEC_DEFAULTS.tempo.symbol,
+      decimals: tempo.decimals ?? RAIL_SPEC_DEFAULTS.tempo.decimals,
+      pay_to: await resolveRecipient(tempo.recipient),
     });
   }
 
   if (x402_base) {
     out.push({
       method: 'x402/exact',
-      network: x402_base.network ?? 'eip155:8453',
-      chain_id: x402_base.chainId ?? 8453,
-      token: x402_base.token ?? '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-      symbol: x402_base.symbol ?? 'USDC',
-      decimals: x402_base.decimals ?? 6,
-      pay_to: x402_base.recipient,
+      network: x402_base.network ?? RAIL_SPEC_DEFAULTS.x402Base.network,
+      chain_id: x402_base.chainId ?? RAIL_SPEC_DEFAULTS.x402Base.chainId,
+      token: x402_base.token ?? RAIL_SPEC_DEFAULTS.x402Base.token,
+      symbol: x402_base.symbol ?? RAIL_SPEC_DEFAULTS.x402Base.symbol,
+      decimals: x402_base.decimals ?? RAIL_SPEC_DEFAULTS.x402Base.decimals,
+      pay_to: await resolveRecipient(x402_base.recipient),
     });
   }
 
   if (solana_mpp) {
     out.push({
       method: 'solana/charge',
-      network: solana_mpp.network ?? 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
-      token: solana_mpp.token ?? 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-      symbol: solana_mpp.symbol ?? 'USDC',
-      decimals: solana_mpp.decimals ?? 6,
-      pay_to: solana_mpp.recipient,
-      ...(solana_mpp.feePayerKey ? { fee_payer_key: solana_mpp.feePayerKey } : {}),
+      network: solana_mpp.network ?? RAIL_SPEC_DEFAULTS.solanaMpp.network,
+      token: solana_mpp.token ?? RAIL_SPEC_DEFAULTS.solanaMpp.token,
+      symbol: solana_mpp.symbol ?? RAIL_SPEC_DEFAULTS.solanaMpp.symbol,
+      decimals: solana_mpp.decimals ?? RAIL_SPEC_DEFAULTS.solanaMpp.decimals,
+      pay_to: await resolveRecipient(solana_mpp.recipient),
     });
   }
 
   if (stripe) {
     out.push({
       method: 'stripe/charge',
-      rails: stripe.rails ?? ['card', 'link', 'shared_payment_token'],
+      rails: stripe.rails ?? [...RAIL_SPEC_DEFAULTS.stripe.rails],
       profile_id: stripe.profileId ?? null,
     });
   }
