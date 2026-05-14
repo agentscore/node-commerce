@@ -42,17 +42,6 @@ export interface ZeroSettleResult {
   txHash: null;
 }
 
-export interface ZeroAmountCarveOutInput {
-  rail: ZeroSettleRail;
-  /** For `rail: 'x402-base'`: the verified x402 payload (decoded JSON
-   *  from `verifyX402Request(...).payload`). Reads
-   *  `payload.payload.authorization.from`. */
-  payload?: Record<string, unknown> | null;
-  /** For `rail: 'tempo'` / `'solana'`: the full `Authorization: Payment <base64>`
-   *  header value. Reads the `did:pkh:*` source DID. */
-  authorizationHeader?: string | null;
-}
-
 const NULL_RESULT: ZeroSettleResult = {
   signerAddress: null,
   signerNetwork: null,
@@ -66,8 +55,20 @@ const NULL_RESULT: ZeroSettleResult = {
  * when the credential is malformed, missing required fields, or shaped wrong
  * for the requested rail. `txHash` is always `null` since no on-chain settle runs.
  */
-export function zeroAmountCarveOut(input: ZeroAmountCarveOutInput): ZeroSettleResult {
-  const { rail, payload, authorizationHeader } = input;
+export function zeroAmountCarveOut({
+  rail,
+  payload,
+  authorizationHeader,
+}: {
+  rail: ZeroSettleRail;
+  /** For `rail: 'x402-base'`: the verified x402 payload (decoded JSON
+   *  from `verifyX402Request(...).payload`). Reads
+   *  `payload.payload.authorization.from`. */
+  payload?: Record<string, unknown> | null;
+  /** For `rail: 'tempo'` / `'solana'`: the full `Authorization: Payment <base64>`
+   *  header value. Reads the `did:pkh:*` source DID. */
+  authorizationHeader?: string | null;
+}): ZeroSettleResult {
   if (rail === 'x402-base') {
     return x402SignerFromPayload(payload);
   }

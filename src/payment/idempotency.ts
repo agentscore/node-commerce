@@ -16,17 +16,6 @@
 
 const SERVER_IDEMPOTENCY_KEY_MAX = 200;
 
-export interface BuildIdempotencyKeyInput {
-  /** Upstream rail's stable payment id — Stripe PaymentIntent id, x402 tx hash, etc. Wins when present. */
-  paymentIntentId?: string | null;
-  /** Order id — used to compose a fallback key when no paymentIntentId exists. */
-  orderId?: string | null;
-  /** Amount in cents (or smallest currency unit) — added to the fallback for extra collision resistance. */
-  amountCents?: number;
-  /** Optional extra prefix to namespace the key (e.g. `"refund"`, `"void"`). */
-  prefix?: string;
-}
-
 /**
  * Compose a stable idempotency key for AgentScore wallet capture and other retry-safe POSTs.
  *
@@ -42,17 +31,31 @@ export interface BuildIdempotencyKeyInput {
  * buildIdempotencyKey({});                                       // → undefined
  * ```
  */
-export function buildIdempotencyKey(input: BuildIdempotencyKeyInput): string | undefined {
-  const prefix = input.prefix ? `${input.prefix}-` : '';
+export function buildIdempotencyKey({
+  paymentIntentId,
+  orderId,
+  amountCents,
+  prefix,
+}: {
+  /** Upstream rail's stable payment id — Stripe PaymentIntent id, x402 tx hash, etc. Wins when present. */
+  paymentIntentId?: string | null;
+  /** Order id — used to compose a fallback key when no paymentIntentId exists. */
+  orderId?: string | null;
+  /** Amount in cents (or smallest currency unit) — added to the fallback for extra collision resistance. */
+  amountCents?: number;
+  /** Optional extra prefix to namespace the key (e.g. `"refund"`, `"void"`). */
+  prefix?: string;
+}): string | undefined {
+  const prefixPart = prefix ? `${prefix}-` : '';
 
-  if (input.paymentIntentId) {
-    const key = `${prefix}${input.paymentIntentId}`;
+  if (paymentIntentId) {
+    const key = `${prefixPart}${paymentIntentId}`;
     return clampKey(key);
   }
 
-  if (input.orderId) {
-    const amountSuffix = input.amountCents !== undefined ? `-${input.amountCents}` : '';
-    const key = `${prefix}pi-${input.orderId}${amountSuffix}`;
+  if (orderId) {
+    const amountSuffix = amountCents !== undefined ? `-${amountCents}` : '';
+    const key = `${prefixPart}pi-${orderId}${amountSuffix}`;
     return clampKey(key);
   }
 
