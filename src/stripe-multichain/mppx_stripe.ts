@@ -1,12 +1,3 @@
-export interface CreateMppxStripeInput {
-  /** Stripe profile_id / network_id (the value advertised in your `stripe/charge` accepted_methods entry). */
-  profileId: string;
-  /** Stripe secret key — mppx uses it to validate inbound SharedPaymentTokens. */
-  secretKey: string;
-  /** Payment method types this stripe rail accepts. Default ['card', 'link']. */
-  paymentMethodTypes?: string[];
-}
-
 /**
  * Wraps the `mppStripe.charge(...)` boilerplate from `mppx/server`. Returns the value
  * vendors pass into `Mppx.create({ methods: [...] })`. mppx is an OPTIONAL peer dependency —
@@ -29,7 +20,18 @@ export interface CreateMppxStripeInput {
  *
  * Throws if mppx is not installed.
  */
-export async function createMppxStripe(input: CreateMppxStripeInput): Promise<unknown> {
+export async function createMppxStripe({
+  profileId,
+  secretKey,
+  paymentMethodTypes,
+}: {
+  /** Stripe profile_id / network_id (the value advertised in your `stripe/charge` accepted_methods entry). */
+  profileId: string;
+  /** Stripe secret key — mppx uses it to validate inbound SharedPaymentTokens. */
+  secretKey: string;
+  /** Payment method types this stripe rail accepts. Default ['card', 'link']. */
+  paymentMethodTypes?: string[];
+}): Promise<unknown> {
   const moduleName = 'mppx/server';
   const mppx = (await import(moduleName).catch(() => null)) as {
     stripe?: {
@@ -48,8 +50,8 @@ export async function createMppxStripe(input: CreateMppxStripeInput): Promise<un
   }
   /* v8 ignore stop */
   return mppx.stripe.charge({
-    networkId: input.profileId,
-    paymentMethodTypes: input.paymentMethodTypes ?? ['card', 'link'],
-    secretKey: input.secretKey,
+    networkId: profileId,
+    paymentMethodTypes: paymentMethodTypes ?? ['card', 'link'],
+    secretKey,
   });
 }
