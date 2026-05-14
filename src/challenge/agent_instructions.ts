@@ -6,30 +6,6 @@ import type { HowToPayBlock } from './how_to_pay';
  *  via `how_to_pay.<rail>.setup`. Use these as a "what's known to work" hint. */
 export type CompatibleClients = Record<string, string[]>;
 
-export interface BuildAgentInstructionsInput {
-  /** Per-rail commands. Build with `buildHowToPay`. */
-  howToPay: HowToPayBlock;
-  /** Tool recommendations as human-readable strings. Defaults to a sensible set covering tempo + agentscore-pay. */
-  recommendedTools?: string[];
-  /** Wallet-stack compatibility note for the agent. Default: rail-neutral, no specific wallet stack required. */
-  walletCompatibility?: string;
-  /** How long the merchant will wait for payment after the 402. Default 300 (5 minutes). */
-  timeoutSeconds?: number;
-  /** Warnings about common footguns. Defaults include tempo wallet transfer + raw on-chain x402 deposits. */
-  warnings?: string[];
-  /** Additional warnings appended to the default protocol-footgun set. Use this when you want
-   *  to keep the SDK's protocol warnings AND add merchant-specific notes (e.g., a per-order
-   *  rail-availability message). Ignored when `warnings` is set explicitly. */
-  extraWarnings?: string[];
-  /** Recommended rail (e.g., 'tempo', 'x402_base'). Surfaced for agents to default to. */
-  recommended?: string;
-  /** Per-rail list of client names the merchant has verified work end-to-end. Vendors set
-   *  this from their own smoke matrix — defaults to none (avoids vouching for clients the
-   *  merchant has not tested). When omitted, the field is not emitted. */
-  compatibleClients?: CompatibleClients;
-  /** Arbitrary additional fields the vendor wants merged into the agent_instructions object. */
-  extra?: Record<string, unknown>;
-}
 
 export interface AgentInstructions {
   how_to_pay: HowToPayBlock;
@@ -118,16 +94,48 @@ function defaultCompatibleClients(howToPay: HowToPayBlock): CompatibleClients | 
  * Stripe-only merchants get neither rail-specific warning. Vendors override
  * `warnings`/`recommendedTools` for full control.
  */
-export function buildAgentInstructions(input: BuildAgentInstructionsInput): AgentInstructions {
-  const compatibleClients = input.compatibleClients ?? defaultCompatibleClients(input.howToPay);
+export function buildAgentInstructions({
+  howToPay,
+  recommendedTools,
+  walletCompatibility,
+  timeoutSeconds,
+  warnings,
+  extraWarnings,
+  recommended,
+  compatibleClients,
+  extra,
+}: {
+  /** Per-rail commands. Build with `buildHowToPay`. */
+  howToPay: HowToPayBlock;
+  /** Tool recommendations as human-readable strings. Defaults to a sensible set covering tempo + agentscore-pay. */
+  recommendedTools?: string[];
+  /** Wallet-stack compatibility note for the agent. Default: rail-neutral, no specific wallet stack required. */
+  walletCompatibility?: string;
+  /** How long the merchant will wait for payment after the 402. Default 300 (5 minutes). */
+  timeoutSeconds?: number;
+  /** Warnings about common footguns. Defaults include tempo wallet transfer + raw on-chain x402 deposits. */
+  warnings?: string[];
+  /** Additional warnings appended to the default protocol-footgun set. Use this when you want
+   *  to keep the SDK's protocol warnings AND add merchant-specific notes. Ignored when
+   *  `warnings` is set explicitly. */
+  extraWarnings?: string[];
+  /** Recommended rail (e.g., 'tempo', 'x402_base'). Surfaced for agents to default to. */
+  recommended?: string;
+  /** Per-rail list of client names the merchant has verified work end-to-end. Vendors set
+   *  this from their own smoke matrix — defaults to none. When omitted, the field is not emitted. */
+  compatibleClients?: CompatibleClients;
+  /** Arbitrary additional fields the vendor wants merged into the agent_instructions object. */
+  extra?: Record<string, unknown>;
+}): AgentInstructions {
+  const compatibleClientsOut = compatibleClients ?? defaultCompatibleClients(howToPay);
   return {
-    how_to_pay: input.howToPay,
-    recommended_tools: input.recommendedTools ?? defaultRecommendedTools(input.howToPay),
-    wallet_compatibility: input.walletCompatibility ?? DEFAULT_WALLET_COMPATIBILITY,
-    timeout_seconds: input.timeoutSeconds ?? 300,
-    warnings: input.warnings ?? [...defaultWarnings(input.howToPay), ...(input.extraWarnings ?? [])],
-    ...(input.recommended ? { recommended: input.recommended } : {}),
-    ...(compatibleClients ? { compatible_clients: compatibleClients } : {}),
-    ...(input.extra ?? {}),
+    how_to_pay: howToPay,
+    recommended_tools: recommendedTools ?? defaultRecommendedTools(howToPay),
+    wallet_compatibility: walletCompatibility ?? DEFAULT_WALLET_COMPATIBILITY,
+    timeout_seconds: timeoutSeconds ?? 300,
+    warnings: warnings ?? [...defaultWarnings(howToPay), ...(extraWarnings ?? [])],
+    ...(recommended ? { recommended } : {}),
+    ...(compatibleClientsOut ? { compatible_clients: compatibleClientsOut } : {}),
+    ...(extra ?? {}),
   };
 }

@@ -24,15 +24,6 @@ import { buildAgentMemoryHint, type AgentMemoryHint } from '../core';
 export { buildAgentMemoryHint };
 export type { AgentMemoryHint };
 
-export interface FirstEncounterAgentMemoryInput {
-  /**
-   * Whether this is a first encounter for this operator/wallet/IP at this merchant.
-   * Merchant-determined (DB lookup, cache flag, etc.). Pass `false` to suppress emission
-   * cleanly without wrapping the call in an `if`.
-   */
-  firstEncounter: boolean;
-}
-
 /**
  * Returns the `agent_memory` hint when this is a first encounter, otherwise `undefined`.
  * Use directly with the `agentMemory` field of `build402Body`:
@@ -46,12 +37,16 @@ export interface FirstEncounterAgentMemoryInput {
  * });
  * ```
  *
- * Returning `undefined` means `build402Body` cleanly skips the field instead of emitting
- * `agent_memory: null` (which would imply "I tried but failed" rather than "didn't apply").
+ * `firstEncounter` is merchant-determined (DB lookup, cache flag, etc.); pass `false` to
+ * suppress emission cleanly without wrapping the call in an `if`. Returning `undefined`
+ * means `build402Body` cleanly skips the field instead of emitting `agent_memory: null`
+ * (which would imply "I tried but failed" rather than "didn't apply").
  */
-export function firstEncounterAgentMemory(
-  input: FirstEncounterAgentMemoryInput,
-): AgentMemoryHint | undefined {
-  if (!input.firstEncounter) return undefined;
+export function firstEncounterAgentMemory({
+  firstEncounter,
+}: {
+  firstEncounter: boolean;
+}): AgentMemoryHint | undefined {
+  if (!firstEncounter) return undefined;
   return buildAgentMemoryHint();
 }

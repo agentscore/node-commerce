@@ -9,23 +9,6 @@
  * `Response.json(body, {status: 400})` for the Web Fetch path, etc.). Status
  * stays the merchant's call because the same shape works for 400/404/409/422.
  */
-export interface BuildValidationErrorInput {
-  /** Machine-readable error code (e.g. 'bad_request', 'not_found', 'out_of_stock'). */
-  code: string;
-  /** Human-readable message — surfaced directly to the user via the agent. */
-  message: string;
-  /** Optional schema description of required body fields, keyed by field name. Surfaced
-   *  so agents can self-correct without fetching docs. */
-  requiredFields?: Record<string, string>;
-  /** Optional concrete example body. Pairs with `requiredFields` for max self-serve. */
-  exampleBody?: unknown;
-  /** Optional next-step hint block (`{action, user_message?, ...vendor_extras}`). */
-  nextSteps?: Record<string, unknown>;
-  /** Vendor-specific top-level fields merged into the body (e.g. `available`,
-   *  `blocked_states`, `max_length`). */
-  extra?: Record<string, unknown>;
-}
-
 export interface ValidationErrorBody {
   error: { code: string; message: string };
   required_fields?: Record<string, string>;
@@ -49,13 +32,27 @@ export interface ValidationErrorBody {
  * }), 400);
  * ```
  */
-export function buildValidationError(input: BuildValidationErrorInput): ValidationErrorBody {
+export function buildValidationError({
+  code,
+  message,
+  requiredFields,
+  exampleBody,
+  nextSteps,
+  extra,
+}: {
+  code: string;
+  message: string;
+  requiredFields?: Record<string, string>;
+  exampleBody?: unknown;
+  nextSteps?: Record<string, unknown>;
+  extra?: Record<string, unknown>;
+}): ValidationErrorBody {
   const body: ValidationErrorBody = {
-    error: { code: input.code, message: input.message },
+    error: { code, message },
   };
-  if (input.requiredFields) body.required_fields = input.requiredFields;
-  if (input.exampleBody !== undefined) body.example_body = input.exampleBody;
-  if (input.nextSteps) body.next_steps = input.nextSteps;
-  if (input.extra) Object.assign(body, input.extra);
+  if (requiredFields) body.required_fields = requiredFields;
+  if (exampleBody !== undefined) body.example_body = exampleBody;
+  if (nextSteps) body.next_steps = nextSteps;
+  if (extra) Object.assign(body, extra);
   return body;
 }

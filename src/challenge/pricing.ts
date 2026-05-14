@@ -28,23 +28,6 @@ export interface PricingBlock {
   currency?: string;
 }
 
-export interface BuildPricingBlockInput {
-  /** Pre-tax, pre-shipping subtotal in the smallest currency unit (cents, satoshi, etc.). */
-  subtotalCents: number;
-  /** Tax amount in the smallest currency unit. Default `0`. */
-  taxCents?: number;
-  /** Shipping cost in the smallest currency unit. Default `0`. */
-  shippingCents?: number;
-  /** Override the computed total. By default `subtotalCents + taxCents + shippingCents`. */
-  totalCents?: number;
-  /** Tax rate as a decimal fraction (e.g. `0.0775`). */
-  taxRate?: number;
-  /** Tax jurisdiction (state code, country, etc.). */
-  taxState?: string;
-  /** ISO-4217 currency. Default `"USD"`. */
-  currency?: string;
-}
-
 /**
  * Compose a `PricingBlock` from cents-denominated inputs. Handles the cents → dollar-string
  * conversion (always 2 decimals) and computes the total when not explicitly provided.
@@ -64,21 +47,36 @@ export interface BuildPricingBlockInput {
  * Pass `shippingCents: 0` for digital goods if you want the field present (it's then `"0.00"`);
  * omit entirely if you don't want shipping in the response shape at all.
  */
-export function buildPricingBlock(input: BuildPricingBlockInput): PricingBlock {
-  const tax = input.taxCents ?? 0;
-  const shipping = input.shippingCents ?? 0;
-  const total = input.totalCents ?? input.subtotalCents + tax + shipping;
+export function buildPricingBlock({
+  subtotalCents,
+  taxCents = 0,
+  shippingCents,
+  totalCents,
+  taxRate,
+  taxState,
+  currency,
+}: {
+  subtotalCents: number;
+  taxCents?: number;
+  shippingCents?: number;
+  totalCents?: number;
+  taxRate?: number;
+  taxState?: string;
+  currency?: string;
+}): PricingBlock {
+  const shipping = shippingCents ?? 0;
+  const total = totalCents ?? subtotalCents + taxCents + shipping;
 
   const block: PricingBlock = {
-    subtotal: formatCents(input.subtotalCents),
-    tax: formatCents(tax),
+    subtotal: formatCents(subtotalCents),
+    tax: formatCents(taxCents),
     total: formatCents(total),
   };
 
-  if (input.shippingCents !== undefined) block.shipping = formatCents(shipping);
-  if (input.taxRate !== undefined) block.tax_rate = input.taxRate;
-  if (input.taxState !== undefined) block.tax_state = input.taxState;
-  if (input.currency !== undefined) block.currency = input.currency;
+  if (shippingCents !== undefined) block.shipping = formatCents(shipping);
+  if (taxRate !== undefined) block.tax_rate = taxRate;
+  if (taxState !== undefined) block.tax_state = taxState;
+  if (currency !== undefined) block.currency = currency;
 
   return block;
 }
