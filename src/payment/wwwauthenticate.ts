@@ -6,12 +6,6 @@ export function wwwAuthenticateHeader(directives: string[]): string {
   return directives.join(', ');
 }
 
-export interface PaymentRequiredHeaderInput {
-  x402Version: 1 | 2;
-  accepts: unknown[];
-  resource?: { url: string; mimeType?: string };
-}
-
 /**
  * Add the v1↔v2 amount-field alias to each accepts entry. Idempotent. Used by both
  * `paymentRequiredHeader` (header emit) and `build402Body` (body emit) so every
@@ -44,6 +38,14 @@ export function aliasAmountFields(accepts: unknown[]): unknown[] {
  * output) makes the match silently fail at settle time. Keep `accepts` shape
  * identical to whatever `buildPaymentRequirements` produces server-side.
  */
-export function paymentRequiredHeader(input: PaymentRequiredHeaderInput): string {
-  return Buffer.from(JSON.stringify(input)).toString('base64');
+export function paymentRequiredHeader({
+  x402Version,
+  accepts,
+  resource,
+}: {
+  x402Version: 1 | 2;
+  accepts: unknown[];
+  resource?: { url: string; mimeType?: string };
+}): string {
+  return Buffer.from(JSON.stringify({ x402Version, accepts, ...(resource ? { resource } : {}) })).toString('base64');
 }
