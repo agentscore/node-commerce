@@ -175,6 +175,77 @@ export function classifyX402SettleResult(
   }
 }
 
+/**
+ * Classify a thrown error during the 402 orchestration.
+ *
+ * Catches errors that escape `processX402Settle` (e.g. raised by `mppx.compose`,
+ * a Stripe SDK call, or any other payment-side library code wrapped in a single
+ * `try/catch` around the full settle flow). Returns a `ClassifiedX402Error`
+ * when the error message matches a known pattern; `null` otherwise.
+ *
+ * Callers should rethrow on `null` — this helper never swallows unknown errors.
+ *
+ * Pattern matching is case-insensitive substring on the error message:
+ * - `"x402version"` / `"invalid payment"` / `"unsupported x402"` →
+ *   400 `payment_proof_invalid` / `regenerate_payment_credential`
+ * - `"stripe"` / `"facilitator"` / `"cdp"` →
+ *   503 `payment_provider_unavailable` / `retry_or_swap_method`
+ * - Anything else → `null` (caller rethrows)
+ *
+ * Substring matching is intentionally narrow. New error families should land
+ * here explicitly rather than have the helper grow opaque heuristics. For
+ * tagged failure results that already classify themselves, use
+ * `classifyX402SettleResult`.
+ */
+export function classifyOrchestrationError(err: unknown): ClassifiedX402Error | null {
+  let msg: string;
+  if (err instanceof Error) {
+    msg = err.message;
+  } else if (typeof err === 'string') {
+    msg = err;
+  } else {
+    return null;
+  }
+  const msgLower = msg.toLowerCase();
+
+  if (
+    msgLower.includes('x402version') ||
+    msgLower.includes('invalid payment') ||
+    msgLower.includes('unsupported x402')
+  ) {
+    return {
+      status: 400,
+      code: 'payment_proof_invalid',
+      message: 'Payment credential is malformed or uses an unsupported version',
+      nextSteps: {
+        action: 'regenerate_payment_credential',
+        user_message:
+          'The payment credential is malformed or uses an unsupported version. Regenerate from a fresh 402 challenge and re-sign.',
+      },
+    };
+  }
+
+  if (
+    msgLower.includes('stripe') ||
+    msgLower.includes('facilitator') ||
+    msgLower.includes('cdp')
+  ) {
+    return {
+      status: 503,
+      code: 'payment_provider_unavailable',
+      message: 'Payment provider returned an error',
+      nextSteps: {
+        action: 'retry_or_swap_method',
+        retry_after_seconds: 10,
+        user_message:
+          'Transient payment-provider error. Retry in a few seconds, or pick a different rail from the 402 challenge.',
+      },
+    };
+  }
+
+  return null;
+}
+
 export async function processX402Settle(input: ProcessX402SettleInput): Promise<ProcessX402SettleResult> {
   const server = input.x402Server as unknown as {
     buildPaymentRequirements: (cfg: unknown) => Promise<unknown[]>;
