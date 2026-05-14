@@ -63,16 +63,6 @@ export function denialReasonStatus(reason: DenialReason): 401 | 403 | 503 {
   return 403;
 }
 
-export interface SignerMismatchBodyInput {
-  /** Projected signer_match verdict (from `getSignerVerdict(ctx).signer_match`). Only non-pass
-   *  kinds produce a body. */
-  result: VerifyWalletSignerResult;
-  /** Optional override for the human-facing `next_steps.user_message`. */
-  userMessage?: string;
-  /** Optional override for `next_steps.learn_more_url`. Default: AgentScore agent-identity guide. */
-  learnMoreUrl?: string;
-}
-
 /**
  * Standard 403 body for a non-pass signer-match verdict. Returns null for `pass` so vendors
  * can call it unconditionally:
@@ -87,15 +77,26 @@ export interface SignerMismatchBodyInput {
  * (`claimed_operator`, `actual_signer_operator`, `expected_signer`, `actual_signer`,
  * `linked_wallets`), plus a `next_steps` action describing the recovery path.
  */
-export function buildSignerMismatchBody(input: SignerMismatchBodyInput): Record<string, unknown> | null {
-  const { result } = input;
+export function buildSignerMismatchBody({
+  result,
+  userMessage,
+  learnMoreUrl,
+}: {
+  /** Projected signer_match verdict (from `getSignerVerdict(ctx).signer_match`). Only non-pass
+   *  kinds produce a body. */
+  result: VerifyWalletSignerResult;
+  /** Optional override for the human-facing `next_steps.user_message`. */
+  userMessage?: string;
+  /** Optional override for `next_steps.learn_more_url`. Default: AgentScore agent-identity guide. */
+  learnMoreUrl?: string;
+}): Record<string, unknown> | null {
   if (result.kind === 'pass') return null;
 
-  const learnMoreUrl = input.learnMoreUrl ?? 'https://docs.agentscore.sh/guides/agent-identity';
+  const learnMoreUrlResolved = learnMoreUrl ?? 'https://docs.agentscore.sh/guides/agent-identity';
 
   if (result.kind === 'wallet_signer_mismatch') {
     const linkedWallets = result.linkedWallets ?? [];
-    const userMessage = input.userMessage ?? (linkedWallets.length > 0
+    const userMessageResolved = userMessage ?? (linkedWallets.length > 0
       ? `Sign the payment with one of the wallets linked to this operator: ${linkedWallets.join(', ')}. Then retry.`
       : 'Sign the payment with the same wallet you claimed via X-Wallet-Address, or switch to X-Operator-Token for rail-independent identity.');
     return {
@@ -111,8 +112,8 @@ export function buildSignerMismatchBody(input: SignerMismatchBodyInput): Record<
       linked_wallets: linkedWallets,
       next_steps: {
         action: 'regenerate_payment_from_linked_wallet',
-        user_message: userMessage,
-        learn_more_url: learnMoreUrl,
+        user_message: userMessageResolved,
+        learn_more_url: learnMoreUrlResolved,
       },
     };
   }
@@ -127,9 +128,9 @@ export function buildSignerMismatchBody(input: SignerMismatchBodyInput): Record<
     next_steps: {
       action: 'switch_to_operator_token',
       user_message:
-        input.userMessage ??
+        userMessage ??
         'Drop the X-Wallet-Address header and retry with X-Operator-Token (works on every payment rail).',
-      learn_more_url: learnMoreUrl,
+      learn_more_url: learnMoreUrlResolved,
     },
   };
 }
@@ -157,7 +158,21 @@ export function buildContactSupportNextSteps(
   };
 }
 
-export interface VerificationAgentInstructionsInput {
+/**
+ * The canonical `agent_instructions` block for identity-verification 403s. Tells the agent how to
+ * present the verify_url, poll for the operator_token, and retry the original request. Universal
+ * across every AgentScore-gated merchant — overrides let vendors add merchant-specific steps
+ * (e.g. "include order_id when retrying").
+ */
+export function verificationAgentInstructions({
+  userAction,
+  retryStep,
+  extraSteps,
+  pollIntervalSeconds = 5,
+  timeoutSeconds = 3600,
+  orderTtl,
+  extra,
+}: {
   /** Override the user-facing message. */
   userAction?: string;
   /** Replace the generic "Retry the original merchant request..." step with a merchant-specific
@@ -177,15 +192,7 @@ export interface VerificationAgentInstructionsInput {
   orderTtl?: string;
   /** Arbitrary additional fields merged into the instructions object. */
   extra?: Record<string, unknown>;
-}
-
-/**
- * The canonical `agent_instructions` block for identity-verification 403s. Tells the agent how to
- * present the verify_url, poll for the operator_token, and retry the original request. Universal
- * across every AgentScore-gated merchant — overrides let vendors add merchant-specific steps
- * (e.g. "include order_id when retrying").
- */
-export function verificationAgentInstructions(input: VerificationAgentInstructionsInput = {}): {
+} = {}): {
   action: 'poll_for_credential';
   user_action: string;
   steps: string[];
@@ -198,23 +205,23 @@ export function verificationAgentInstructions(input: VerificationAgentInstructio
 } {
   const baseSteps = [
     'Present the verify_url directly to the user — it is a complete, ready-to-open URL with the session token already embedded (e.g. https://agentscore.sh/verify?session=sess_...). Do NOT modify or construct the URL yourself.',
-    `Immediately begin polling poll_url every ${input.pollIntervalSeconds ?? 5} seconds with header X-Poll-Secret set to poll_secret. The user will complete verification in their browser while you poll in the background.`,
+    `Immediately begin polling poll_url every ${pollIntervalSeconds} seconds with header X-Poll-Secret set to poll_secret. The user will complete verification in their browser while you poll in the background.`,
     'The user visits the URL, signs in, completes identity verification (photo ID + selfie via Stripe Identity), and closes the tab. They do NOT need to copy or paste anything back to you.',
     'When your poll returns status "verified", extract operator_token from the response. This is a one-time value — save it immediately. Subsequent polls return status "consumed" without the token.',
-    input.retryStep ?? 'Retry the original merchant request with header X-Operator-Token set to the operator_token value.',
+    retryStep ?? 'Retry the original merchant request with header X-Operator-Token set to the operator_token value.',
   ];
 
   return {
     action: 'poll_for_credential',
     user_action:
-      input.userAction ??
+      userAction ??
       'The user must visit verify_url to complete identity verification before this request can proceed',
-    steps: input.extraSteps ? [...baseSteps, ...input.extraSteps] : baseSteps,
-    poll_interval_seconds: input.pollIntervalSeconds ?? 5,
+    steps: extraSteps ? [...baseSteps, ...extraSteps] : baseSteps,
+    poll_interval_seconds: pollIntervalSeconds,
     poll_secret_header: 'X-Poll-Secret',
     retry_token_header: 'X-Operator-Token',
-    timeout_seconds: input.timeoutSeconds ?? 3600,
-    ...(input.orderTtl ? { order_ttl: input.orderTtl } : {}),
-    ...(input.extra ?? {}),
+    timeout_seconds: timeoutSeconds,
+    ...(orderTtl ? { order_ttl: orderTtl } : {}),
+    ...(extra ?? {}),
   };
 }
