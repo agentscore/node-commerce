@@ -527,3 +527,179 @@ function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
 export function buildJWKSResponse(keys: UCPSigningKey[]): JWKSResponse {
   return { keys };
 }
+
+// ── env-driven loader (extracted from store + martin + signed_ucp_merchant) ──
+
+/** Configuration for {@link loadUCPSigningKeyFromEnv}. Env-var names are overridable
+ *  so a merchant can run multiple distinct signing keys from different env namespaces
+ *  (e.g. `PROD_UCP_JWK` vs `STAGING_UCP_JWK`). */
+export interface LoadUCPSigningKeyOptions {
+  envJwkVar?: string;
+  envKidVar?: string;
+  envAlgVar?: string;
+  defaultKid?: string;
+  defaultAlg?: 'EdDSA' | 'ES256';
+}
+
+const DEFAULT_LOAD_OPTS: Required<LoadUCPSigningKeyOptions> = {
+  envJwkVar: 'UCP_SIGNING_KEY_JWK_PRIVATE',
+  envKidVar: 'UCP_SIGNING_KEY_KID',
+  envAlgVar: 'UCP_SIGNING_KEY_ALG',
+  defaultKid: 'merchant-default',
+  defaultAlg: 'EdDSA',
+};
+
+function readEnvTrimmed(name: string): string | undefined {
+  const raw = process.env[name];
+  if (raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  return trimmed === '' ? undefined : trimmed;
+}
+
+function detectAlgFromJwk(jwk: Record<string, unknown>): 'EdDSA' | 'ES256' | null {
+  if (jwk.kty === 'OKP' && jwk.crv === 'Ed25519') return 'EdDSA';
+  if (jwk.kty === 'EC' && jwk.crv === 'P-256') return 'ES256';
+  return null;
+}
+
+// Cache entries are keyed by the full resolved opts (so different opts get separate
+// entries) and store the IN-FLIGHT Promise — concurrent first-callers with the same
+// opts await the same key generation rather than racing to produce different ephemeral
+// keys (a losing keypair signing a JWS that the published JWKS then rejects).
+const envLoaderCache = new Map<string, Promise<GeneratedUCPKey>>();
+
+function cacheKey(opts: Required<LoadUCPSigningKeyOptions>): string {
+  return `${opts.envJwkVar}|${opts.envKidVar}|${opts.envAlgVar}|${opts.defaultKid}|${opts.defaultAlg}`;
+}
+
+async function buildEnvSigningKey(
+  opts: Required<LoadUCPSigningKeyOptions>,
+): Promise<GeneratedUCPKey> {
+  const kidDefault = readEnvTrimmed(opts.envKidVar) ?? opts.defaultKid;
+  // Case-insensitive env-alg comparison: secret configs commonly carry casing drift
+  // (`"es256"`, `" ES256 "`, `"eS256"`). Strict exact-match would silently downgrade
+  // to the default and operators would publish a JWKS with the wrong key family.
+  const rawAlg = (readEnvTrimmed(opts.envAlgVar) ?? '').toUpperCase();
+  const algFallback: 'EdDSA' | 'ES256' = rawAlg === 'ES256' ? 'ES256' : opts.defaultAlg;
+
+  const envJwk = readEnvTrimmed(opts.envJwkVar);
+  if (envJwk) {
+    let jwkDict: Record<string, unknown>;
+    try {
+      jwkDict = JSON.parse(envJwk) as Record<string, unknown>;
+    } catch (err) {
+      throw new Error(
+        `${opts.envJwkVar} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    if (!jwkDict || typeof jwkDict !== 'object' || Array.isArray(jwkDict) || Object.keys(jwkDict).length === 0) {
+      throw new Error(`${opts.envJwkVar} must be a non-empty JWK object.`);
+    }
+
+    const detectedAlg = detectAlgFromJwk(jwkDict);
+    if (!detectedAlg) {
+      throw new Error(
+        `${opts.envJwkVar} has unsupported kty/crv (got kty=${String(jwkDict.kty)} crv=${String(jwkDict.crv)}); ` +
+          'expected OKP+Ed25519 or EC+P-256.',
+      );
+    }
+
+    // Project the env JWK to its canonical key fields before importing. Unknown
+    // env-JWK fields (`key_ops`, `x5c`, `x5t`, `x5u`, etc.) trip Node's
+    // createPublicKey with NotSupportedError on some runtimes; canonical-only
+    // input is stable across Node + Bun + browser WebCrypto.
+    const canonicalPrivateJwk: Record<string, unknown> =
+      detectedAlg === 'EdDSA'
+        ? { kty: jwkDict.kty, crv: jwkDict.crv, x: jwkDict.x, d: jwkDict.d }
+        : { kty: jwkDict.kty, crv: jwkDict.crv, x: jwkDict.x, y: jwkDict.y, d: jwkDict.d };
+
+    // Import the private key. Sanitize errors so JWK byte material can never reach logs.
+    const { importJWK } = await import('jose');
+    const { createPublicKey } = await import('node:crypto');
+    let privateKey: Awaited<ReturnType<typeof importJWK>>;
+    let publicNodeKey: ReturnType<typeof createPublicKey>;
+    try {
+      privateKey = await importJWK(
+        canonicalPrivateJwk as unknown as Parameters<typeof importJWK>[0],
+        detectedAlg,
+      );
+      publicNodeKey = createPublicKey({ key: canonicalPrivateJwk as never, format: 'jwk' });
+    } catch (err) {
+      const className = err instanceof Error ? err.constructor.name : typeof err;
+      const code =
+        err && typeof err === 'object' && 'code' in err
+          ? String((err as { code?: unknown }).code)
+          : null;
+      const codeSuffix = code ? ` [${code}]` : '';
+      throw new Error(
+        `${opts.envJwkVar} has malformed key material (${className}${codeSuffix}). ` +
+          'Verify the JWK is well-formed and matches the declared kty/crv. ' +
+          'Underlying details suppressed to avoid leaking key bytes.',
+      );
+    }
+
+    // Derive a canonical public JWK from the public node key — drops `d` and any other
+    // private-only fields (and unknown env JWK fields like key_ops, x5c, x5t).
+    const publicJWK = publicNodeKey.export({ format: 'jwk' }) as unknown as UCPSigningKey;
+    // Empty-string kid in env JWK falls through to the configured default —
+    // publishing `"kid": ""` breaks every kid-pinning verifier.
+    publicJWK.kid = (jwkDict.kid as string | undefined) || kidDefault;
+    publicJWK.alg = detectedAlg;
+    publicJWK.use = 'sig';
+
+    return { privateKey, publicJWK };
+  }
+
+  // Ephemeral fallback — generate a fresh keypair.
+  return generateUCPSigningKey({ kid: kidDefault, alg: algFallback });
+}
+
+/**
+ * Load the merchant's UCP signing key from env, with concurrent-safe caching.
+ *
+ * On first call (per `opts`): reads `opts.envJwkVar`, parses it as a JWK, validates
+ * `kty`/`crv` (OKP+Ed25519 or EC+P-256), and projects to a canonical public JWK.
+ * Falls back to an ephemeral keypair when the env var is missing or whitespace-only.
+ *
+ * Subsequent calls with the same `opts` return the cached key without re-reading env.
+ * Concurrent first-callers await the same in-flight Promise so only one key generation
+ * runs (preventing the race where two callers each generate an independent ephemeral
+ * pair and one signs a JWS the published JWKS then rejects).
+ *
+ * Different `opts` values get separate cache entries.
+ *
+ * Env-driven precedence:
+ *
+ * - Embedded `kid` in the JWK wins over `opts.envKidVar` env value;
+ *   empty-string `kid` in the env JWK falls through to `opts.defaultKid`.
+ * - Structural `kty`+`crv` in the JWK wins over `opts.envAlgVar` env value
+ *   (which is only consulted in the ephemeral fallback path).
+ *
+ * @throws Error with a sanitized message for malformed env JWKs; raw exception
+ *   detail is intentionally suppressed so key bytes can never reach logs.
+ */
+export async function loadUCPSigningKeyFromEnv(
+  opts: LoadUCPSigningKeyOptions = {},
+): Promise<GeneratedUCPKey> {
+  const resolved: Required<LoadUCPSigningKeyOptions> = { ...DEFAULT_LOAD_OPTS, ...opts };
+  const key = cacheKey(resolved);
+  let cached = envLoaderCache.get(key);
+  if (cached) return cached;
+  // Pin the in-flight Promise so concurrent first-callers await the same generation.
+  cached = buildEnvSigningKey(resolved).catch((err) => {
+    // Clear on rejection so a transient malformed env doesn't permanently poison
+    // every future call — the next caller retries the build.
+    envLoaderCache.delete(key);
+    throw err;
+  });
+  envLoaderCache.set(key, cached);
+  return cached;
+}
+
+/** Test-only: clear the env-loader cache.
+ *
+ *  Use after stubbing `process.env.UCP_SIGNING_KEY_*` to force the next
+ *  {@link loadUCPSigningKeyFromEnv} call to re-read the env state. */
+export function _resetUCPSigningKeyCache(): void {
+  envLoaderCache.clear();
+}
