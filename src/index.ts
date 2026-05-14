@@ -81,3 +81,4 @@ export {
   shippingCountryAllowed,
   shippingStateAllowed,
 } from './identity/policy';
+export { hashOperatorToken } from './identity/tokens';
