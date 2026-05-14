@@ -38,6 +38,7 @@ import {
   buildIdentityMetadata,
   buildPricingBlock,
   buildValidationError,
+  build402Body,
   firstEncounterAgentMemory,
   respond402,
 } from '@agent-score/commerce/challenge';
@@ -232,9 +233,10 @@ app.post('/purchase', async (c) => {
       },
     });
 
-    return respond402({
-      mppxChallenge: result.challenge as Response,
-      body: {
+    const challengeResponse = result.challenge as Response;
+    const respond = respond402({
+      mppxChallengeHeaders: Object.fromEntries(challengeResponse.headers),
+      body: build402Body({
         acceptedMethods,
         agentInstructions: buildAgentInstructions({ howToPay }),
         identityMetadata: buildIdentityMetadata({
@@ -248,7 +250,7 @@ app.post('/purchase', async (c) => {
         orderId: body.order_id ?? null,
         retryBody: body,
         agentMemory: firstEncounterAgentMemory({ firstEncounter: true }),
-      },
+      }),
       x402: {
         x402Version: 2,
         // Build the accept via the registered x402 scheme — fills in `extra` (incl.
@@ -263,6 +265,10 @@ app.post('/purchase', async (c) => {
         }),
         resource: { url: c.req.url, mimeType: 'application/json' },
       },
+    });
+    return new Response(JSON.stringify(respond.body), {
+      status: respond.status,
+      headers: respond.headers,
     });
   }
 
