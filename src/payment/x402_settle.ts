@@ -17,23 +17,6 @@
 
 import type { X402Server } from './x402_server';
 
-export interface ProcessX402SettleInput {
-  /** The x402 server instance from `createX402Server`. */
-  x402Server: X402Server;
-  /** The verified x402 payload extracted from the X-Payment header. */
-  payload: unknown;
-  /** Resource configuration the facilitator validates against (network, price, payTo,
-   *  asset, maxTimeoutSeconds, etc.). Shape is x402-server-specific. */
-  resourceConfig: unknown;
-  /** Resource metadata exposed to the facilitator (URL, description, mime type). */
-  resourceMeta: { url: string; description: string; mimeType: string };
-  /** Optional extension to enrich during verify (e.g. Bazaar). */
-  extension?: unknown;
-  /** Transport context for the extension enrich step. Defaults to `{ method: 'POST',
-   *  adapter: { getPath: () => new URL(resourceMeta.url).pathname }, routePattern: <pathname> }`. */
-  transportContext?: unknown;
-}
-
 export type ProcessX402SettleResult =
   | {
       success: true;
@@ -246,8 +229,30 @@ export function classifyOrchestrationError(err: unknown): ClassifiedX402Error | 
   return null;
 }
 
-export async function processX402Settle(input: ProcessX402SettleInput): Promise<ProcessX402SettleResult> {
-  const server = input.x402Server as unknown as {
+export async function processX402Settle({
+  x402Server,
+  payload,
+  resourceConfig,
+  resourceMeta,
+  extension,
+  transportContext,
+}: {
+  /** The x402 server instance from `createX402Server`. */
+  x402Server: X402Server;
+  /** The verified x402 payload extracted from the X-Payment header. */
+  payload: unknown;
+  /** Resource configuration the facilitator validates against (network, price, payTo,
+   *  asset, maxTimeoutSeconds, etc.). Shape is x402-server-specific. */
+  resourceConfig: unknown;
+  /** Resource metadata exposed to the facilitator (URL, description, mime type). */
+  resourceMeta: { url: string; description: string; mimeType: string };
+  /** Optional extension to enrich during verify (e.g. Bazaar). */
+  extension?: unknown;
+  /** Transport context for the extension enrich step. Defaults to `{ method: 'POST',
+   *  adapter: { getPath: () => new URL(resourceMeta.url).pathname }, routePattern: <pathname> }`. */
+  transportContext?: unknown;
+}): Promise<ProcessX402SettleResult> {
+  const server = x402Server as unknown as {
     buildPaymentRequirements: (cfg: unknown) => Promise<unknown[]>;
     enrichExtensions: (ext: unknown, ctx: unknown) => unknown;
     processPaymentRequest: (
@@ -261,7 +266,7 @@ export async function processX402Settle(input: ProcessX402SettleInput): Promise<
 
   let builtRequirements: unknown[];
   try {
-    builtRequirements = await server.buildPaymentRequirements(input.resourceConfig);
+    builtRequirements = await server.buildPaymentRequirements(resourceConfig);
   } catch (err) {
     return { success: false, phase: 'facilitator_error', step: 'build_requirements', error: err };
   }
@@ -270,15 +275,15 @@ export async function processX402Settle(input: ProcessX402SettleInput): Promise<
     return { success: false, phase: 'no_requirements', reason: 'x402Server.buildPaymentRequirements returned empty' };
   }
 
-  const transportContext = input.transportContext ?? (() => {
-    const path = new URL(input.resourceMeta.url).pathname;
+  const resolvedTransportContext = transportContext ?? (() => {
+    const path = new URL(resourceMeta.url).pathname;
     return { method: 'POST', adapter: { getPath: () => path }, routePattern: path };
   })();
 
   let enrichedExt: unknown;
   try {
-    enrichedExt = input.extension !== undefined
-      ? server.enrichExtensions(input.extension, transportContext)
+    enrichedExt = extension !== undefined
+      ? server.enrichExtensions(extension, resolvedTransportContext)
       : undefined;
   } catch (err) {
     return { success: false, phase: 'facilitator_error', step: 'enrich_extensions', error: err };
@@ -287,9 +292,9 @@ export async function processX402Settle(input: ProcessX402SettleInput): Promise<
   let verifyResult: { success: boolean; [key: string]: unknown };
   try {
     verifyResult = await server.processPaymentRequest(
-      input.payload,
-      input.resourceConfig,
-      input.resourceMeta,
+      payload,
+      resourceConfig,
+      resourceMeta,
       enrichedExt,
     );
   } catch (err) {
@@ -301,7 +306,7 @@ export async function processX402Settle(input: ProcessX402SettleInput): Promise<
   }
 
   try {
-    const settleResult = await server.settlePayment(input.payload, matchedRequirement);
+    const settleResult = await server.settlePayment(payload, matchedRequirement);
     const paymentResponseHeader = settleResult
       ? Buffer.from(JSON.stringify(settleResult)).toString('base64')
       : undefined;
