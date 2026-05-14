@@ -31,7 +31,26 @@ export interface PaymentMethodConfig {
   extra?: Record<string, unknown>;
 }
 
-export interface WellKnownMppInput {
+/**
+ * Build the standard `.well-known/mpp.json` discovery document. Lift the boilerplate
+ * (payment.methods, payment.identity_paths, payment.compliance) into a typed config so
+ * vendors get spec-compliance "for free"; merchant-specific fields (catalog, shipping)
+ * pass through.
+ *
+ * Wire it in your framework like:
+ *   app.get('/.well-known/mpp.json', (c) => c.json(buildWellKnownMpp({...})));
+ */
+export function buildWellKnownMpp({
+  name,
+  description,
+  url,
+  openapi,
+  endpoints,
+  catalog,
+  purchase,
+  shipping,
+  extra,
+}: {
   /** Merchant display name. */
   name: string;
   /** Short description (1-2 sentences). */
@@ -50,36 +69,25 @@ export interface WellKnownMppInput {
   shipping?: Record<string, unknown>;
   /** Vendor-specific extra fields merged at the top level. */
   extra?: Record<string, unknown>;
-}
-
-/**
- * Build the standard `.well-known/mpp.json` discovery document. Lift the boilerplate
- * (payment.methods, payment.identity_paths, payment.compliance) into a typed config so
- * vendors get spec-compliance "for free"; merchant-specific fields (catalog, shipping)
- * pass through.
- *
- * Wire it in your framework like:
- *   app.get('/.well-known/mpp.json', (c) => c.json(buildWellKnownMpp({...})));
- */
-export function buildWellKnownMpp(input: WellKnownMppInput): Record<string, unknown> {
+}): Record<string, unknown> {
   return {
-    name: input.name,
-    ...(input.description ? { description: input.description } : {}),
-    url: input.url,
-    ...(input.openapi ? { openapi: input.openapi } : {}),
-    endpoints: input.endpoints,
-    ...(input.catalog ? { catalog: input.catalog } : {}),
+    name,
+    ...(description ? { description } : {}),
+    url,
+    ...(openapi ? { openapi } : {}),
+    endpoints,
+    ...(catalog ? { catalog } : {}),
     purchase: {
-      ...(input.purchase.required_fields ? { required_fields: input.purchase.required_fields } : {}),
-      ...(input.purchase.optional_fields ? { optional_fields: input.purchase.optional_fields } : {}),
-      ...(input.purchase.extra ?? {}),
-      ...(input.purchase.identity ? { identity: input.purchase.identity } : {}),
-      ...(input.purchase.identity_paths ? { identity_paths: input.purchase.identity_paths } : {}),
-      payment_methods: input.purchase.methods,
-      ...(input.purchase.x402 ? { x402: input.purchase.x402 } : {}),
-      ...(input.purchase.compliance ? { compliance: input.purchase.compliance } : {}),
+      ...(purchase.required_fields ? { required_fields: purchase.required_fields } : {}),
+      ...(purchase.optional_fields ? { optional_fields: purchase.optional_fields } : {}),
+      ...(purchase.extra ?? {}),
+      ...(purchase.identity ? { identity: purchase.identity } : {}),
+      ...(purchase.identity_paths ? { identity_paths: purchase.identity_paths } : {}),
+      payment_methods: purchase.methods,
+      ...(purchase.x402 ? { x402: purchase.x402 } : {}),
+      ...(purchase.compliance ? { compliance: purchase.compliance } : {}),
     },
-    ...(input.shipping ? { shipping: input.shipping } : {}),
-    ...(input.extra ?? {}),
+    ...(shipping ? { shipping } : {}),
+    ...(extra ?? {}),
   };
 }

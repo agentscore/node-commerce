@@ -34,7 +34,7 @@ export interface SkillMdLink {
   url: string;
 }
 
-export interface BuildSkillMdInput {
+interface BuildSkillMdInput {
   /** Skill manifest identifier — kebab-case per agentskills.io spec: 1-64 chars, lowercase
    *  alphanumeric + hyphens, no leading/trailing/consecutive hyphens. Validated at build
    *  time; invalid names throw. e.g. 'example-merchant-commerce'. */
@@ -327,6 +327,9 @@ function titleBlock(input: BuildSkillMdInput): string {
  */
 export function buildSkillMd(input: BuildSkillMdInput): string {
   validateInput(input);
+  // Helpers downstream receive the typed input object; the type is internal-only so the
+  // public surface is destructured-kwargs from the caller's perspective (vendors pass object
+  // literals, identical to the rest of the SDK's builders).
   const sections = [
     frontmatter(input),
     titleBlock(input),
