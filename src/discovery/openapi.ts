@@ -184,15 +184,14 @@ export interface XPaymentInfoMppProtocol {
 
 export type XPaymentInfoProtocol = XPaymentInfoX402Protocol | XPaymentInfoMppProtocol;
 
-export interface XPaymentInfoInput {
+export function xPaymentInfoExtension({
+  price,
+  protocols,
+}: {
   price: XPaymentInfoPrice;
   protocols: XPaymentInfoProtocol[];
-}
-
-export function xPaymentInfoExtension(
-  input: XPaymentInfoInput,
-): { 'x-payment-info': { price: XPaymentInfoPrice; protocols: XPaymentInfoProtocol[] } } {
-  return { 'x-payment-info': { price: input.price, protocols: input.protocols } };
+}): { 'x-payment-info': { price: XPaymentInfoPrice; protocols: XPaymentInfoProtocol[] } } {
+  return { 'x-payment-info': { price, protocols } };
 }
 
 /**
@@ -216,15 +215,6 @@ export function xGuidanceExtension(text: string): { 'x-guidance': string } {
   return { 'x-guidance': text };
 }
 
-export interface BuildAgentScoreOpenApiSnippetsInput {
-  /** Include security schemes in the snippet. Default true. */
-  security?: boolean;
-  /** Include denial schemas in the snippet. Default true. */
-  denials?: boolean;
-  /** Include the 402 PaymentRequired schema in the snippet. Default true. */
-  paymentRequired?: boolean;
-}
-
 /**
  * Convenience: returns a `components` snippet ready to merge into an OpenAPI document.
  *
@@ -237,17 +227,26 @@ export interface BuildAgentScoreOpenApiSnippetsInput {
  *
  * Or more idiomatically: `Object.assign(spec.components, agentscoreOpenApiSnippets())`.
  */
-export function agentscoreOpenApiSnippets(
-  opts: BuildAgentScoreOpenApiSnippetsInput = {},
-): { securitySchemes?: Record<string, unknown>; schemas?: Record<string, unknown> } {
+export function agentscoreOpenApiSnippets({
+  security = true,
+  denials = true,
+  paymentRequired = true,
+}: {
+  /** Include security schemes in the snippet. Default true. */
+  security?: boolean;
+  /** Include denial schemas in the snippet. Default true. */
+  denials?: boolean;
+  /** Include the 402 PaymentRequired schema in the snippet. Default true. */
+  paymentRequired?: boolean;
+} = {}): { securitySchemes?: Record<string, unknown>; schemas?: Record<string, unknown> } {
   const out: { securitySchemes?: Record<string, unknown>; schemas?: Record<string, unknown> } = {};
-  if (opts.security !== false) {
+  if (security) {
     out.securitySchemes = agentscoreSecuritySchemes();
   }
-  if (opts.denials !== false || opts.paymentRequired !== false) {
+  if (denials || paymentRequired) {
     out.schemas = {
-      ...(opts.denials !== false ? agentscoreDenialSchemas() : {}),
-      ...(opts.paymentRequired !== false ? agentscorePaymentRequiredSchema() : {}),
+      ...(denials ? agentscoreDenialSchemas() : {}),
+      ...(paymentRequired ? agentscorePaymentRequiredSchema() : {}),
     };
   }
   return out;

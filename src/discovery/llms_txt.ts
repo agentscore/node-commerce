@@ -1,4 +1,12 @@
-export interface LlmsTxtIdentitySectionInput {
+/**
+ * Generate the standard "Choose your identity header" section for an AgentScore-gated
+ * merchant's llms.txt. Explains wallet-auth vs operator-token paths + the cross-merchant
+ * memory contract so agents know how to authenticate without reading the API docs.
+ */
+export function llmsTxtIdentitySection({
+  agentscore,
+  compliance,
+}: {
   /** When true, include the AgentScore identity-paths explanation (wallet vs operator-token). */
   agentscore?: boolean;
   /** Compliance policy to mention (KYC, age, jurisdiction). */
@@ -8,18 +16,10 @@ export interface LlmsTxtIdentitySectionInput {
     allowed_jurisdictions?: string[];
     require_sanctions_clear?: boolean;
   };
-}
-
-/**
- * Generate the standard "Choose your identity header" section for an AgentScore-gated
- * merchant's llms.txt. Explains wallet-auth vs operator-token paths + the cross-merchant
- * memory contract so agents know how to authenticate without reading the API docs.
- */
-export function llmsTxtIdentitySection(input: LlmsTxtIdentitySectionInput = {}): string {
-  if (!input.agentscore) {
+} = {}): string {
+  if (!agentscore) {
     return '';
   }
-  const compliance = input.compliance;
   const complianceNote = compliance
     ? `\n\nCompliance: ${[
         compliance.require_kyc ? 'KYC required' : null,
@@ -41,7 +41,7 @@ AgentScore identity is reusable across every AgentScore-gated merchant — one K
 - **Neither** — you get a 403 with \`verify_url\`. Complete the session flow once and reuse the resulting \`opc_...\` everywhere.${complianceNote}`;
 }
 
-export interface LlmsTxtPaymentSectionInput {
+interface LlmsTxtPaymentSectionConfig {
   /** Symbolic rail names supported. */
   rails: ('tempo-mainnet' | 'tempo-testnet' | 'x402-base-mainnet' | 'x402-base-sepolia' | 'mpp-solana-mainnet' | 'mpp-solana-devnet' | 'stripe-spt' | string)[];
   /** Merchant URL — used in the example commands. */
@@ -66,7 +66,7 @@ export interface LlmsTxtPaymentSectionInput {
  * Pass `verbose: true` for the rich variant — multi-step setup + multi-line command examples +
  * exact-amount warnings. Default is the compact one-bullet-per-rail form.
  */
-export function llmsTxtPaymentSection(input: LlmsTxtPaymentSectionInput): string {
+export function llmsTxtPaymentSection(input: LlmsTxtPaymentSectionConfig): string {
   return input.verbose ? llmsTxtPaymentSectionVerbose(input) : llmsTxtPaymentSectionCompact(input);
 }
 
@@ -78,7 +78,7 @@ function isTestnetRail(rails: string[], prefix: string): boolean {
   return rails.some(r => r.startsWith(prefix) && /(sepolia|devnet|moderato|testnet)/.test(r));
 }
 
-function llmsTxtPaymentSectionCompact(input: LlmsTxtPaymentSectionInput): string {
+function llmsTxtPaymentSectionCompact(input: LlmsTxtPaymentSectionConfig): string {
   const lines: string[] = ['## Payment', ''];
   const rails = input.rails;
   if (hasRailFamily(rails, 'tempo-')) {
@@ -99,7 +99,7 @@ function llmsTxtPaymentSectionCompact(input: LlmsTxtPaymentSectionInput): string
   return lines.join('\n');
 }
 
-function llmsTxtPaymentSectionVerbose(input: LlmsTxtPaymentSectionInput): string {
+function llmsTxtPaymentSectionVerbose(input: LlmsTxtPaymentSectionConfig): string {
   const rails = input.rails;
   const tempoNetwork = input.tempoNetworkName ?? 'tempo-mainnet';
   const tempoChain = input.tempoChainId ?? 4217;
@@ -171,41 +171,45 @@ function llmsTxtPaymentSectionVerbose(input: LlmsTxtPaymentSectionInput): string
   return lines.join('\n');
 }
 
-export interface BuildLlmsTxtInput {
+/**
+ * Assemble a complete llms.txt document. Vendor passes their merchant-specific sections
+ * (intro, catalog, endpoints, gift orders, shipping, etc.); the helper adds the AgentScore
+ * identity + payment boilerplate at the end. Returns the full markdown string.
+ */
+export function buildLlmsTxt({
+  merchantName,
+  tagline,
+  sections,
+  agentscoreIdentity,
+  payment,
+}: {
   merchantName: string;
   /** Optional 1-line summary under the title. */
   tagline?: string;
   /** Custom merchant-written sections (intro, endpoints, terms, etc.). */
   sections: { heading: string; content: string }[];
   /** Append the AgentScore identity section. */
-  agentscoreIdentity?: LlmsTxtIdentitySectionInput;
+  agentscoreIdentity?: Parameters<typeof llmsTxtIdentitySection>[0];
   /** Append the standard payment section. */
-  payment?: LlmsTxtPaymentSectionInput;
-}
-
-/**
- * Assemble a complete llms.txt document. Vendor passes their merchant-specific sections
- * (intro, catalog, endpoints, gift orders, shipping, etc.); the helper adds the AgentScore
- * identity + payment boilerplate at the end. Returns the full markdown string.
- */
-export function buildLlmsTxt(input: BuildLlmsTxtInput): string {
-  const parts: string[] = [`# ${input.merchantName}`];
-  if (input.tagline) {
-    parts.push(`> ${input.tagline}`);
+  payment?: Parameters<typeof llmsTxtPaymentSection>[0];
+}): string {
+  const parts: string[] = [`# ${merchantName}`];
+  if (tagline) {
+    parts.push(`> ${tagline}`);
   }
   parts.push('');
-  for (const s of input.sections) {
+  for (const s of sections) {
     parts.push(`## ${s.heading}`);
     parts.push('');
     parts.push(s.content);
     parts.push('');
   }
-  if (input.agentscoreIdentity) {
-    parts.push(llmsTxtIdentitySection(input.agentscoreIdentity));
+  if (agentscoreIdentity) {
+    parts.push(llmsTxtIdentitySection(agentscoreIdentity));
     parts.push('');
   }
-  if (input.payment) {
-    parts.push(llmsTxtPaymentSection(input.payment));
+  if (payment) {
+    parts.push(llmsTxtPaymentSection(payment));
   }
   return parts.join('\n');
 }
