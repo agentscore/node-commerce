@@ -18,14 +18,11 @@
 import { describe, expect, it } from 'vitest';
 
 describe('public-surface — top-level @agent-score/commerce barrel', () => {
-  it('exports the UCP env-loader (loadUCPSigningKeyFromEnv + LoadUCPSigningKeyOptions)', async () => {
+  it('exports the UCP env-loader (loadUCPSigningKeyFromEnv) from the top-level barrel', async () => {
     const topLevel = await import('../src/index.js');
     const module = await import('../src/identity/ucp-jwks.js');
     expect(typeof topLevel.loadUCPSigningKeyFromEnv).toBe('function');
     expect(topLevel.loadUCPSigningKeyFromEnv).toBe(module.loadUCPSigningKeyFromEnv);
-    // LoadUCPSigningKeyOptions is a type-only export; assert it's
-    // present in the module text by re-importing the file path,
-    // since types disappear at runtime.
     expect(Object.keys(module)).toContain('loadUCPSigningKeyFromEnv');
   });
 

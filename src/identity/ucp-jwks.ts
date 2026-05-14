@@ -530,18 +530,15 @@ export function buildJWKSResponse(keys: UCPSigningKey[]): JWKSResponse {
 
 // ── env-driven loader (extracted from store + martin + signed_ucp_merchant) ──
 
-/** Configuration for {@link loadUCPSigningKeyFromEnv}. Env-var names are overridable
- *  so a merchant can run multiple distinct signing keys from different env namespaces
- *  (e.g. `PROD_UCP_JWK` vs `STAGING_UCP_JWK`). */
-export interface LoadUCPSigningKeyOptions {
-  envJwkVar?: string;
-  envKidVar?: string;
-  envAlgVar?: string;
-  defaultKid?: string;
-  defaultAlg?: 'EdDSA' | 'ES256';
+interface ResolvedLoadUCPSigningKeyOpts {
+  envJwkVar: string;
+  envKidVar: string;
+  envAlgVar: string;
+  defaultKid: string;
+  defaultAlg: 'EdDSA' | 'ES256';
 }
 
-const DEFAULT_LOAD_OPTS: Required<LoadUCPSigningKeyOptions> = {
+const DEFAULT_LOAD_OPTS: ResolvedLoadUCPSigningKeyOpts = {
   envJwkVar: 'UCP_SIGNING_KEY_JWK_PRIVATE',
   envKidVar: 'UCP_SIGNING_KEY_KID',
   envAlgVar: 'UCP_SIGNING_KEY_ALG',
@@ -568,12 +565,12 @@ function detectAlgFromJwk(jwk: Record<string, unknown>): 'EdDSA' | 'ES256' | nul
 // keys (a losing keypair signing a JWS that the published JWKS then rejects).
 const envLoaderCache = new Map<string, Promise<GeneratedUCPKey>>();
 
-function cacheKey(opts: Required<LoadUCPSigningKeyOptions>): string {
+function cacheKey(opts: ResolvedLoadUCPSigningKeyOpts): string {
   return `${opts.envJwkVar}|${opts.envKidVar}|${opts.envAlgVar}|${opts.defaultKid}|${opts.defaultAlg}`;
 }
 
 async function buildEnvSigningKey(
-  opts: Required<LoadUCPSigningKeyOptions>,
+  opts: ResolvedLoadUCPSigningKeyOpts,
 ): Promise<GeneratedUCPKey> {
   const kidDefault = readEnvTrimmed(opts.envKidVar) ?? opts.defaultKid;
   // Case-insensitive env-alg comparison: secret configs commonly carry casing drift
@@ -678,10 +675,32 @@ async function buildEnvSigningKey(
  * @throws Error with a sanitized message for malformed env JWKs; raw exception
  *   detail is intentionally suppressed so key bytes can never reach logs.
  */
-export async function loadUCPSigningKeyFromEnv(
-  opts: LoadUCPSigningKeyOptions = {},
-): Promise<GeneratedUCPKey> {
-  const resolved: Required<LoadUCPSigningKeyOptions> = { ...DEFAULT_LOAD_OPTS, ...opts };
+export async function loadUCPSigningKeyFromEnv({
+  envJwkVar,
+  envKidVar,
+  envAlgVar,
+  defaultKid,
+  defaultAlg,
+}: {
+  /** Env var name carrying the JSON-encoded private JWK. Default `UCP_SIGNING_KEY_JWK_PRIVATE`. */
+  envJwkVar?: string;
+  /** Env var name carrying an explicit kid override. Default `UCP_SIGNING_KEY_KID`. */
+  envKidVar?: string;
+  /** Env var name carrying the alg in the ephemeral fallback. Default `UCP_SIGNING_KEY_ALG`. */
+  envAlgVar?: string;
+  /** Kid to publish when neither the env JWK nor `envKidVar` carries one. Default `merchant-default`. */
+  defaultKid?: string;
+  /** Alg for the ephemeral fallback path. Default `EdDSA`. */
+  defaultAlg?: 'EdDSA' | 'ES256';
+} = {}): Promise<GeneratedUCPKey> {
+  const resolved: ResolvedLoadUCPSigningKeyOpts = {
+    ...DEFAULT_LOAD_OPTS,
+    ...(envJwkVar !== undefined && { envJwkVar }),
+    ...(envKidVar !== undefined && { envKidVar }),
+    ...(envAlgVar !== undefined && { envAlgVar }),
+    ...(defaultKid !== undefined && { defaultKid }),
+    ...(defaultAlg !== undefined && { defaultAlg }),
+  };
   const key = cacheKey(resolved);
   let cached = envLoaderCache.get(key);
   if (cached) return cached;
