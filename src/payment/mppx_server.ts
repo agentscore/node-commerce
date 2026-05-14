@@ -1,79 +1,21 @@
 import { createMppxStripe } from '../stripe-multichain/mppx_stripe';
+import { networks } from './networks';
+import {
+  resolveRecipient,
+  type SolanaMppRailSpec,
+  type StripeRailSpec,
+  type TempoRailSpec,
+  type TempoSessionRailSpec,
+} from './rail_spec';
 import { USDC } from './usdc';
 
-export type SolanaMppNetwork = 'mainnet-beta' | 'devnet' | 'localnet';
+export type MppxRailSpec =
+  | TempoRailSpec
+  | SolanaMppRailSpec
+  | TempoSessionRailSpec
+  | StripeRailSpec;
 
-interface CreateMppxServerRails {
-    /** One-shot Tempo USDC charge (intent: 'charge'). */
-    tempo?: {
-      recipient: string;
-      /** Custom currency token. Default: USDC on Tempo. */
-      currency?: string;
-      /** Use Tempo testnet (Moderato). Default false. */
-      testnet?: boolean;
-    };
-    /**
-     * Solana SPL charge (intent: 'charge'). Bakes createAssociatedTokenIdempotent
-     * into the buyer's tx so payments work against any payTo, fresh or warmed.
-     *
-     * Requires `@solana/mpp` + `@solana/kit` peer deps.
-     * Underlying spec: paymentauth.org/draft-solana-charge-00.
-     */
-    solana?: {
-      /** Base58-encoded Solana recipient public key. */
-      recipient: string;
-      /** SPL token mint (base58). Default: USDC for the selected network. */
-      currency?: string;
-      /** Token decimals. Default 6 (USDC). */
-      decimals?: number;
-      /** Solana network. Default 'mainnet-beta'. */
-      network?: SolanaMppNetwork;
-      /** Custom RPC URL. Default: public RPC for the network. */
-      rpcUrl?: string;
-      /**
-       * Optional fee-payer signer for server-side fee sponsorship. When provided,
-       * the server's pubkey is advertised as `feePayerKey` in the 402 challenge and
-       * the server co-signs settle txs as fee payer (so buyers don't need SOL, and
-       * ATA-creation rent is server-funded). Construct via
-       * `@solana/kit`'s `createKeyPairSignerFromBytes` or equivalent.
-       *
-       * Typed as `unknown` to avoid a hard dep on @solana/kit at this layer; pass any
-       * `TransactionPartialSigner` from `@solana/kit`.
-       */
-      signer?: unknown;
-      /** SPL token program hint (TOKEN_PROGRAM or TOKEN_2022_PROGRAM). Auto-detected when omitted. */
-      tokenProgram?: string;
-    };
-    /**
-     * Tempo session (intent: 'session') — pay-as-you-go channel for repeated calls or
-     * SSE-streamed responses. Vendor brings their own ChannelStore (DB-backed implementation
-     * tracking open channels + voucher state) and an `escrowContract` address.
-     */
-    tempo_session?: {
-      recipient: string;
-      currency?: string;
-      testnet?: boolean;
-      /**
-       * On-chain escrow contract address that holds channel deposits and pays out
-       * cumulative vouchers on settlement. Vendor-deployed.
-       */
-      escrowContract: string;
-      /**
-       * Channel store implementation tracking open channels + cumulative voucher state.
-       * Pass an instance of mppx's `ChannelStore` interface (you can use the in-memory
-       * default for dev or implement a Postgres/Redis-backed store for production).
-       */
-      store: unknown;
-      /** Optional supported chains; defaults to mppx defaults. */
-      chains?: unknown;
-    };
-  /** Stripe SPT (Shared Payment Token) — see also @agent-score/commerce/stripe-multichain. */
-  stripe?: {
-    profileId: string;
-    secretKey: string;
-    paymentMethodTypes?: string[];
-  };
-}
+type SolanaMppNetwork = 'mainnet-beta' | 'devnet' | 'localnet';
 
 interface MppxModule {
   Mppx?: { create: (opts: { methods: unknown[]; secretKey: string }) => unknown };
@@ -102,23 +44,49 @@ interface SolanaMppModule {
   }) => unknown;
 }
 
+function isStripeRailSpec(s: MppxRailSpec): s is StripeRailSpec {
+  return !('recipient' in s);
+}
+
+function isTempoSessionRailSpec(s: MppxRailSpec): s is TempoSessionRailSpec {
+  return 'escrowContract' in s && 'store' in s;
+}
+
+function isSolanaMppRailSpec(s: MppxRailSpec): s is SolanaMppRailSpec {
+  if (!('recipient' in s)) return false;
+  if ('escrowContract' in s) return false;
+  if ('rpcUrl' in s || 'tokenProgram' in s) return true;
+  return (s as { network?: string }).network?.startsWith('solana:') ?? false;
+}
+
+function solanaNetworkFromCAIP2(caip2: string | undefined): SolanaMppNetwork {
+  if (caip2 === networks.solana.devnet.caip2) return 'devnet';
+  return 'mainnet-beta';
+}
+
+function solanaDefaultRpcUrl(network: SolanaMppNetwork): string {
+  if (network === 'mainnet-beta') return 'https://api.mainnet-beta.solana.com';
+  if (network === 'devnet') return 'https://api.devnet.solana.com';
+  return 'http://localhost:8899';
+}
+
 /**
- * One-call mppx server setup. Wires `tempo.charge(...)`, `tempo.session(...)`, and Stripe SPT
- * (via createMppxStripe) from symbolic rail config, replacing the boilerplate of constructing
- * each method by hand.
+ * One-call mppx server setup. Wires `tempo.charge(...)`, `tempo.session(...)`,
+ * `@solana/mpp.charge(...)`, and Stripe SPT (via createMppxStripe) from canonical
+ * `*RailSpec` configs, replacing the boilerplate of constructing each method by
+ * hand.
  *
  *   const mppx = await createMppxServer({
  *     rails: {
- *       tempo: { recipient: TEMPO_ADDR, testnet: false },             // intent: 'charge'
- *       tempo_session: {                                                // intent: 'session'
- *         recipient: TEMPO_ADDR,
- *         escrowContract: ESCROW_ADDR,
- *         store: myChannelStore,
- *       },
- *       stripe: { profileId: STRIPE_PROFILE_ID, secretKey: STRIPE_SECRET_KEY },
+ *       tempo: { recipient: TEMPO_ADDR } satisfies TempoRailSpec,
+ *       solana: { recipient: SOL_ADDR } satisfies SolanaMppRailSpec,
+ *       stripe: { profileId: STRIPE_PROFILE_ID, secretKey: STRIPE_SECRET_KEY } satisfies StripeRailSpec,
  *     },
  *     secretKey: MPP_SECRET_KEY,
  *   });
+ *
+ * Keys are rail names (`tempo` / `solana` / `tempo_session` / `stripe`); values
+ * are the matching `*RailSpec` types every other helper also consumes.
  *
  * `mppx` is an OPTIONAL peer dependency — install it only if you accept MPP rails.
  */
@@ -127,11 +95,8 @@ export async function createMppxServer({
   methods: extraMethods,
   secretKey,
 }: {
-  /** Symbolic rail config — commerce wires the boilerplate (tempo.charge, mppStripe.charge, solana.charge, etc.). */
-  rails?: CreateMppxServerRails;
-  /** Advanced: pass mppx method instances directly (in addition to or instead of `rails`). */
+  rails?: Record<string, MppxRailSpec>;
   methods?: unknown[];
-  /** MPP secret key (merchant's). */
   secretKey: string;
 }): Promise<unknown> {
   const mppx = await dynamicImport<MppxModule>('mppx/server');
@@ -143,83 +108,104 @@ export async function createMppxServer({
 
   const methods: unknown[] = [...(extraMethods ?? [])];
 
-  if (rails?.tempo) {
-    /* v8 ignore start -- peer-dep version-mismatch guard; current mppx ships tempo.charge */
-    if (!mppx.tempo?.charge) {
-      throw new Error('mppx.tempo.charge not available — check installed mppx version.');
+  for (const [name, spec] of Object.entries(rails ?? {})) {
+    if (isStripeRailSpec(spec)) {
+      methods.push(await registerStripe(spec));
+      continue;
     }
-    /* v8 ignore stop */
-    const t = rails.tempo;
-    const defaultCurrency = t.testnet ? USDC.tempo.testnet.address : USDC.tempo.mainnet.address;
-    methods.push(
-      mppx.tempo.charge({
-        currency: t.currency ?? defaultCurrency,
-        recipient: t.recipient,
-        testnet: t.testnet ?? false,
-      }),
-    );
-  }
-
-  if (rails?.tempo_session) {
-    /* v8 ignore start -- peer-dep version-mismatch guard; current mppx ships tempo.session */
-    if (!mppx.tempo?.session) {
-      throw new Error(
-        'mppx.tempo.session not available — your mppx version may not support sessions yet. Upgrade with `npm install mppx@latest`.',
-      );
+    if (isTempoSessionRailSpec(spec)) {
+      methods.push(await registerTempoSession(mppx, spec));
+      continue;
     }
-    /* v8 ignore stop */
-    const s = rails.tempo_session;
-    const defaultCurrency = s.testnet ? USDC.tempo.testnet.address : USDC.tempo.mainnet.address;
-    methods.push(
-      mppx.tempo.session({
-        currency: s.currency ?? defaultCurrency,
-        recipient: s.recipient,
-        escrowContract: s.escrowContract,
-        store: s.store,
-        testnet: s.testnet ?? false,
-        ...(s.chains ? { chains: s.chains } : {}),
-      }),
-    );
-  }
-
-  if (rails?.solana) {
-    const solanaMpp = await dynamicImport<SolanaMppModule>('@solana/mpp/server');
-    if (!solanaMpp?.charge) {
-      throw new Error(
-        '@solana/mpp not installed — `npm install @solana/mpp @solana/kit` to use the solana rail.',
-      );
+    if (isSolanaMppRailSpec(spec)) {
+      methods.push(await registerSolana(spec));
+      continue;
     }
-    const s = rails.solana;
-    const network: SolanaMppNetwork = s.network ?? 'mainnet-beta';
-    const defaultMint =
-      network === 'mainnet-beta' ? USDC.solana.mainnet.mint : USDC.solana.devnet.mint;
-    const defaultDecimals =
-      network === 'mainnet-beta' ? USDC.solana.mainnet.decimals : USDC.solana.devnet.decimals;
-    const baseMethod = solanaMpp.charge({
-      recipient: s.recipient,
-      currency: s.currency ?? defaultMint,
-      decimals: s.decimals ?? defaultDecimals,
-      network,
-      ...(s.rpcUrl ? { rpcUrl: s.rpcUrl } : {}),
-      ...(s.signer ? { signer: s.signer } : {}),
-      ...(s.tokenProgram ? { tokenProgram: s.tokenProgram } : {}),
-    }) as SolanaChargeMethod;
-    const rpcUrl =
-      s.rpcUrl ??
-      (network === 'mainnet-beta'
-        ? 'https://api.mainnet-beta.solana.com'
-        : network === 'devnet'
-          ? 'https://api.devnet.solana.com'
-          : 'http://localhost:8899');
-    methods.push(wrapSolanaChargeWithFinalizedBlockhash(baseMethod, rpcUrl));
-  }
-
-  if (rails?.stripe) {
-    const stripeMethod = await createMppxStripe(rails.stripe);
-    methods.push(stripeMethod);
+    // Default: TempoRailSpec (bare `{recipient, ...}` with no Solana / session markers).
+    methods.push(registerTempo(mppx, spec as TempoRailSpec, name));
   }
 
   return mppx.Mppx.create({ methods, secretKey });
+}
+
+function registerTempo(mppx: MppxModule, spec: TempoRailSpec, _name: string): unknown {
+  /* v8 ignore start -- peer-dep version-mismatch guard; current mppx ships tempo.charge */
+  if (!mppx.tempo?.charge) {
+    throw new Error('mppx.tempo.charge not available — check installed mppx version.');
+  }
+  /* v8 ignore stop */
+  const defaultCurrency = spec.testnet ? USDC.tempo.testnet.address : USDC.tempo.mainnet.address;
+  if (typeof spec.recipient !== 'string') {
+    throw new TypeError(
+      'createMppxServer: TempoRailSpec requires a string recipient (per-order factories not supported here).',
+    );
+  }
+  return mppx.tempo.charge({
+    currency: spec.token ?? defaultCurrency,
+    recipient: spec.recipient,
+    testnet: spec.testnet ?? false,
+  });
+}
+
+async function registerTempoSession(mppx: MppxModule, spec: TempoSessionRailSpec): Promise<unknown> {
+  /* v8 ignore start -- peer-dep version-mismatch guard; current mppx ships tempo.session */
+  if (!mppx.tempo?.session) {
+    throw new Error(
+      'mppx.tempo.session not available — your mppx version may not support sessions yet. Upgrade with `npm install mppx@latest`.',
+    );
+  }
+  /* v8 ignore stop */
+  const defaultCurrency = spec.testnet ? USDC.tempo.testnet.address : USDC.tempo.mainnet.address;
+  return mppx.tempo.session({
+    currency: spec.currency ?? defaultCurrency,
+    recipient: await resolveRecipient(spec.recipient),
+    escrowContract: spec.escrowContract,
+    store: spec.store,
+    testnet: spec.testnet ?? false,
+    ...(spec.chains ? { chains: spec.chains } : {}),
+  });
+}
+
+async function registerSolana(spec: SolanaMppRailSpec): Promise<unknown> {
+  const solanaMpp = await dynamicImport<SolanaMppModule>('@solana/mpp/server');
+  if (!solanaMpp?.charge) {
+    throw new Error(
+      '@solana/mpp not installed — `npm install @solana/mpp @solana/kit` to use the solana rail.',
+    );
+  }
+  const network = solanaNetworkFromCAIP2(spec.network);
+  const defaultMint =
+    network === 'mainnet-beta' ? USDC.solana.mainnet.mint : USDC.solana.devnet.mint;
+  const defaultDecimals =
+    network === 'mainnet-beta' ? USDC.solana.mainnet.decimals : USDC.solana.devnet.decimals;
+  if (typeof spec.recipient !== 'string') {
+    throw new TypeError(
+      'createMppxServer: SolanaMppRailSpec requires a string recipient (per-order factories not supported here).',
+    );
+  }
+  const baseMethod = solanaMpp.charge({
+    recipient: spec.recipient,
+    currency: spec.token ?? defaultMint,
+    decimals: spec.decimals ?? defaultDecimals,
+    network,
+    ...(spec.rpcUrl ? { rpcUrl: spec.rpcUrl } : {}),
+    ...(spec.signer ? { signer: spec.signer } : {}),
+    ...(spec.tokenProgram ? { tokenProgram: spec.tokenProgram } : {}),
+  }) as SolanaChargeMethod;
+  return wrapSolanaChargeWithFinalizedBlockhash(baseMethod, spec.rpcUrl ?? solanaDefaultRpcUrl(network));
+}
+
+async function registerStripe(spec: StripeRailSpec): Promise<unknown> {
+  if (!spec.profileId || !spec.secretKey) {
+    throw new Error(
+      'createMppxServer: StripeRailSpec requires both profileId and secretKey.',
+    );
+  }
+  return createMppxStripe({
+    profileId: spec.profileId,
+    secretKey: spec.secretKey,
+    paymentMethodTypes: spec.paymentMethodTypes,
+  });
 }
 
 async function dynamicImport<T>(moduleName: string): Promise<T | null> {

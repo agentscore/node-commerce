@@ -184,12 +184,12 @@ app.post('/purchase', async (c) => {
     rails: {
       tempo: {
         recipient: depositAddresses.tempo as `0x${string}`,
-        currency: process.env.TEMPO_USDC_ADDRESS!,
+        token: process.env.TEMPO_USDC_ADDRESS!,
         testnet: process.env.TEMPO_USDC_ADDRESS === '0x20c0000000000000000000000000000000000000',
       },
       solana: {
         recipient: depositAddresses.solana,
-        network: SOLANA_NETWORK,
+        network: SOLANA_CAIP2,
       },
       stripe: {
         profileId: process.env.STRIPE_PROFILE_ID!,

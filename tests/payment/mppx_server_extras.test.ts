@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { createMppxServer } from '../../src/payment/mppx_server';
+import { networks } from '../../src/payment/networks';
+import type {
+  SolanaMppRailSpec,
+  StripeRailSpec,
+  TempoRailSpec,
+  TempoSessionRailSpec,
+} from '../../src/payment/rail_spec';
 
 describe('createMppxServer — additional rail branches', () => {
   it('routes tempo_session config through mppx.tempo.session', async () => {
-    // mppx.tempo.session needs a viem Account, not just a recipient string. We don't supply one here,
-    // so the test confirms the dispatch reaches mppx's own validator — proving the rail wiring works.
     await expect(
       createMppxServer({
         rails: {
@@ -12,7 +17,7 @@ describe('createMppxServer — additional rail branches', () => {
             recipient: '0x0000000000000000000000000000000000000001',
             escrowContract: '0x0000000000000000000000000000000000000002',
             store: {},
-          },
+          } as TempoSessionRailSpec,
         },
         secretKey: 'mpp_secret_xxx',
       }),
@@ -21,19 +26,30 @@ describe('createMppxServer — additional rail branches', () => {
 
   it('registers stripe via createMppxStripe when stripe rail is configured', async () => {
     const server = await createMppxServer({
-      rails: { stripe: { profileId: 'acct_test', secretKey: 'sk_test_xxx' } },
+      rails: {
+        stripe: { profileId: 'acct_test', secretKey: 'sk_test_xxx' } as StripeRailSpec,
+      },
       secretKey: 'mpp_secret_xxx',
     });
     expect(server).toBeDefined();
   });
 
-  it('passes custom currency override to tempo charge', async () => {
+  it('rejects stripe rail when secretKey is missing', async () => {
+    await expect(
+      createMppxServer({
+        rails: { stripe: { profileId: 'acct_test' } as StripeRailSpec },
+        secretKey: 'mpp_secret_xxx',
+      }),
+    ).rejects.toThrow(/profileId and secretKey/);
+  });
+
+  it('passes custom token override to tempo charge', async () => {
     const server = await createMppxServer({
       rails: {
         tempo: {
           recipient: '0x0000000000000000000000000000000000000001',
-          currency: '0xCustomCurrencyAddress',
-        },
+          token: '0xCustomCurrencyAddress',
+        } as TempoRailSpec,
       },
       secretKey: 'mpp_secret_xxx',
     });
@@ -45,9 +61,9 @@ describe('createMppxServer — additional rail branches', () => {
       rails: {
         solana: {
           recipient: 'JDK3GZwsmgWwdFicNnrLHEgZc54SNYp6egWL9LL3k9f5',
-          network: 'devnet',
+          network: networks.solana.devnet.caip2,
           rpcUrl: 'http://localhost:9999',
-        },
+        } as SolanaMppRailSpec,
       },
       secretKey: 'mpp_secret_xxx',
     });
@@ -59,9 +75,9 @@ describe('createMppxServer — additional rail branches', () => {
       rails: {
         solana: {
           recipient: 'JDK3GZwsmgWwdFicNnrLHEgZc54SNYp6egWL9LL3k9f5',
-          network: 'mainnet-beta',
+          network: networks.solana.mainnet.caip2,
           tokenProgram: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
-        },
+        } as SolanaMppRailSpec,
       },
       secretKey: 'mpp_secret_xxx',
     });
