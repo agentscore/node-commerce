@@ -108,7 +108,7 @@ function buildChallenge(url: string) {
     }),
   ];
 
-  const acceptedMethods = buildAcceptedMethods({
+  const acceptedMethods = await buildAcceptedMethods({
     x402_base: { recipient: X402_BASE_RECIPIENT },
     tempo: { recipient: TEMPO_RECIPIENT },
   });

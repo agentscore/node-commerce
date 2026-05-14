@@ -1,3 +1,11 @@
+import {
+  RAIL_SPEC_DEFAULTS,
+  type SolanaMppRailSpec,
+  type StripeRailSpec,
+  type TempoRailSpec,
+  type X402BaseRailSpec,
+} from '../payment/rail_spec';
+
 export interface HowToPayRailEntry {
   setup?: string[];
   prerequisite?: string;
@@ -23,10 +31,10 @@ export interface HowToPayBlock {
 }
 
 export interface HowToPayRails {
-  tempo?: { recipient: string; networkName?: string; chainId?: number; recommend?: 'tempo' | 'agentscore-pay' | 'both' };
-  x402_base?: { recipient: string; network?: string };
-  solana_mpp?: { recipient: string; network?: string };
-  stripe?: { profileId?: string | null; productName?: string };
+  tempo?: TempoRailSpec;
+  x402_base?: X402BaseRailSpec;
+  solana_mpp?: SolanaMppRailSpec;
+  stripe?: StripeRailSpec;
 }
 
 const TEMPO_SETUP = [
@@ -82,9 +90,9 @@ export function buildHowToPay({
   const block: HowToPayBlock = {};
 
   if (rails.tempo) {
-    const networkName = rails.tempo.networkName ?? 'tempo-mainnet';
-    const chainId = rails.tempo.chainId ?? 4217;
-    const recommend = rails.tempo.recommend ?? 'both';
+    const networkName = rails.tempo.testnet ? 'tempo-testnet' : (rails.tempo.network ?? RAIL_SPEC_DEFAULTS.tempo.network);
+    const chainId = rails.tempo.chainId ?? RAIL_SPEC_DEFAULTS.tempo.chainId;
+    const recommend = rails.tempo.recommend ?? RAIL_SPEC_DEFAULTS.tempo.recommend;
     const tempoCommand = `tempo request -X POST -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' --json '${retryBodyJson}' --max-spend ${maxSpendStr} ${url}`;
     const payCommand = `agentscore-pay pay POST ${url} --chain tempo -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' -d '${retryBodyJson}' --max-spend ${maxSpendStr}`;
     block.tempo = {
@@ -101,7 +109,7 @@ export function buildHowToPay({
   }
 
   if (rails.x402_base) {
-    const network = rails.x402_base.network ?? 'eip155:8453';
+    const network = rails.x402_base.network ?? RAIL_SPEC_DEFAULTS.x402Base.network;
     block.x402_base = {
       setup: PAY_SETUP_BASE,
       prerequisite: `Run \`agentscore-pay balance --chain base\` and confirm USDC balance on Base (${network}) is at least $${maxSpendStr}. If the CLI is not installed, run the setup commands above first.`,
@@ -111,7 +119,7 @@ export function buildHowToPay({
   }
 
   if (rails.solana_mpp) {
-    const network = rails.solana_mpp.network ?? 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
+    const network = rails.solana_mpp.network ?? RAIL_SPEC_DEFAULTS.solanaMpp.network;
     block.solana_mpp = {
       setup: PAY_SETUP_SOLANA,
       prerequisite: `Run \`agentscore-pay balance --chain solana\` and confirm USDC balance on Solana (${network}) is at least $${maxSpendStr}. If the CLI is not installed, run the setup commands above first.`,

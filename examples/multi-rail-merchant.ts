@@ -213,7 +213,7 @@ app.post('/purchase', async (c) => {
     // matches credentials to its own directive ids) and ADDS x402's
     // PAYMENT-REQUIRED header (mppx doesn't emit it).
     const isWalletAuth = assess?.identity_method === 'wallet';
-    const acceptedMethods = buildAcceptedMethods({
+    const acceptedMethods = await buildAcceptedMethods({
       tempo: { recipient: depositAddresses.tempo, network: 'tempo-mainnet', chainId: networks.tempo.mainnet.chainId },
       x402_base: { recipient: depositAddresses.base, network: X402_BASE_NETWORK },
       solana_mpp: { recipient: depositAddresses.solana, network: SOLANA_CAIP2 },
