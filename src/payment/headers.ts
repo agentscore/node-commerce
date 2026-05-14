@@ -8,7 +8,7 @@
  * — those primitives stay exposed for vendors who want full control.
  */
 
-import { buildPaymentDirective, type BuildPaymentDirectiveInput } from './directive';
+import { buildPaymentDirective } from './directive';
 import { paymentRequiredHeader, wwwAuthenticateHeader } from './wwwauthenticate';
 
 export interface PaymentHeadersRail {
@@ -32,22 +32,6 @@ export interface PaymentHeadersRail {
   intent?: string;
   /** ISO-8601 expiry. Default now + 5 min. */
   expires?: string;
-}
-
-export interface BuildPaymentHeadersInput {
-  /** Rails the merchant accepts on this 402. Each becomes one `Payment` directive. */
-  rails: PaymentHeadersRail[];
-  /** Order id used as the directive challenge id (per-rail it becomes `${orderId}-${rail}`). */
-  orderId: string;
-  /** Realm — the host of the merchant URL (e.g. `agents.merchant.example`). */
-  realm: string;
-  /**
-   * Optional x402 `accepts` array — included as the standard PAYMENT-REQUIRED header so
-   * x402 clients (`@x402/fetch`, `@x402/core` HTTPClient, `agentscore-pay`) can parse the
-   * base64-encoded JSON form instead of the WWW-Authenticate text directives. Pass
-   * `undefined` (or omit) to skip the PAYMENT-REQUIRED header.
-   */
-  x402?: { accepts: unknown[]; version?: 1 | 2; resource?: { url: string; mimeType?: string } };
 }
 
 export interface PaymentHeadersResult {
@@ -75,34 +59,52 @@ export interface PaymentHeadersResult {
  * return new Response(JSON.stringify(body), { status: 402, headers });
  * ```
  */
-export function buildPaymentHeaders(input: BuildPaymentHeadersInput): PaymentHeadersResult {
-  const directives = input.rails.map((rail) => {
-    const directiveInput: BuildPaymentDirectiveInput = {
-      id: `${input.orderId}-${rail.rail}`,
-      realm: input.realm,
+export function buildPaymentHeaders({
+  rails,
+  orderId,
+  realm,
+  x402,
+}: {
+  /** Rails the merchant accepts on this 402. Each becomes one `Payment` directive. */
+  rails: PaymentHeadersRail[];
+  /** Order id used as the directive challenge id (per-rail it becomes `${orderId}-${rail}`). */
+  orderId: string;
+  /** Realm — the host of the merchant URL (e.g. `agents.merchant.example`). */
+  realm: string;
+  /**
+   * Optional x402 `accepts` array — included as the standard PAYMENT-REQUIRED header so
+   * x402 clients (`@x402/fetch`, `@x402/core` HTTPClient, `agentscore-pay`) can parse the
+   * base64-encoded JSON form instead of the WWW-Authenticate text directives. Pass
+   * `undefined` (or omit) to skip the PAYMENT-REQUIRED header.
+   */
+  x402?: { accepts: unknown[]; version?: 1 | 2; resource?: { url: string; mimeType?: string } };
+}): PaymentHeadersResult {
+  const directives = rails.map((rail) =>
+    buildPaymentDirective({
+      id: `${orderId}-${rail.rail}`,
+      realm,
       rail: rail.rail,
       amountUsd: rail.amountUsd,
-    };
-    if (rail.recipient !== undefined) directiveInput.recipient = rail.recipient;
-    if (rail.networkId !== undefined) directiveInput.networkId = rail.networkId;
-    if (rail.chainId !== undefined) directiveInput.chainId = rail.chainId;
-    if (rail.currency !== undefined) directiveInput.currency = rail.currency;
-    if (rail.decimals !== undefined) directiveInput.decimals = rail.decimals;
-    if (rail.method !== undefined) directiveInput.method = rail.method;
-    if (rail.intent !== undefined) directiveInput.intent = rail.intent;
-    if (rail.expires !== undefined) directiveInput.expires = rail.expires;
-    return buildPaymentDirective(directiveInput);
-  });
+      ...(rail.recipient !== undefined ? { recipient: rail.recipient } : {}),
+      ...(rail.networkId !== undefined ? { networkId: rail.networkId } : {}),
+      ...(rail.chainId !== undefined ? { chainId: rail.chainId } : {}),
+      ...(rail.currency !== undefined ? { currency: rail.currency } : {}),
+      ...(rail.decimals !== undefined ? { decimals: rail.decimals } : {}),
+      ...(rail.method !== undefined ? { method: rail.method } : {}),
+      ...(rail.intent !== undefined ? { intent: rail.intent } : {}),
+      ...(rail.expires !== undefined ? { expires: rail.expires } : {}),
+    }),
+  );
 
   const result: PaymentHeadersResult = {
     'www-authenticate': wwwAuthenticateHeader(directives),
   };
 
-  if (input.x402) {
+  if (x402) {
     result['PAYMENT-REQUIRED'] = paymentRequiredHeader({
-      x402Version: input.x402.version ?? 2,
-      accepts: input.x402.accepts,
-      ...(input.x402.resource ? { resource: input.x402.resource } : {}),
+      x402Version: x402.version ?? 2,
+      accepts: x402.accepts,
+      ...(x402.resource ? { resource: x402.resource } : {}),
     });
   }
 
