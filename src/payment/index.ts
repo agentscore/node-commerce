@@ -2,6 +2,7 @@ export * from './directive';
 export * from './networks';
 export * from './usdc';
 export * from './rails';
+export * from './rail_spec';
 export * from './x402';
 export * from './x402_server';
 export * from './x402_settle';
