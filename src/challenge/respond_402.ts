@@ -31,26 +31,28 @@
  */
 
 import { paymentRequiredHeader, type PaymentRequiredHeaderInput } from '../payment/wwwauthenticate';
-import { build402Body, type Build402BodyInput } from './body';
+import { build402Body } from './body';
 
-export interface Respond402Input {
+export function respond402({
+  mppxChallenge,
+  body,
+  x402,
+}: {
   /** The 402 Response returned by `mppx.compose()(req)`. Its WWW-Authenticate header
    *  is preserved verbatim — mppx's server-side validator matches credentials to the
    *  directive ids it generated, so overwriting breaks the round-trip. */
   mppxChallenge: Response;
   /** Inputs to `build402Body` — the rich JSON body sent to the agent. */
-  body: Build402BodyInput;
+  body: Parameters<typeof build402Body>[0];
   /** When set, layers on the x402 PAYMENT-REQUIRED header (base64-encoded JSON).
    *  Omit for merchants that don't accept x402 (Base/Solana) — mppx-only setups. */
   x402?: PaymentRequiredHeaderInput;
-}
-
-export function respond402(input: Respond402Input): Response {
-  const body = build402Body(input.body);
-  const headers = new Headers(input.mppxChallenge.headers);
+}): Response {
+  const out = build402Body(body);
+  const headers = new Headers(mppxChallenge.headers);
   headers.set('content-type', 'application/json');
-  if (input.x402) {
-    headers.set('PAYMENT-REQUIRED', paymentRequiredHeader(input.x402));
+  if (x402) {
+    headers.set('PAYMENT-REQUIRED', paymentRequiredHeader(x402));
   }
-  return new Response(JSON.stringify(body), { headers, status: 402 });
+  return new Response(JSON.stringify(out), { headers, status: 402 });
 }

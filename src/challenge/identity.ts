@@ -7,19 +7,6 @@ export interface SignerMatchResultLike {
   linkedWallets?: string[];
 }
 
-export interface IdentityMetadataInput {
-  /** Current request's identity mode. */
-  mode: IdentityMode;
-  /** Claimed wallet address (when mode === 'wallet'). */
-  wallet?: string;
-  /** Projected signer_match verdict (from `getSignerVerdict(ctx).signer_match`). */
-  signerMatchResult?: SignerMatchResultLike;
-  /** Same-operator linked wallets (from assess response). */
-  linkedWallets?: string[];
-  /** Optional explicit constraint description (overrides the auto-generated one). */
-  signerConstraint?: string;
-}
-
 export interface IdentityMetadataBlock {
   identity_mode: IdentityMode;
   required_signer?: string;
@@ -33,19 +20,31 @@ export interface IdentityMetadataBlock {
  * before signing — specifically, on wallet-auth rails the agent MUST sign with one
  * of the wallets in linked_wallets (all resolve to the same operator).
  */
-export function buildIdentityMetadata(input: IdentityMetadataInput): IdentityMetadataBlock {
-  const block: IdentityMetadataBlock = { identity_mode: input.mode };
+export function buildIdentityMetadata({
+  mode,
+  wallet,
+  signerMatchResult,
+  linkedWallets,
+  signerConstraint,
+}: {
+  mode: IdentityMode;
+  wallet?: string;
+  signerMatchResult?: SignerMatchResultLike;
+  linkedWallets?: string[];
+  signerConstraint?: string;
+}): IdentityMetadataBlock {
+  const block: IdentityMetadataBlock = { identity_mode: mode };
 
-  if (input.mode !== 'wallet') return block;
+  if (mode !== 'wallet') return block;
 
-  if (input.wallet) {
-    block.required_signer = input.signerMatchResult?.expectedSigner ?? input.wallet;
+  if (wallet) {
+    block.required_signer = signerMatchResult?.expectedSigner ?? wallet;
   }
-  if (input.linkedWallets && input.linkedWallets.length > 0) {
-    block.linked_wallets = input.linkedWallets;
+  if (linkedWallets && linkedWallets.length > 0) {
+    block.linked_wallets = linkedWallets;
   }
   block.signer_constraint =
-    input.signerConstraint ??
+    signerConstraint ??
     'Payment must be signed with the claimed wallet OR any same-operator linked wallet listed in linked_wallets.';
 
   return block;

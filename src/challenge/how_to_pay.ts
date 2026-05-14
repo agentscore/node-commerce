@@ -22,24 +22,11 @@ export interface HowToPayBlock {
   stripe?: HowToPayStripeEntry;
 }
 
-export interface BuildHowToPayInput {
-  /** The merchant's full URL (e.g., 'https://agents.merchant.example/api/buy'). */
-  url: string;
-  /** JSON string of the body the agent should retry with — typically the original request body. */
-  retryBodyJson: string;
-  /** Total amount in USD (string or number). Used to compute max-spend defaults and stripe context. */
-  totalUsd: string | number;
-  /** Per-rail config — each is optional. Pass only the rails you support. */
-  rails: {
-    tempo?: { recipient: string; networkName?: string; chainId?: number; recommend?: 'tempo' | 'agentscore-pay' | 'both' };
-    x402_base?: { recipient: string; network?: string };
-    solana_mpp?: { recipient: string; network?: string };
-    stripe?: { profileId?: string | null; productName?: string };
-  };
-  /** Placeholder text for the operator token in commands. Defaults to '<your_opc_token>'. */
-  opTokenPlaceholder?: string;
-  /** Override max-spend value used in commands. Default: ceil(totalUsd) + 1. */
-  maxSpend?: string | number;
+export interface HowToPayRails {
+  tempo?: { recipient: string; networkName?: string; chainId?: number; recommend?: 'tempo' | 'agentscore-pay' | 'both' };
+  x402_base?: { recipient: string; network?: string };
+  solana_mpp?: { recipient: string; network?: string };
+  stripe?: { profileId?: string | null; productName?: string };
 }
 
 const TEMPO_SETUP = [
@@ -68,21 +55,41 @@ const PAY_SETUP_SOLANA = [
  *
  * Tool recommendations (tempo CLI vs agentscore-pay vs link-cli) are configurable per rail.
  */
-export function buildHowToPay(input: BuildHowToPayInput): HowToPayBlock {
-  const totalNum = typeof input.totalUsd === 'string' ? Number(input.totalUsd) : input.totalUsd;
-  const maxSpend = String(input.maxSpend ?? (Math.ceil(totalNum) + 1).toFixed(2));
-  const opToken = input.opTokenPlaceholder ?? '<your_opc_token>';
+export function buildHowToPay({
+  url,
+  retryBodyJson,
+  totalUsd,
+  rails,
+  opTokenPlaceholder,
+  maxSpend,
+}: {
+  /** The merchant's full URL (e.g., 'https://agents.merchant.example/api/buy'). */
+  url: string;
+  /** JSON string of the body the agent should retry with — typically the original request body. */
+  retryBodyJson: string;
+  /** Total amount in USD (string or number). Used to compute max-spend defaults and stripe context. */
+  totalUsd: string | number;
+  /** Per-rail config — each is optional. Pass only the rails you support. */
+  rails: HowToPayRails;
+  /** Placeholder text for the operator token in commands. Defaults to '<your_opc_token>'. */
+  opTokenPlaceholder?: string;
+  /** Override max-spend value used in commands. Default: ceil(totalUsd) + 1. */
+  maxSpend?: string | number;
+}): HowToPayBlock {
+  const totalNum = typeof totalUsd === 'string' ? Number(totalUsd) : totalUsd;
+  const maxSpendStr = String(maxSpend ?? (Math.ceil(totalNum) + 1).toFixed(2));
+  const opToken = opTokenPlaceholder ?? '<your_opc_token>';
   const block: HowToPayBlock = {};
 
-  if (input.rails.tempo) {
-    const networkName = input.rails.tempo.networkName ?? 'tempo-mainnet';
-    const chainId = input.rails.tempo.chainId ?? 4217;
-    const recommend = input.rails.tempo.recommend ?? 'both';
-    const tempoCommand = `tempo request -X POST -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' --json '${input.retryBodyJson}' --max-spend ${maxSpend} ${input.url}`;
-    const payCommand = `agentscore-pay pay POST ${input.url} --chain tempo -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' -d '${input.retryBodyJson}' --max-spend ${maxSpend}`;
+  if (rails.tempo) {
+    const networkName = rails.tempo.networkName ?? 'tempo-mainnet';
+    const chainId = rails.tempo.chainId ?? 4217;
+    const recommend = rails.tempo.recommend ?? 'both';
+    const tempoCommand = `tempo request -X POST -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' --json '${retryBodyJson}' --max-spend ${maxSpendStr} ${url}`;
+    const payCommand = `agentscore-pay pay POST ${url} --chain tempo -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' -d '${retryBodyJson}' --max-spend ${maxSpendStr}`;
     block.tempo = {
       setup: TEMPO_SETUP,
-      prerequisite: `Run \`tempo wallet whoami\` and confirm USDC.e balance on ${networkName} (chain ${chainId}) is at least $${maxSpend}. If the tempo CLI is not installed, run the setup commands above first.`,
+      prerequisite: `Run \`tempo wallet whoami\` and confirm USDC.e balance on ${networkName} (chain ${chainId}) is at least $${maxSpendStr}. If the tempo CLI is not installed, run the setup commands above first.`,
       command: recommend === 'agentscore-pay' ? payCommand : tempoCommand,
       ...(recommend === 'both'
         ? { alternative_command: payCommand }
@@ -93,28 +100,28 @@ export function buildHowToPay(input: BuildHowToPayInput): HowToPayBlock {
     };
   }
 
-  if (input.rails.x402_base) {
-    const network = input.rails.x402_base.network ?? 'eip155:8453';
+  if (rails.x402_base) {
+    const network = rails.x402_base.network ?? 'eip155:8453';
     block.x402_base = {
       setup: PAY_SETUP_BASE,
-      prerequisite: `Run \`agentscore-pay balance --chain base\` and confirm USDC balance on Base (${network}) is at least $${maxSpend}. If the CLI is not installed, run the setup commands above first.`,
-      command: `agentscore-pay pay POST ${input.url} --chain base -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' -d '${input.retryBodyJson}' --max-spend ${maxSpend}`,
+      prerequisite: `Run \`agentscore-pay balance --chain base\` and confirm USDC balance on Base (${network}) is at least $${maxSpendStr}. If the CLI is not installed, run the setup commands above first.`,
+      command: `agentscore-pay pay POST ${url} --chain base -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' -d '${retryBodyJson}' --max-spend ${maxSpendStr}`,
       what_it_does: 'Pays via USDC on Base.',
     };
   }
 
-  if (input.rails.solana_mpp) {
-    const network = input.rails.solana_mpp.network ?? 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
+  if (rails.solana_mpp) {
+    const network = rails.solana_mpp.network ?? 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
     block.solana_mpp = {
       setup: PAY_SETUP_SOLANA,
-      prerequisite: `Run \`agentscore-pay balance --chain solana\` and confirm USDC balance on Solana (${network}) is at least $${maxSpend}. If the CLI is not installed, run the setup commands above first.`,
-      command: `agentscore-pay pay POST ${input.url} --chain solana -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' -d '${input.retryBodyJson}' --max-spend ${maxSpend}`,
+      prerequisite: `Run \`agentscore-pay balance --chain solana\` and confirm USDC balance on Solana (${network}) is at least $${maxSpendStr}. If the CLI is not installed, run the setup commands above first.`,
+      command: `agentscore-pay pay POST ${url} --chain solana -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' -d '${retryBodyJson}' --max-spend ${maxSpendStr}`,
       what_it_does: 'Pays via USDC on Solana.',
     };
   }
 
-  if (input.rails.stripe) {
-    const stripeCfg = input.rails.stripe;
+  if (rails.stripe) {
+    const stripeCfg = rails.stripe;
     const amountCents = Math.round(totalNum * 100);
     const linkCliBlocked = amountCents > 50000;
     const productName = stripeCfg.productName ?? 'this purchase';
@@ -133,7 +140,7 @@ export function buildHowToPay(input: BuildHowToPayInput): HowToPayBlock {
       ];
       stripe.command_link_cli = [
         `SPEND_ID=$(link-cli spend-request create --payment-method-id <csmrpd_id_from_payment_methods_list> --credential-type shared_payment_token --network-id ${stripeCfg.profileId} --amount ${amountCents} --context "${sptContext}" --request-approval --output-json | jq -r .id)`,
-        `link-cli mpp pay ${input.url} --spend-request-id $SPEND_ID --method POST --data '${input.retryBodyJson}' --header 'X-Operator-Token: ${opToken}' --output-json`,
+        `link-cli mpp pay ${url} --spend-request-id $SPEND_ID --method POST --data '${retryBodyJson}' --header 'X-Operator-Token: ${opToken}' --output-json`,
       ];
       stripe.what_it_does_link_cli =
         'Mints a one-time-use SharedPaymentToken scoped to this purchase (user approves in Link wallet), then submits it as the payment credential.';
