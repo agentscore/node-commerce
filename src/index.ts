@@ -3,7 +3,6 @@ export type {
   AgentIdentity,
   AgentMemoryHint,
   AgentScoreCore,
-  AgentScoreCoreOptions,
   AssessResult,
   CreateSessionOnMissing,
   DenialCode,
@@ -38,7 +37,6 @@ export {
   type A2AAgentInterface,
   type A2AAgentProvider,
   type A2AAgentSkill,
-  type BuildA2AAgentCardInput,
 } from './identity/a2a';
 export {
   AGENTSCORE_UCP_CAPABILITY,
@@ -62,7 +60,6 @@ export {
   type GeneratedUCPKey,
   type JWKSResponse,
   loadUCPSigningKeyFromEnv,
-  type SignUCPProfileOptions,
   type SignedUCPProfile,
   signUCPProfile,
   UCPVerificationError,

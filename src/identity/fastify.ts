@@ -37,7 +37,7 @@ interface GateState {
   quota?: GateQuotaInfo;
 }
 
-export interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
+interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
   /** Custom function to extract agent identity from a Fastify request. */
   extractIdentity?: (req: FastifyRequest) => AgentIdentity | undefined;
   /** Custom handler invoked when a request is denied. */

@@ -43,7 +43,7 @@ export function isDiscoveryPath(
   return false;
 }
 
-export interface NoindexNonDiscoveryOptions {
+interface NoindexNonDiscoveryOptions {
   /** Additional discovery paths beyond the defaults (e.g. `/sitemap.xml`,
    *  `/.well-known/foo`). Merged with the defaults unless `replacePaths: true`. */
   customPaths?: Iterable<string>;

@@ -33,15 +33,6 @@ interface RedisLike {
   on: (event: 'error', cb: (err: Error) => void) => unknown;
 }
 
-export interface PiCacheOptions {
-  /** Redis connection URL (e.g. `rediss://…cache.amazonaws.com:6379`). When omitted,
-   *  the cache falls back to in-process Maps with the same API. */
-  redisUrl?: string;
-  /** TTL for cached entries in seconds. Default 300. */
-  ttlSeconds?: number;
-  /** Prefix for Redis keys. Default `'payto:'`. */
-  keyPrefix?: string;
-}
 
 export interface PiCache {
   /** Mark an on-chain address as one this merchant minted. Idempotent + TTL-bounded. */
@@ -62,9 +53,19 @@ export interface PiCache {
 
 interface Entry<T> { value: T; expiresAt: number }
 
-export function createPiCache(opts: PiCacheOptions = {}): PiCache {
-  const ttlSeconds = opts.ttlSeconds ?? 300;
-  const keyPrefix = opts.keyPrefix ?? 'payto:';
+export function createPiCache({
+  redisUrl,
+  ttlSeconds = 300,
+  keyPrefix = 'payto:',
+}: {
+  /** Redis connection URL (e.g. `rediss://…cache.amazonaws.com:6379`). When omitted,
+   *  the cache falls back to in-process Maps with the same API. */
+  redisUrl?: string;
+  /** TTL for cached entries in seconds. Default 300. */
+  ttlSeconds?: number;
+  /** Prefix for Redis keys. Default `'payto:'`. */
+  keyPrefix?: string;
+} = {}): PiCache {
 
   let redis: RedisLike | null = null;
   const addrMemCache = new Map<string, number>();
@@ -81,7 +82,7 @@ export function createPiCache(opts: PiCacheOptions = {}): PiCache {
   if (typeof evict.unref === 'function') evict.unref();
 
   async function getRedis(): Promise<RedisLike | null> {
-    if (!opts.redisUrl) return null;
+    if (!redisUrl) return null;
     if (redis) return redis;
     // Dynamic import keeps ioredis as an optional peer dep — merchants without
     // Redis don't pay the install cost.
@@ -92,10 +93,10 @@ export function createPiCache(opts: PiCacheOptions = {}): PiCache {
       console.error('[pi-cache] redisUrl set but `ioredis` is not installed. Run `npm install ioredis` or unset redisUrl.');
       return null;
     }
-    redis = new mod.default(opts.redisUrl, {
+    redis = new mod.default(redisUrl, {
       connectTimeout: 5000,
       maxRetriesPerRequest: 1,
-      tls: opts.redisUrl.startsWith('rediss://') ? {} : undefined,
+      tls: redisUrl.startsWith('rediss://') ? {} : undefined,
     });
     redis.on('error', (err: Error) => console.error('[pi-cache] Redis error:', err.message));
     return redis;

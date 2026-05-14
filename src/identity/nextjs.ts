@@ -1,8 +1,5 @@
 import { createAgentScoreGate } from './web';
-import type { AgentScoreGateOptions as WebAgentScoreGateOptions } from './web';
 import type { AssessResult, FailOpenInfraReason, GateQuotaInfo, SignerVerdict } from '../core';
-
-export type AgentScoreGateOptions = WebAgentScoreGateOptions;
 
 /**
  * Wrap a Next.js App Router route handler with the gate.
@@ -26,7 +23,7 @@ export type AgentScoreGateOptions = WebAgentScoreGateOptions;
  * Works with any Request type, including Next's `NextRequest`.
  */
 export function withAgentScoreGate<TReq extends Request = Request, TCtx = unknown>(
-  options: AgentScoreGateOptions,
+  options: Parameters<typeof createAgentScoreGate>[0],
   handler: (
     req: TReq,
     gate: {
@@ -90,7 +87,7 @@ export function withAgentScoreGate<TReq extends Request = Request, TCtx = unknow
  * export const config = { matcher: '/api/purchase/:path*' };
  * ```
  */
-export function agentscoreMiddleware(options: AgentScoreGateOptions): (req: Request) => Promise<Response | undefined> {
+export function agentscoreMiddleware(options: Parameters<typeof createAgentScoreGate>[0]): (req: Request) => Promise<Response | undefined> {
   const guard = createAgentScoreGate(options);
   return async (req: Request) => {
     const result = await guard(req);

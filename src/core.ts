@@ -262,7 +262,7 @@ export type EvaluateOutcome =
   | { kind: 'allow'; data?: AssessResult; degraded?: boolean; infraReason?: FailOpenInfraReason; quota?: GateQuotaInfo }
   | { kind: 'deny'; reason: DenialReason };
 
-export interface CaptureWalletOptions {
+interface CaptureWalletOptions {
   /** Operator credential (`opc_...`) that the agent authenticated with. */
   operatorToken: string;
   /** Signer wallet recovered from the payment payload. */
