@@ -30,7 +30,7 @@
  * ```
  */
 
-import { paymentRequiredHeader, type PaymentRequiredHeaderInput } from '../payment/wwwauthenticate';
+import { paymentRequiredHeader } from '../payment/wwwauthenticate';
 import { build402Body } from './body';
 
 export function respond402({
@@ -46,7 +46,7 @@ export function respond402({
   body: Parameters<typeof build402Body>[0];
   /** When set, layers on the x402 PAYMENT-REQUIRED header (base64-encoded JSON).
    *  Omit for merchants that don't accept x402 (Base/Solana) — mppx-only setups. */
-  x402?: PaymentRequiredHeaderInput;
+  x402?: Parameters<typeof paymentRequiredHeader>[0];
 }): Response {
   const out = build402Body(body);
   const headers = new Headers(mppxChallenge.headers);
