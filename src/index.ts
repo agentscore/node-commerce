@@ -65,6 +65,8 @@ export {
   generateUCPSigningKey,
   type GeneratedUCPKey,
   type JWKSResponse,
+  loadUCPSigningKeyFromEnv,
+  type LoadUCPSigningKeyOptions,
   type SignUCPProfileOptions,
   type SignedUCPProfile,
   signUCPProfile,
