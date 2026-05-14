@@ -44,11 +44,8 @@ export {
   AGENTSCORE_UCP_CAPABILITY,
   type AgentScoreGatePolicy,
   buildUCPProfile,
-  type BuildUCPProfileInput,
   type MppNetworkEntry,
-  type MppPaymentHandlerInput,
   mppPaymentHandler,
-  type StripeSptPaymentHandlerInput,
   stripeSptPaymentHandler,
   type UCPCapabilityBinding,
   type UCPPaymentHandlerBinding,
@@ -57,7 +54,6 @@ export {
   type UCPServiceBinding,
   UCPSigningKey,
   type X402NetworkEntry,
-  type X402PaymentHandlerInput,
   x402PaymentHandler,
 } from './identity/ucp';
 export {

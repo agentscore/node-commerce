@@ -173,7 +173,7 @@ export interface UCPProfile {
   [k: string]: unknown;
 }
 
-export interface BuildUCPProfileInput {
+interface BuildUCPProfileInput {
   /** UCP spec version. Default `'2026-04-08'` (the latest published UCP spec date). MUST match a published UCP spec version, not a free-form date. */
   version?: string;
   /** Display name for the merchant / agent surface. */
@@ -430,9 +430,6 @@ export interface MppNetworkEntry {
   [k: string]: unknown;
 }
 
-export interface MppPaymentHandlerInput {
-  networks: MppNetworkEntry[];
-}
 
 type X402Network =
   | `base-${number}`
@@ -449,14 +446,6 @@ export interface X402NetworkEntry {
   [k: string]: unknown;
 }
 
-export interface X402PaymentHandlerInput {
-  networks: X402NetworkEntry[];
-}
-
-export interface StripeSptPaymentHandlerInput {
-  /** Stripe profile id (the merchant-side network identifier the agent's SPT is scoped to). */
-  profile_id: string;
-}
 
 /**
  * Build the `sh.agentscore.payment.mpp` payment handler block for a UCP profile.
@@ -471,14 +460,18 @@ export interface StripeSptPaymentHandlerInput {
  * });
  * ```
  */
-export function mppPaymentHandler(input: MppPaymentHandlerInput): Record<string, UCPPaymentHandlerBinding[]> {
+export function mppPaymentHandler({
+  networks,
+}: {
+  networks: MppNetworkEntry[];
+}): Record<string, UCPPaymentHandlerBinding[]> {
   return {
     'sh.agentscore.payment.mpp': [{
       id: 'mpp',
       version: HANDLER_VERSION,
       spec: `${SPEC_BASE}/mpp`,
       schema: `${SCHEMA_BASE}/mpp.json`,
-      config: { networks: input.networks },
+      config: { networks },
     }],
   };
 }
@@ -496,14 +489,18 @@ export function mppPaymentHandler(input: MppPaymentHandlerInput): Record<string,
  * });
  * ```
  */
-export function x402PaymentHandler(input: X402PaymentHandlerInput): Record<string, UCPPaymentHandlerBinding[]> {
+export function x402PaymentHandler({
+  networks,
+}: {
+  networks: X402NetworkEntry[];
+}): Record<string, UCPPaymentHandlerBinding[]> {
   return {
     'sh.agentscore.payment.x402': [{
       id: 'x402',
       version: HANDLER_VERSION,
       spec: `${SPEC_BASE}/x402`,
       schema: `${SCHEMA_BASE}/x402.json`,
-      config: { networks: input.networks },
+      config: { networks },
     }],
   };
 }
@@ -521,14 +518,19 @@ export function x402PaymentHandler(input: X402PaymentHandlerInput): Record<strin
  * });
  * ```
  */
-export function stripeSptPaymentHandler(input: StripeSptPaymentHandlerInput): Record<string, UCPPaymentHandlerBinding[]> {
+export function stripeSptPaymentHandler({
+  profile_id,
+}: {
+  /** Stripe profile id (the merchant-side network identifier the agent's SPT is scoped to). */
+  profile_id: string;
+}): Record<string, UCPPaymentHandlerBinding[]> {
   return {
     'sh.agentscore.payment.stripe_spt': [{
       id: 'stripe-spt',
       version: HANDLER_VERSION,
       spec: `${SPEC_BASE}/stripe_spt`,
       schema: `${SCHEMA_BASE}/stripe_spt.json`,
-      config: { rail: 'stripe-spt', profile_id: input.profile_id },
+      config: { rail: 'stripe-spt', profile_id },
     }],
   };
 }
