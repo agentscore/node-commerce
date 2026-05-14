@@ -5,54 +5,60 @@
  * The seam is fiddly enough to get wrong by hand:
  *   - mppx's `compose()(req)` returns a 402 Response with WWW-Authenticate directives
  *     whose ids mppx's server-side validator REMEMBERS — they round-trip in client
- *     credentials. Overwriting that header (e.g. with `buildPaymentHeaders` output)
- *     breaks the round-trip.
+ *     credentials. Overwriting that header breaks the round-trip.
  *   - x402 needs the binary-friendly `PAYMENT-REQUIRED` header (base64-encoded JSON
  *     of `{x402Version, accepts, resource}`) — mppx doesn't emit it.
  *   - Merchants want a richer JSON body (pricing, identity metadata, agent_instructions,
  *     agent_memory, retry_body, accepted_methods cross-reference) than the bare mppx body.
  *
- * `respond402` composes all three in one call:
- *   - PRESERVES mppx's WWW-Authenticate verbatim
- *   - ADDS PAYMENT-REQUIRED when x402 entries are present
- *   - REPLACES the body with the rich body via `build402Body`
+ * `respond402` composes all three and returns a framework-neutral `Respond402Result`
+ * (body + headers + status) that the merchant wraps in their framework's response shape.
  *
  * Usage:
  * ```ts
- * const result = await m.compose(['tempo/charge', {...}], ['stripe/charge', {...}])(c.req.raw);
- * if (result.status === 402) {
- *   return commerce.respond402({
- *     mppxChallenge: result.challenge,
- *     x402: { version: 2, accepts: x402Accepts, resource: { url: c.req.url, mimeType: 'application/json' } },
- *     body: { acceptedMethods, agentInstructions, identityMetadata, pricing, agentMemory, retryBody, ... },
+ * const challenge = await m.compose(['tempo/charge', {...}], ['stripe/charge', {...}])(c.req.raw);
+ * if (challenge.status === 402) {
+ *   const result = respond402({
+ *     mppxChallengeHeaders: Object.fromEntries(challenge.headers),
+ *     body: build402Body({ ... }),
+ *     x402: { x402Version: 2, accepts: x402Accepts, resource: { url: c.req.url, mimeType: 'application/json' } },
  *   });
+ *   return new Response(JSON.stringify(result.body), { status: result.status, headers: result.headers });
  * }
  * ```
  */
 
 import { paymentRequiredHeader } from '../payment/wwwauthenticate';
-import { build402Body } from './body';
+
+/** Framework-neutral 402 response shape — body + headers + status. */
+export interface Respond402Result {
+  body: Record<string, unknown>;
+  headers: Record<string, string>;
+  status: 402;
+}
 
 export function respond402({
-  mppxChallenge,
+  mppxChallengeHeaders,
   body,
   x402,
 }: {
-  /** The 402 Response returned by `mppx.compose()(req)`. Its WWW-Authenticate header
-   *  is preserved verbatim — mppx's server-side validator matches credentials to the
-   *  directive ids it generated, so overwriting breaks the round-trip. */
-  mppxChallenge: Response;
-  /** Inputs to `build402Body` — the rich JSON body sent to the agent. */
-  body: Parameters<typeof build402Body>[0];
+  /** Headers from mppx's 402 Response (`Object.fromEntries(challenge.headers)`). The
+   *  `WWW-Authenticate` directives are preserved verbatim — mppx's server-side validator
+   *  matches credentials to the ids it generated. */
+  mppxChallengeHeaders: Record<string, string>;
+  /** The already-built 402 body — call `build402Body({...})` to construct it. */
+  body: Record<string, unknown>;
   /** When set, layers on the x402 PAYMENT-REQUIRED header (base64-encoded JSON).
    *  Omit for merchants that don't accept x402 (Base/Solana) — mppx-only setups. */
   x402?: Parameters<typeof paymentRequiredHeader>[0];
-}): Response {
-  const out = build402Body(body);
-  const headers = new Headers(mppxChallenge.headers);
-  headers.set('content-type', 'application/json');
-  if (x402) {
-    headers.set('PAYMENT-REQUIRED', paymentRequiredHeader(x402));
+}): Respond402Result {
+  const headers: Record<string, string> = {};
+  for (const [k, v] of Object.entries(mppxChallengeHeaders)) {
+    headers[k.toLowerCase()] = v;
   }
-  return new Response(JSON.stringify(out), { headers, status: 402 });
+  headers['content-type'] = 'application/json';
+  if (x402) {
+    headers['payment-required'] = paymentRequiredHeader(x402);
+  }
+  return { body, headers, status: 402 };
 }
