@@ -11,7 +11,7 @@
  * Each product carries its own policy block. The route uses three helpers
  * from `@agent-score/commerce/identity/policy`:
  *
- *   - buildGateOptionsFromPolicy(policy, { apiKey })  → AgentScoreGateOptions | null
+ *   - buildGateOptionsFromPolicy(policy, { apiKey })  → gate options | null
  *       (null when the policy has no enforcement — caller treats as "no gate")
  *   - agentscoreGate(opts)                      → framework middleware
  *       (per-framework adapter; this example uses Hono)
