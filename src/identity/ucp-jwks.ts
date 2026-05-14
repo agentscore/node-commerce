@@ -39,15 +39,6 @@ export interface JWKSResponse {
   keys: UCPSigningKey[];
 }
 
-/** Options for `signUCPProfile()`. */
-export interface SignUCPProfileOptions {
-  /** Private signing key — opaque KeyLike from `generateUCPSigningKey()` or `importJWK()`. */
-  signingKey: unknown;
-  /** Key ID (must match a `kid` in the profile's `signing_keys[]`). */
-  kid: string;
-  /** Signing algorithm — `EdDSA` (default) or `ES256`. */
-  alg?: 'EdDSA' | 'ES256';
-}
 
 /** A signed UCP profile envelope. Same shape as `UCPProfile` plus the `signature` field
  *  carrying the JWS Compact Serialization over the canonicalized profile body. */
@@ -277,14 +268,24 @@ export async function generateUCPSigningKey(opts: {
  */
 export async function signUCPProfile(
   profile: UCPProfile,
-  opts: SignUCPProfileOptions,
+  {
+    signingKey,
+    kid,
+    alg = 'EdDSA',
+  }: {
+    /** Private signing key — opaque KeyLike from `generateUCPSigningKey()` or `importJWK()`. */
+    signingKey: unknown;
+    /** Key ID (must match a `kid` in the profile's `signing_keys[]`). */
+    kid: string;
+    /** Signing algorithm — `EdDSA` (default) or `ES256`. */
+    alg?: 'EdDSA' | 'ES256';
+  },
 ): Promise<SignedUCPProfile> {
   const jose = await loadJose();
-  const alg = opts.alg ?? 'EdDSA';
 
   if (!ALLOWED_ALGS.includes(alg as AllowedAlg)) {
     throw new Error(
-      `signUCPProfile: alg ${JSON.stringify(opts.alg)} is not in the supported set [${ALLOWED_ALGS.join(', ')}].`,
+      `signUCPProfile: alg ${JSON.stringify(alg)} is not in the supported set [${ALLOWED_ALGS.join(', ')}].`,
     );
   }
 
@@ -292,13 +293,13 @@ export async function signUCPProfile(
   // JWK with the matching kid; otherwise verifiers can't resolve the public
   // key and the profile is dead-on-arrival. Catch this at sign-time rather
   // than at verifier-time in production.
-  if (typeof opts.kid !== 'string' || !opts.kid) {
-    throw new Error('signUCPProfile: opts.kid must be a non-empty string.');
+  if (typeof kid !== 'string' || !kid) {
+    throw new Error('signUCPProfile: kid must be a non-empty string.');
   }
   const kids = (profile.signing_keys ?? []).map((k) => (k as Record<string, unknown>).kid);
-  if (!kids.includes(opts.kid)) {
+  if (!kids.includes(kid)) {
     throw new Error(
-      `signUCPProfile: kid ${JSON.stringify(opts.kid)} is not present in profile.signing_keys[] (declared kids: ${JSON.stringify(kids)}). Verifiers will not find the key.`,
+      `signUCPProfile: kid ${JSON.stringify(kid)} is not present in profile.signing_keys[] (declared kids: ${JSON.stringify(kids)}). Verifiers will not find the key.`,
     );
   }
 
@@ -306,8 +307,8 @@ export async function signUCPProfile(
   const payloadBytes = new TextEncoder().encode(canonicalBody);
 
   const signature = await new jose.CompactSign(payloadBytes)
-    .setProtectedHeader({ alg, kid: opts.kid, typ: PROFILE_TYP })
-    .sign(opts.signingKey as Parameters<typeof jose.CompactSign.prototype.sign>[0]);
+    .setProtectedHeader({ alg, kid, typ: PROFILE_TYP })
+    .sign(signingKey as Parameters<typeof jose.CompactSign.prototype.sign>[0]);
 
   return { ...profile, signature };
 }

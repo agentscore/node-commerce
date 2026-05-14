@@ -73,7 +73,7 @@ export function sampleX402AcceptForNetwork(
   return null;
 }
 
-export interface DiscoveryProbeOptions {
+interface DiscoveryProbeOptions {
   /** Realm — typically the host of your merchant URL (e.g., "agents.merchant.example"). */
   realm: string;
   /** Symbolic rail name to advertise in the sample challenge (e.g., 'tempo-mainnet'). */

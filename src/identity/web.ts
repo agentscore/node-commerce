@@ -20,7 +20,7 @@ import type {
   SignerVerdict,
 } from '../core';
 
-export interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
+interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
   /** Custom function to extract agent identity from a Request. */
   extractIdentity?: (req: Request) => AgentIdentity | undefined;
   /** Custom handler invoked when a request is denied. Must return a Response. */

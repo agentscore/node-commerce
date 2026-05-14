@@ -151,7 +151,7 @@ export interface A2AAgentCard {
   [k: string]: unknown;
 }
 
-export interface BuildA2AAgentCardInput {
+interface BuildA2AAgentCardInput {
   /** Agent display name. REQUIRED. */
   name: string;
   /** Agent purpose/description. REQUIRED per spec. */

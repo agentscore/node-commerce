@@ -39,7 +39,7 @@ interface GateState {
   quota?: GateQuotaInfo;
 }
 
-export interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
+interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
   /** Custom function to extract agent identity (wallet address and/or operator token). */
   extractIdentity?: (req: Request) => AgentIdentity | undefined;
   /** Custom handler invoked when a request is denied. */
