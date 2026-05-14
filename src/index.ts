@@ -74,3 +74,19 @@ export {
   shippingStateAllowed,
 } from './identity/policy';
 export { hashOperatorToken } from './identity/tokens';
+export {
+  Checkout,
+  type CheckoutContext,
+  type CheckoutRailSpec,
+  type CheckoutRequest,
+  type CheckoutResult,
+  type ComposeMppxFn,
+  type IsCachedAddressFn,
+  type MppxComposeOutcome,
+  type OnSettledFn,
+  type PricingFn,
+  type PricingResult,
+  type RecipientsFn,
+  type ReferenceIdFn,
+  type SettleOutcome,
+} from './checkout';
