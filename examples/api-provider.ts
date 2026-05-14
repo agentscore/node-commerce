@@ -48,7 +48,10 @@ const REALM = 'api.example.com';
 await createMppxServer({
   rails: {
     tempo: { recipient: process.env.TEMPO_RECIPIENT! },
-    solana: { recipient: process.env.SOLANA_RECIPIENT! },
+    solana: {
+      recipient: process.env.SOLANA_RECIPIENT!,
+      network: networks.solana.mainnet.caip2,
+    },
   },
   secretKey: process.env.MPP_SECRET_KEY!,
 });
