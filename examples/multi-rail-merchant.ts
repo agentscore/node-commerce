@@ -1,178 +1,113 @@
 /**
- * Example: full multi-rail agent commerce merchant
+ * Example: full regulated-commerce merchant.
  *
- * Scenario: you want to accept agent payments via every rail — Tempo MPP, x402 on
- * Base, MPP solana/charge on Solana, AND Stripe SPT. Identity-gated for compliance.
+ * Scenario: you sell a regulated good. Identity gate (KYC + age + jurisdiction
+ * + sanctions), plus a 402 payment challenge advertising multiple rails so
+ * agents pay with whatever they have: Tempo USDC (MPP `tempo/charge`), x402
+ * USDC on Base, Solana USDC (MPP `solana/charge`), Stripe SPT.
  *
- * The flow on each /purchase POST:
- *   1. Identity gate (agentscoreGate): KYC + age + jurisdiction + sanctions
- *   2. If `X-Payment` header present (x402 client paying) → verifyX402Request →
- *      processX402Settle → return 200 with payment-response header
- *   3. Else mint a Stripe multichain PI (deposit addresses for tempo/base/solana)
- *      and run mppx.compose() to validate any `Authorization: Payment` header
- *   4. If mppx returns 402 → respond402 (preserves mppx's WWW-Auth + adds x402's
- *      PAYMENT-REQUIRED) with the rich body
- *   5. If mppx returns 200 → also fire simulateDepositIfTestMode for testnet
+ * `Checkout(...)` orchestrates the flow:
  *
- * Peer deps to install:
- *   bun add @agent-score/commerce hono mppx stripe \\
+ * 1. Identity gate runs only on the settle leg (a payment header is attached);
+ *    the discovery leg flows through anonymously and gets a 402 with all rails.
+ * 2. `mintRecipients` hook calls Stripe to mint per-PI deposit addresses for
+ *    tempo/base/solana before the 402 emits, so the body advertises the right
+ *    addresses.
+ * 3. `computePricing` returns the subtotal + tax block for the current cart.
+ * 4. x402-base header → Checkout dispatches to `processX402Settle` internally.
+ * 5. `Authorization: Payment` header → Checkout dispatches to the auto-derived
+ *    `composeMppx` hook (built from `mppxSecretKey`).
+ * 6. `onSettled` persists the order + fires `simulateDepositIfTestMode` for
+ *    Stripe testnet round-trip on base settles.
+ *
+ * Peer deps:
+ *   bun add @agent-score/commerce hono mppx stripe \
  *           @x402/core @x402/evm @x402/extensions @solana/mpp @solana/kit
  *
  * Env vars:
- *   AGENTSCORE_API_KEY    — your AgentScore API key
- *   APP_URL               — public URL of your service (for 402 commands)
- *   MPP_SECRET_KEY        — random base64 (mppx server secret)
- *   STRIPE_SECRET_KEY     — sk_live_... or sk_test_...
- *   STRIPE_PROFILE_ID     — your Stripe Connect profile id (for shared payment tokens)
- *   TEMPO_USDC_ADDRESS    — USDC token address on Tempo (mainnet or testnet)
- *   X402_BASE_NETWORK     — CAIP-2 (eip155:8453 mainnet, eip155:84532 sepolia)
- *   SOLANA_NETWORK        — 'mainnet-beta' | 'devnet' (default 'mainnet-beta')
- *   REDIS_URL             — optional; in-memory PI cache otherwise
+ *   AGENTSCORE_API_KEY    your AgentScore API key
+ *   APP_URL               public URL of your service
+ *   STRIPE_SECRET_KEY     sk_test_... or sk_live_...
+ *   STRIPE_PROFILE_ID     your Stripe Connect profile id (for SPT)
+ *   X402_BASE_NETWORK     CAIP-2 (default eip155:8453)
+ *   SOLANA_NETWORK_CAIP2  CAIP-2 (default solana mainnet)
+ *   MPP_SECRET_KEY        secret_key for the auto-derived mppx server
+ *   CDP_API_KEY_ID        Coinbase CDP key id (auto-promotes x402 facilitator)
+ *   CDP_API_KEY_SECRET    Coinbase CDP key secret
+ *   REDIS_URL             optional; in-memory PI cache otherwise
  *
  * Run: bun run examples/multi-rail-merchant.ts
  */
 import {
-  buildAcceptedMethods,
-  buildAgentInstructions,
-  buildHowToPay,
-  buildIdentityMetadata,
-  buildPricingBlock,
-  buildValidationError,
-  build402Body,
-  firstEncounterAgentMemory,
-  respond402,
-} from '@agent-score/commerce/challenge';
-import { agentscoreGate, getAgentScoreData } from '@agent-score/commerce/identity/hono';
+  Checkout,
+  CheckoutGateConfig,
+  CheckoutValidationError,
+  type CheckoutContext,
+  type PricingResult,
+  type SettleOutcome,
+} from '@agent-score/commerce';
+import { buildPricingBlock } from '@agent-score/commerce/challenge';
 import {
-  createMppxServer,
-  buildX402AcceptsFor402,
-  createX402Server,
+  type SolanaMppRailSpec,
+  type StripeRailSpec,
+  type TempoRailSpec,
+  type X402BaseRailSpec,
   networks,
-  processX402Settle,
   validateX402NetworkConfig,
-  verifyX402Request,
 } from '@agent-score/commerce/payment';
 import {
   createMultichainPaymentIntent,
   createPiCache,
   simulateDepositIfTestMode,
 } from '@agent-score/commerce/stripe-multichain';
-import { Hono } from 'hono';
-// @ts-expect-error - stripe is an optional peer dep installed by the example user
+import { Hono, type Context } from 'hono';
+// @ts-expect-error stripe is an optional peer dep installed by the example user
 import Stripe from 'stripe';
 
 const APP_URL = process.env.APP_URL!;
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY!;
+const STRIPE_PROFILE_ID = process.env.STRIPE_PROFILE_ID!;
+const AGENTSCORE_API_KEY = process.env.AGENTSCORE_API_KEY!;
 const X402_BASE_NETWORK = process.env.X402_BASE_NETWORK ?? networks.base.mainnet.caip2;
-const SOLANA_NETWORK = (process.env.SOLANA_NETWORK ?? 'mainnet-beta') as
-  | 'mainnet-beta'
-  | 'devnet'
-  | 'localnet';
-const SOLANA_CAIP2 =
-  SOLANA_NETWORK === 'devnet' ? networks.solana.devnet.caip2 : networks.solana.mainnet.caip2;
+const SOLANA_NETWORK_CAIP2 = process.env.SOLANA_NETWORK_CAIP2 ?? networks.solana.mainnet.caip2;
 
-// Boot-time guard: validate the configured x402 base network is in the supported set.
+// Boot-time guard: fails the deploy on a misconfigured x402 base network.
 validateX402NetworkConfig({ baseNetwork: X402_BASE_NETWORK });
 
-const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-11-20.acacia' as never });
+const stripeClient = new Stripe(STRIPE_SECRET_KEY, { apiVersion: '2024-11-20.acacia' as never });
 
 // Singleton Stripe PI / deposit-address cache. Backed by Redis when REDIS_URL is set
-// (multi-task deployments need this so a deposit lands on whichever task settles it);
-// falls back to in-process Map for single-instance dev.
+// (multi-task deployments need this so a deposit lands on whichever task settles it).
 const piCache = createPiCache({ redisUrl: process.env.REDIS_URL });
 
-// ── Boot: x402 server with Base rails ───────────────────────────────────────
-const x402Server = await createX402Server({
-  facilitator: 'coinbase',
-  rails: [X402_BASE_NETWORK.includes('84532') ? 'x402-base-sepolia' : 'x402-base-mainnet'],
-  bazaar: true, // register the @x402/extensions bazaar discovery extension
-});
-
-const app = new Hono();
-
-// ── Identity gate (conditional) ─────────────────────────────────────────────
-// Gate fires only when a payment credential is already attached. Anonymous browsers
-// (no payment header) fall through to the handler unauthenticated and receive a clean
-// 402 with all rails advertised — so any spec-compliant x402 wallet (Coinbase awal,
-// Phantom, Solflare, etc.) can discover prices before AgentScore identity exists.
-// Identity is verified at settle time on the retry leg (when X-Payment / Authorization:
-// Payment arrives), and `createSessionOnMissing` then auto-mints a verification session
-// so agents can bootstrap KYC and replay the same payment authorization.
-const _gate = agentscoreGate({
-  apiKey: process.env.AGENTSCORE_API_KEY!,
-  requireKyc: true,
-  createSessionOnMissing: { apiKey: process.env.AGENTSCORE_API_KEY!, context: 'purchase' },
-});
-app.use('/purchase', async (c, next) => {
-  const hasPaymentHeader = Boolean(
-    c.req.header('payment-signature') ||
-    c.req.header('x-payment') ||
-    c.req.header('authorization')?.startsWith('Payment '),
-  );
-  if (!hasPaymentHeader) { await next(); return; }
-  return _gate(c, next);
-});
-
-app.post('/purchase', async (c) => {
-  const assess = getAgentScoreData(c);
-  const body = await c.req.json();
-  const totalUsd = String(body.amount_usd ?? '10.00');
-  const amountCents = Math.round(Number(totalUsd) * 100);
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Path A: x402 X-Payment header present → verify + settle on chain
-  // ──────────────────────────────────────────────────────────────────────────
-  if (c.req.header('payment-signature') || c.req.header('x-payment')) {
-    const verified = await verifyX402Request({
-      request: c.req.raw,
-      isCachedAddress: piCache.hasAddress,
-      acceptedNetwork: X402_BASE_NETWORK,
-    });
-    if (!verified.ok) return c.json(verified.body, verified.status);
-
-    const settle = await processX402Settle({
-      x402Server,
-      payload: verified.payload,
-      resourceConfig: {
-        scheme: 'exact' as const,
-        network: verified.signedNetwork,
-        price: `$${totalUsd}`,
-        payTo: verified.signedPayTo,
-        maxTimeoutSeconds: 300,
-      },
-      resourceMeta: {
-        url: c.req.url,
-        description: 'Agent purchase via x402',
-        mimeType: 'application/json',
-      },
-    });
-    if (!settle.success) {
-      return c.json(buildValidationError({
-        code: 'payment_proof_invalid',
-        message: `Payment failed during settlement (phase: ${settle.phase ?? 'unknown'}).`,
-        nextSteps: { action: 'regenerate_payment_credential' },
-        extra: { phase: settle.phase },
-      }), 400);
-    }
-
-    // Fire Stripe testnet sim — no-ops on live keys.
-    await simulateDepositIfTestMode({
-      getPaymentIntentId: piCache.getPaymentIntentId,
-      depositAddress: verified.signedPayTo,
-      network: 'base',
-      stripeSecretKey: process.env.STRIPE_SECRET_KEY!,
-    });
-
-    const headers: Record<string, string> = {};
-    if (settle.paymentResponseHeader) headers['payment-response'] = settle.paymentResponseHeader;
-    return c.json({ ok: true, order_id: body.order_id ?? null }, { headers });
+async function _validatePurchase(ctx: CheckoutContext): Promise<Record<string, unknown>> {
+  const body = (ctx.request.body ?? {}) as Record<string, unknown>;
+  const shipping = body.shipping as { state?: string } | undefined;
+  if (!shipping) {
+    throw new CheckoutValidationError({ code: 'missing_shipping', message: '`shipping` is required.' });
   }
+  return { shippingState: shipping.state ?? 'CA' };
+}
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // Path B: cold call OR Authorization: Payment (mppx) — mint PI + compose mppx
-  // ──────────────────────────────────────────────────────────────────────────
+async function _computePricing(ctx: CheckoutContext): Promise<PricingResult> {
+  const subtotalCents = 25000;
+  const taxCents = 2000;
+  const totalCents = subtotalCents + taxCents;
+  const pricing = buildPricingBlock({
+    subtotalCents,
+    taxCents,
+    taxRate: 0.08,
+    taxState: (ctx.state.shippingState as string | undefined) ?? 'CA',
+    currency: 'USD',
+  });
+  return { amountUsd: totalCents / 100, bodyExtras: { pricing } };
+}
+
+async function _mintRecipients(ctx: CheckoutContext): Promise<Record<string, string>> {
+  const totalCents = Math.round((ctx.pricing?.amountUsd ?? 0) * 100);
   const { paymentIntentId, depositAddresses } = await createMultichainPaymentIntent({
     stripe: stripeClient as never,
-    amount: amountCents,
+    amount: totalCents,
     networks: ['tempo', 'base', 'solana'],
   });
   for (const addr of Object.values(depositAddresses)) {
@@ -180,106 +115,63 @@ app.post('/purchase', async (c) => {
     piCache.cachePaymentIntent(addr, paymentIntentId);
   }
   piCache.cacheNetworkAddresses(paymentIntentId, depositAddresses);
+  return {
+    tempo: depositAddresses.tempo,
+    x402_base: depositAddresses.base,
+    solana_mpp: depositAddresses.solana,
+  };
+}
 
-  const mppx = await createMppxServer({
-    rails: {
-      tempo: {
-        recipient: depositAddresses.tempo as `0x${string}`,
-        token: process.env.TEMPO_USDC_ADDRESS!,
-        testnet: process.env.TEMPO_USDC_ADDRESS === '0x20c0000000000000000000000000000000000000',
-      },
-      solana: {
-        recipient: depositAddresses.solana,
-        network: SOLANA_CAIP2,
-      },
-      stripe: {
-        profileId: process.env.STRIPE_PROFILE_ID!,
-        secretKey: process.env.STRIPE_SECRET_KEY!,
-      },
-    },
-    secretKey: process.env.MPP_SECRET_KEY!,
-  });
-
-  // mppx.compose() validates any `Authorization: Payment` credential and either
-  // returns {status: 200, ...} (settled) or {status: 402, challenge: Response}.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = await (mppx as any).compose(
-    ['tempo/charge', { amount: totalUsd, currency: process.env.TEMPO_USDC_ADDRESS!, decimals: 6, recipient: depositAddresses.tempo }],
-    ['stripe/charge', { amount: totalUsd, currency: 'usd', decimals: 2 }],
-  )(c.req.raw);
-
-  if (result.status === 402) {
-    // ── Build the rich 402 with all 4 rails + identity metadata + agent_memory.
-    // respond402 PRESERVES mppx's WWW-Authenticate (its server-side validator
-    // matches credentials to its own directive ids) and ADDS x402's
-    // PAYMENT-REQUIRED header (mppx doesn't emit it).
-    const isWalletAuth = assess?.identity_method === 'wallet';
-    const acceptedMethods = await buildAcceptedMethods({
-      tempo: { recipient: depositAddresses.tempo, network: 'tempo-mainnet', chainId: networks.tempo.mainnet.chainId },
-      x402_base: { recipient: depositAddresses.base, network: X402_BASE_NETWORK },
-      solana_mpp: { recipient: depositAddresses.solana, network: SOLANA_CAIP2 },
-      ...(isWalletAuth ? {} : { stripe: { profileId: process.env.STRIPE_PROFILE_ID! } }),
-    });
-
-    const howToPay = buildHowToPay({
-      url: `${APP_URL}/purchase`,
-      retryBodyJson: JSON.stringify(body),
-      totalUsd,
-      rails: {
-        tempo: { recipient: depositAddresses.tempo },
-        x402_base: { recipient: depositAddresses.base },
-        solana_mpp: { recipient: depositAddresses.solana },
-        stripe: { profileId: process.env.STRIPE_PROFILE_ID! },
-      },
-    });
-
-    const challengeResponse = result.challenge as Response;
-    const respond = respond402({
-      mppxChallengeHeaders: Object.fromEntries(challengeResponse.headers),
-      body: build402Body({
-        acceptedMethods,
-        agentInstructions: buildAgentInstructions({ howToPay }),
-        identityMetadata: buildIdentityMetadata({
-          mode: isWalletAuth ? 'wallet' : 'operator_token',
-          wallet: c.req.header('X-Wallet-Address') ?? undefined,
-          linkedWallets: assess?.linked_wallets ?? [],
-        }),
-        pricing: buildPricingBlock({ subtotalCents: amountCents, currency: 'USD' }),
-        amountUsd: totalUsd,
-        currency: 'USD',
-        orderId: body.order_id ?? null,
-        retryBody: body,
-        agentMemory: firstEncounterAgentMemory({ firstEncounter: true }),
-      }),
-      x402: {
-        x402Version: 2,
-        // Build the accept via the registered x402 scheme — fills in `extra` (incl.
-        // the network-correct USDC `name`) so agents can sign EIP-712 against the
-        // right domain. Hardcoding `extra` is the trap that breaks every signature
-        // verify on base mainnet (USDC contract returns "USD Coin", not "USDC").
-        accepts: await buildX402AcceptsFor402(x402Server, {
-          network: X402_BASE_NETWORK,
-          price: `$${totalUsd}`,
-          payTo: depositAddresses.base,
-          maxTimeoutSeconds: 300,
-        }),
-        resource: { url: c.req.url, mimeType: 'application/json' },
-      },
-    });
-    return new Response(JSON.stringify(respond.body), {
-      status: respond.status,
-      headers: respond.headers,
+async function _onSettled(ctx: CheckoutContext, outcome: SettleOutcome): Promise<Record<string, unknown>> {
+  // Fire Stripe testnet deposit simulation on real on-chain base settles
+  // (no-op on live keys). Gate on `txHash` so $0 zero-settle carve-outs
+  // (which have signerAddress but no txHash) don't trigger a PI sim.
+  if (outcome.rail === 'x402' && outcome.txHash !== null) {
+    await simulateDepositIfTestMode({
+      getPaymentIntentId: piCache.getPaymentIntentId,
+      depositAddress: ctx.recipients.x402_base ?? '',
+      network: 'base',
+      stripeSecretKey: STRIPE_SECRET_KEY,
     });
   }
+  return {
+    ok: true,
+    reference_id: ctx.referenceId,
+    tx_hash: outcome.txHash,
+    identity_status: ctx.identityStatus,
+  };
+}
 
-  // mppx settled — fire Stripe testnet sim and return success.
-  await simulateDepositIfTestMode({
-    getPaymentIntentId: piCache.getPaymentIntentId,
-    depositAddress: depositAddresses.tempo,
-    network: 'tempo',
-    stripeSecretKey: process.env.STRIPE_SECRET_KEY!,
-  });
-  return c.json({ ok: true, order_id: body.order_id ?? null });
+const checkout = new Checkout({
+  rails: {
+    // Per-order-mint pattern: empty `recipient` declares the rail in
+    // discovery; `mintRecipients` resolves the real per-PI address.
+    tempo: { recipient: '', network: 'tempo-mainnet' } as TempoRailSpec,
+    x402_base: { recipient: '', network: X402_BASE_NETWORK } as X402BaseRailSpec,
+    solana_mpp: { recipient: '', network: SOLANA_NETWORK_CAIP2 } as SolanaMppRailSpec,
+    stripe: { profileId: STRIPE_PROFILE_ID } as StripeRailSpec,
+  },
+  url: `${APP_URL}/purchase`,
+  preValidate: _validatePurchase,
+  computePricing: _computePricing,
+  mintRecipients: _mintRecipients,
+  onSettled: _onSettled,
+  isCachedAddress: piCache.hasAddress,
+  ...(process.env.CDP_API_KEY_ID !== undefined && { cdpApiKeyId: process.env.CDP_API_KEY_ID }),
+  ...(process.env.CDP_API_KEY_SECRET !== undefined && { cdpApiKeySecret: process.env.CDP_API_KEY_SECRET }),
+  ...(process.env.MPP_SECRET_KEY !== undefined && { mppxSecretKey: process.env.MPP_SECRET_KEY }),
+  gate: {
+    apiKey: AGENTSCORE_API_KEY,
+    merchantName: 'Regulated Goods Co.',
+    requireKyc: true,
+    requireSanctionsClear: true,
+    minAge: 21,
+    allowedJurisdictions: ['US'],
+  } satisfies CheckoutGateConfig,
 });
+
+const app = new Hono();
+
+app.post('/purchase', (c: Context) => checkout.handleHono(c));
 
 export default app;

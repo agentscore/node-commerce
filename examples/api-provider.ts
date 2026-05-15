@@ -1,166 +1,115 @@
 /**
- * Example: API provider with per-call billing — multi-rail (Tempo MPP + x402)
+ * Example: API provider with per-call billing; multi-rail (Tempo MPP + x402 base + Solana MPP).
  *
- * Scenario: you sell access to an HTTP API (search, scraping, RPC, etc.). Each call
- * costs a fixed price; agents pick whichever rail their wallet supports. No identity
- * gate, no compliance — purely pay-or-fail. Think Exa, QuickNode, anyone in the x402
- * Bazaar (which now also indexes MPP-discoverable services).
+ * Scenario: you sell access to an HTTP API (search, scraping, RPC, etc.). Each
+ * call costs a fixed price; agents pick whichever rail their wallet supports.
+ * No identity gate, no compliance: purely pay-or-fail.
  *
  * Rails advertised:
- *   - **Tempo MPP** (`tempo/charge` intent)
- *   - **x402 USDC on Base** (EIP-3009)
- *   - **MPP USDC on Solana** (`solana/charge` intent)
+ *   - **Tempo MPP** (`tempo/charge` intent, carried in `Authorization: Payment`)
+ *   - **x402 USDC on Base** (EIP-3009, carried in `x-payment` / `payment-signature`)
+ *   - **MPP USDC on Solana** (`solana/charge` intent, carried in `Authorization: Payment`)
  *
- * The 402 lists all rails neutrally — the agent picks based on what their wallet supports.
+ * `Checkout(...)` collapses the ~150 lines of hand-rolled 402 envelope + header
+ * parsing + rail dispatch in pre-2.0 examples to a single `computePricing` +
+ * `onSettled` configuration. Discovery probes are still handled inline because
+ * they advertise SAMPLE rails for crawlers (not the merchant's real rails).
  *
- * Peer deps to install:
+ * Peer deps:
  *   bun add @agent-score/commerce hono mppx @x402/core @x402/evm @solana/mpp @solana/kit
- *   # @coinbase/x402 optional — only if you want the Coinbase CDP facilitator instead of HTTP
+ *   # @coinbase/x402 optional — only if you want the Coinbase CDP facilitator
  *
  * Env vars:
- *   MPP_SECRET_KEY      — random base64 (mppx merchant secret)
- *   TEMPO_RECIPIENT     — your Tempo wallet for receiving USDC.e
- *   X402_BASE_RECIPIENT — your Base wallet for receiving USDC
- *   SOLANA_RECIPIENT    — your Solana wallet for receiving USDC (MPP solana/charge)
+ *   TEMPO_RECIPIENT       your Tempo wallet for receiving USDC.e
+ *   X402_BASE_RECIPIENT   your Base wallet for receiving USDC
+ *   SOLANA_RECIPIENT      your Solana wallet for receiving USDC
+ *   X402_BASE_NETWORK     CAIP-2 (default eip155:8453 = Base mainnet)
+ *   SOLANA_NETWORK_CAIP2  CAIP-2 (default solana mainnet)
+ *   MPP_SECRET_KEY        secret key for the auto-derived mppx server
+ *   CDP_API_KEY_ID        Coinbase CDP key id (auto-promotes x402 facilitator)
+ *   CDP_API_KEY_SECRET    Coinbase CDP key secret
  *
  * Run: bun run examples/api-provider.ts
  */
+
+import { Checkout, type SettleOutcome } from '@agent-score/commerce';
 import {
   buildDiscoveryProbeResponse,
   isDiscoveryProbeRequest,
   noindexNonDiscoveryPaths,
 } from '@agent-score/commerce/discovery';
 import {
-  createMppxServer,
-  createX402Server,
+  type SolanaMppRailSpec,
+  type TempoRailSpec,
+  type X402BaseRailSpec,
   networks,
-  paymentDirective,
-  paymentRequiredHeader,
-  wwwAuthenticateHeader,
 } from '@agent-score/commerce/payment';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 
 const PRICE_USDC = 0.01; // per-call price in USD
 const REALM = 'api.example.com';
 
-// ── Boot both rails — Tempo MPP + x402 ──────────────────────────────────────
-// One-call setup for each. Vendors who only support one rail can drop the other.
-await createMppxServer({
-  rails: {
-    tempo: { recipient: process.env.TEMPO_RECIPIENT! },
-    solana: {
-      recipient: process.env.SOLANA_RECIPIENT!,
-      network: networks.solana.mainnet.caip2,
-    },
-  },
-  secretKey: process.env.MPP_SECRET_KEY!,
-});
+const X402_BASE_NETWORK = process.env.X402_BASE_NETWORK ?? networks.base.mainnet.caip2;
+const SOLANA_NETWORK_CAIP2 = process.env.SOLANA_NETWORK_CAIP2 ?? networks.solana.mainnet.caip2;
+const TEMPO_RECIPIENT = process.env.TEMPO_RECIPIENT!;
+const X402_BASE_RECIPIENT = process.env.X402_BASE_RECIPIENT!;
+const SOLANA_RECIPIENT = process.env.SOLANA_RECIPIENT!;
+const _TEMPO_RAIL_NAME =
+  X402_BASE_NETWORK === networks.base.sepolia.caip2 ? 'tempo-testnet' : 'tempo-mainnet';
 
-await createX402Server({
-  facilitator: 'http', // 'coinbase' if you have @coinbase/x402 installed
-  rails: ['x402-base-mainnet'],
+async function runYourSearch(_query: string): Promise<unknown[]> {
+  // Vendor's actual search implementation.
+  return [];
+}
+
+const checkout = new Checkout({
+  rails: {
+    // Static treasury recipients; relies on env-set values. Empty recipients
+    // would be advertised in 402s as broken rails.
+    tempo: {
+      recipient: TEMPO_RECIPIENT,
+      network: X402_BASE_NETWORK === networks.base.sepolia.caip2 ? 'tempo-testnet' : 'tempo-mainnet',
+    } as TempoRailSpec,
+    x402_base: { recipient: X402_BASE_RECIPIENT, network: X402_BASE_NETWORK } as X402BaseRailSpec,
+    solana: { recipient: SOLANA_RECIPIENT, network: SOLANA_NETWORK_CAIP2 } as SolanaMppRailSpec,
+  },
+  url: `https://${REALM}/search`,
+  computePricing: async () => ({ amountUsd: PRICE_USDC }),
+  onSettled: async (ctx, _outcome: SettleOutcome) => {
+    const body = (ctx.request.body ?? {}) as { query?: string };
+    const results = await runYourSearch(body.query ?? '');
+    return { results };
+  },
+  ...(process.env.CDP_API_KEY_ID !== undefined && { cdpApiKeyId: process.env.CDP_API_KEY_ID }),
+  ...(process.env.CDP_API_KEY_SECRET !== undefined && { cdpApiKeySecret: process.env.CDP_API_KEY_SECRET }),
+  ...(process.env.MPP_SECRET_KEY !== undefined && { mppxSecretKey: process.env.MPP_SECRET_KEY }),
 });
 
 const app = new Hono();
 
 // noindex non-discovery paths so /search doesn't end up in human-shaped SERPs.
-// Defaults cover /openapi.json, /llms.txt, /.well-known/{mpp.json,agent-card.json,ucp},
-// /favicon.{png,ico} — pass `customPaths: ['/sitemap.xml']` to extend or
-// `replacePaths: true` to swap the set entirely.
 app.use('*', noindexNonDiscoveryPaths());
 
-// ── Discovery (optional but recommended for crawler indexing) ────────────────
-app.use('/search', async (c, next) => {
+app.post('/search', async (c: Context) => {
+  // Discovery probe: empty-body POST without any payment header. Return sample
+  // 402 so crawlers (`awal x402 details`, x402-proxy, ...) can find this surface
+  // without committing to a real charge. Handle inline because the probe
+  // advertises SAMPLE accepts (not the merchant's real settle rails).
   if (await isDiscoveryProbeRequest(c.req.raw)) {
     const probe = buildDiscoveryProbeResponse({
       realm: REALM,
-      sampleRail: 'tempo-mainnet',
+      sampleRail: _TEMPO_RAIL_NAME,
       sampleAmountUsd: PRICE_USDC,
-      sampleRecipient: process.env.TEMPO_RECIPIENT!,
-      // Advertise x402 support so crawlers (`awal x402 details`, etc.) can find
-      // it on an empty-body POST. Commerce synthesizes USDC sample accepts from
-      // the registry per CAIP-2 network passed.
+      sampleRecipient: TEMPO_RECIPIENT,
       x402Sample: {
-        networks: [networks.base.mainnet.caip2, networks.solana.mainnet.caip2],
-        resourceUrl: `${REALM}/search`,
+        networks: [X402_BASE_NETWORK, SOLANA_NETWORK_CAIP2],
+        resourceUrl: `https://${REALM}/search`,
       },
     });
     return new Response(probe.body, { status: probe.status, headers: probe.headers });
   }
-  await next();
+
+  return checkout.handleHono(c);
 });
-
-// ── The paid endpoint ───────────────────────────────────────────────────────
-app.post('/search', async (c) => {
-  const auth = c.req.header('authorization');
-  const x402Header = c.req.header('payment-signature') || c.req.header('x-payment');
-
-  // No payment? Return a 402 with directives for all accepted rails.
-  if (!auth?.startsWith('Payment ') && !x402Header) {
-    const challengeId = `chg_${Date.now()}`;
-    const directives = [
-      paymentDirective({
-        rail: 'tempo-mainnet',
-        id: `${challengeId}_tempo`,
-        realm: REALM,
-        request: '',
-      }),
-      paymentDirective({
-        rail: 'x402-base-mainnet',
-        id: `${challengeId}_base`,
-        realm: REALM,
-        request: '',
-      }),
-      paymentDirective({
-        rail: 'mpp-solana-mainnet',
-        id: `${challengeId}_solana`,
-        realm: REALM,
-        request: '',
-      }),
-    ];
-    // The minimal-example shape: a hand-rolled accept entry. Production code should
-    // use `buildX402AcceptsFor402(x402Server, {...})` from `@agent-score/commerce/payment`
-    // — the helper builds the requirement via the registered x402 scheme so `extra`
-    // (incl. the EIP-712 `name`/`version` for EVM USDC) is derived from the on-chain
-    // contract metadata rather than guessed. See `examples/multi-rail-merchant.ts`.
-    const accepts = [
-      {
-        scheme: 'exact',
-        network: networks.base.mainnet.caip2,
-        amount: String(PRICE_USDC * 1_000_000),
-        asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-        payTo: process.env.X402_BASE_RECIPIENT,
-        extra: { decimals: 6 },
-      },
-    ];
-    return new Response(
-      JSON.stringify({ payment_required: true, x402Version: 2, accepts }),
-      {
-        status: 402,
-        headers: {
-          'content-type': 'application/json',
-          'www-authenticate': wwwAuthenticateHeader(directives),
-          'PAYMENT-REQUIRED': paymentRequiredHeader({ x402Version: 2, accepts, resource: { url: c.req.url } }),
-        },
-      },
-    );
-  }
-
-  // Payment present; validate via the right server based on which header arrived:
-  //   Authorization: Payment ... → MPP (tempo or solana); call mppx.compose() to verify + settle
-  //   payment-signature / x-payment → x402 base; call verifyX402Request
-  //     then processX402Settle from `@agent-score/commerce/payment` for a single-call
-  //     verify + settle (returns base64 paymentResponseHeader for the success response).
-  // See multi-rail-merchant.ts for the full drop-in pattern.
-
-  const body = await c.req.json();
-  const results = await runYourSearch(body.query);
-  return c.json({ results });
-});
-
-async function runYourSearch(_query: string): Promise<unknown[]> {
-  // Vendor's own search implementation (Exa, custom embeddings, etc.)
-  return [];
-}
 
 export default app;
