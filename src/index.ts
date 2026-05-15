@@ -112,3 +112,14 @@ export {
   validationResponseNextjs,
   validationResponseWeb,
 } from './checkout';
+// RailSpec types + payment helpers re-exported at top-level for cross-language
+// parity with python-commerce. Power users can still import from `./payment`.
+export {
+  formatUsdCents,
+  loadSolanaFeePayer,
+  type SolanaMppRailSpec,
+  type StripeRailSpec,
+  type TempoRailSpec,
+  type TempoSessionRailSpec,
+  type X402BaseRailSpec,
+} from './payment';
