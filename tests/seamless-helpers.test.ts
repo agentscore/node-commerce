@@ -927,3 +927,175 @@ describe('buildSignedUcpResponse happy path', () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Checkout.acceptedRails / acceptedMethodNames accessors
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Checkout.acceptedRails + acceptedMethodNames', () => {
+  it('dedupes tempo + tempo_session into a single tempo_mpp slug', async () => {
+    const { Checkout } = await import('../src/checkout');
+    const c = new Checkout({
+      rails: {
+        tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' },
+        tempoSession: {
+          recipient: RECIPIENT,
+          escrowContract: '0x' + '11'.repeat(20),
+          store: {},
+        },
+        base: { recipient: RECIPIENT, network: 'eip155:8453' },
+        solana: { recipient: 'SoLa', network: 'solana:5eykt4', rpcUrl: 'https://x' },
+        stripe: { profileId: 'profile_abc' },
+      },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+    });
+    const rails = c.acceptedRails;
+    expect(rails.filter((r: string) => r === 'tempo_mpp').length).toBe(1);
+    expect(rails).toContain('x402_base');
+    expect(rails).toContain('solana_mpp');
+    expect(rails).toContain('stripe');
+
+    const names = c.acceptedMethodNames;
+    expect(names).toContain('tempo/charge');
+    expect(names).toContain('x402/exact (base)');
+    expect(names).toContain('solana/charge');
+    expect(names).toContain('stripe/spt');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Checkout gate hooks (CheckoutGateConfig)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function _checkoutWithGate(gate: Record<string, unknown>): Promise<unknown> {
+  const { Checkout } = await import('../src/checkout');
+  return new Checkout({
+    rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } },
+    url: 'https://api.example/purchase',
+    computePricing: async () => ({ amountUsd: 1.0 }),
+    composeMppx: async (ctx: { request: { headers: Record<string, string> } }) => {
+      if (!ctx.request.headers.authorization) {
+        return { status: 402, headers: { 'www-authenticate': 'Payment realm="t"' } };
+      }
+      return {
+        status: 200,
+        railKey: 'tempo',
+        txHash: '0xtest',
+        signerAddress: '0xabc0000000000000000000000000000000000001',
+        signerNetwork: 'evm',
+      };
+    },
+    onSettled: async (_ctx: unknown, outcome: { txHash?: string }) => ({
+      order_id: 'o-1',
+      tx_hash: outcome.txHash,
+    }),
+    gate,
+  });
+}
+
+describe('Checkout gate hooks', () => {
+  it('runGate escape hatch returning undefined → allow → settle proceeds', async () => {
+    const seen: unknown[] = [];
+    const checkout = await _checkoutWithGate({
+      apiKey: 'k',
+      runGate: async (ctx: unknown) => {
+        seen.push(ctx);
+        return undefined;
+      },
+    }) as { handle: (req: unknown) => Promise<{ status: number }> };
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: 'Payment <opaque>' },
+      body: {},
+    });
+    expect(result.status).toBe(200);
+    expect(seen.length).toBe(1);
+  });
+  it('runGate returning a denial dict propagates status + body + headers', async () => {
+    const checkout = await _checkoutWithGate({
+      apiKey: 'k',
+      runGate: async () => ({
+        status: 403,
+        body: { error: { code: 'custom_denied' } },
+        headers: { 'X-Custom': 'v' },
+      }),
+    }) as {
+      handle: (req: unknown) => Promise<{
+        status: number;
+        body: Record<string, unknown>;
+        headers: Record<string, string>;
+      }>;
+    };
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: 'Payment <opaque>' },
+      body: {},
+    });
+    expect(result.status).toBe(403);
+    expect((result.body.error as { code: string }).code).toBe('custom_denied');
+    expect(result.headers['X-Custom']).toBe('v');
+  });
+  it('runGate returning an invalid shape throws TypeError', async () => {
+    const checkout = await _checkoutWithGate({
+      apiKey: 'k',
+      runGate: async () => 'not-a-valid-shape' as unknown,
+    }) as { handle: (req: unknown) => Promise<unknown> };
+    await expect(
+      checkout.handle({
+        method: 'POST',
+        url: 'https://api.example/purchase',
+        headers: { authorization: 'Payment <opaque>' },
+        body: {},
+      }),
+    ).rejects.toThrow();
+  });
+  it('perRequestPolicy returning null skips the gate entirely', async () => {
+    const checkout = await _checkoutWithGate({
+      apiKey: 'k',
+      perRequestPolicy: async () => null,
+    }) as { handle: (req: unknown) => Promise<{ status: number }> };
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: 'Payment <opaque>' },
+      body: {},
+    });
+    expect(result.status).toBe(200);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zero-settle MPP carve-out
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Checkout zero-settle MPP carve-out', () => {
+  it('zeroSettleCarveOut=true + $0 + MPP authorization → 200 with tx_hash null', async () => {
+    const { Checkout } = await import('../src/checkout');
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 0.0 }),
+      composeMppx: async () => ({
+        status: 402,
+        headers: { 'www-authenticate': 'Payment realm="t"' },
+      }),
+      onSettled: async (_ctx: unknown, outcome: { txHash?: string | null; railKey?: string }) => ({
+        order_id: 'o-1',
+        tx_hash: outcome.txHash,
+        rail_key: outcome.railKey,
+      }),
+      zeroSettleCarveOut: true,
+    });
+    const result = (await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: 'Payment <opaque-credential>' },
+      body: { item: 'wine' },
+    })) as { status: number; body: Record<string, unknown> };
+    expect(result.status).toBe(200);
+    expect(result.body.tx_hash ?? null).toBeNull();
+  });
+});

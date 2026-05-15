@@ -840,7 +840,15 @@ export class Checkout {
     const gate = this.gate;
     if (gate === undefined) return null;
     if (gate.runGate !== undefined) {
-      return await gate.runGate(ctx);
+      const result = await gate.runGate(ctx);
+      // Allow merchants to return undefined as an alias for `null` (allow).
+      if (result === undefined || result === null) return null;
+      if (typeof result !== 'object' || typeof (result as { status?: unknown }).status !== 'number') {
+        throw new TypeError(
+          'gate.runGate must return null/undefined (allow) or an object { status, body, headers? } (deny)',
+        );
+      }
+      return result;
     }
     if (gate.apiKey === undefined) return null;
 
