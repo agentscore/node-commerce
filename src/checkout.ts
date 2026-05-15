@@ -39,6 +39,7 @@ import { type RailKey, buildAgentInstructions } from './challenge/agent_instruct
 import { firstEncounterAgentMemory } from './challenge/agent_memory';
 import { build402Body } from './challenge/body';
 import { buildHowToPay } from './challenge/how_to_pay';
+import { type IdentityMetadataBlock, buildIdentityMetadata } from './challenge/identity';
 import { buildPricingBlock, type PricingBlock } from './challenge/pricing';
 import { respond402 } from './challenge/respond_402';
 import { buildValidationError } from './challenge/validation_error';
@@ -463,6 +464,30 @@ function hasX402Header(headers: Record<string, string>): boolean {
 function hasMppxHeader(headers: Record<string, string>): boolean {
   const h = lowerHeaders(headers);
   return (h['authorization'] ?? '').startsWith('Payment ');
+}
+
+function resolveIdentityMetadata(
+  ctx: CheckoutContext,
+): IdentityMetadataBlock | undefined {
+  const h = lowerHeaders(ctx.request.headers);
+  const wallet = h['x-wallet-address'];
+  if (!wallet) return undefined;
+  let linkedWallets: string[] | undefined;
+  const assess = ctx.request.assess;
+  if (assess && typeof assess === 'object') {
+    const identity = (assess as Record<string, unknown>)['identity'];
+    if (identity && typeof identity === 'object') {
+      const lw = (identity as Record<string, unknown>)['linked_wallets'];
+      if (Array.isArray(lw) && lw.every((x): x is string => typeof x === 'string')) {
+        linkedWallets = lw;
+      }
+    }
+  }
+  return buildIdentityMetadata({
+    mode: 'wallet',
+    wallet,
+    ...(linkedWallets !== undefined ? { linkedWallets } : {}),
+  });
 }
 
 function isStripeRailSpec(s: CheckoutRailSpec): s is StripeRailSpec {
@@ -1339,9 +1364,15 @@ export class Checkout {
       }
     }
 
+    // Pre-advertise wallet-mode signer constraint when the request shows
+    // wallet intent. Saves agents a round trip: they learn required_signer +
+    // linked_wallets at discovery instead of at the 403 on retry.
+    const identityMetadata = resolveIdentityMetadata(ctx);
+
     const body = build402Body({
       acceptedMethods: accepted,
       agentInstructions: buildAgentInstructions({ howToPay }),
+      ...(identityMetadata !== undefined ? { identityMetadata } : {}),
       pricing: pricingBlock,
       amountUsd: ctx.pricing.amountUsd.toFixed(2),
       retryBody: ctx.request.body,

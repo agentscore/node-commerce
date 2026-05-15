@@ -5,6 +5,6 @@ export * from './agent_instructions';
 export * from './agent_memory';
 export * from './body';
 export * from './pricing';
-export * from './order_receipt';
+export * from './receipt';
 export * from './respond_402';
 export * from './validation_error';

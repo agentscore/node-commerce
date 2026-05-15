@@ -167,23 +167,29 @@ export function buildAgentscoreOnboardingSteps(opts: {
  * Canonical descriptions for the standard AgentScore **goods-merchant**
  * endpoints (`/catalog`, `/catalog/{slug}`, `/purchase`, `/orders/{id}`).
  *
- * Use in `/` discovery JSON, OpenAPI summaries, or anywhere a goods merchant
- * needs to describe what each endpoint does in agent-readable language.
- * Descriptions are merchant-agnostic across goods merchants — they describe
- * response semantics (402 on discovery, 400 on validation, 403 on identity,
- * 200 on success), not the body schema (which varies per merchant; surface
- * that in OpenAPI).
+ * Use in `/` discovery JSON, OpenAPI summaries, or anywhere the merchant needs
+ * to describe what each endpoint does in agent-readable language. Descriptions
+ * are merchant-agnostic; they describe response semantics (402 on discovery,
+ * 400 on validation, 403 on identity, 200 on success), not the body schema
+ * (which varies per merchant; surface that in OpenAPI).
  *
- * Pass `includeOrderStatusRoute: true` for merchants that ship the lightweight
+ * Pass `kind: 'api'` for per-call API providers; the bundle drops catalog +
+ * orders routes and surfaces `POST /<endpoint>` + `GET /usage` instead.
+ *
+ * `includeOrderStatusRoute: true` (goods only) adds the lightweight
  * `/orders/{id}/status` PII-free variant alongside `/orders/{id}`.
- *
- * **API merchants** (per-call paid endpoints, no catalog/orders concept) do
- * not need this helper — write your own endpoints map and pass it to
- * {@link buildMerchantIndexJson} via the `endpoints` field.
  */
 export function standardEndpointDescriptions(opts?: {
+  kind?: 'goods' | 'api';
   includeOrderStatusRoute?: boolean;
 }): Record<string, string> {
+  if (opts?.kind === 'api') {
+    return {
+      'POST /<endpoint>':
+        'Per-call paid endpoint. Returns 402 on the discovery leg with payment rails; 400 on body rejection; 403 + recovery payload when identity is required; 200 with the call result on success.',
+      'GET /usage': 'Per-credential usage / billing summary. Identity-scoped.',
+    };
+  }
   const out: Record<string, string> = {
     'GET /catalog': 'List purchasable products.',
     'GET /catalog/{slug}': 'Single product detail.',

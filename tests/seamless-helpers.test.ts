@@ -320,6 +320,11 @@ describe('standardEndpointDescriptions', () => {
       'GET /orders/{id}',
     ]);
   });
+
+  it('returns api bundle when kind=api', () => {
+    const desc = standardEndpointDescriptions({ kind: 'api' });
+    expect(Object.keys(desc)).toEqual(['POST /<endpoint>', 'GET /usage']);
+  });
 });
 
 describe('buildSuccessNextSteps', () => {
@@ -2189,6 +2194,60 @@ describe('Checkout zero-settle x402-base carve-out', () => {
     });
     // Zero settle still succeeds (no signer lifted, but the carve-out doesn't gate on signer).
     expect(result.status).toBe(200);
+  });
+});
+
+// Checkout._emit_402 auto-attaches identity_metadata when wallet-mode is detected (wave-2 cleanup)
+describe('Checkout 402 emit attaches identity_metadata for wallet mode', () => {
+  it('omits identity_metadata when X-Wallet-Address is absent', async () => {
+    const { Checkout } = await import('../src/checkout');
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT } as TempoRailSpec },
+      url: 'https://x/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+    });
+    const result = (await checkout.handle({
+      method: 'POST',
+      url: 'https://x/purchase',
+      headers: {},
+      body: { item: 'wine' },
+    })) as { status: number; body: Record<string, unknown> };
+    expect(result.body.identity_mode).toBeUndefined();
+  });
+
+  it('advertises required_signer when X-Wallet-Address is present', async () => {
+    const { Checkout } = await import('../src/checkout');
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT } as TempoRailSpec },
+      url: 'https://x/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+    });
+    const result = (await checkout.handle({
+      method: 'POST',
+      url: 'https://x/purchase',
+      headers: { 'X-Wallet-Address': '0xCAFEBEEF' },
+      body: { item: 'wine' },
+    })) as { status: number; body: Record<string, unknown> };
+    expect(result.body.identity_mode).toBe('wallet');
+    expect(result.body.required_signer).toBe('0xCAFEBEEF');
+    expect(result.body.signer_constraint).toBeTypeOf('string');
+  });
+
+  it('lifts linked_wallets from request.assess when populated', async () => {
+    const { Checkout } = await import('../src/checkout');
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT } as TempoRailSpec },
+      url: 'https://x/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+    });
+    const result = (await checkout.handle({
+      method: 'POST',
+      url: 'https://x/purchase',
+      headers: { 'X-Wallet-Address': '0xCAFEBEEF' },
+      body: { item: 'wine' },
+      assess: { identity: { linked_wallets: ['0xSIB1', '0xSIB2'] } },
+    })) as { status: number; body: Record<string, unknown> };
+    expect(result.body.linked_wallets).toEqual(['0xSIB1', '0xSIB2']);
   });
 });
 
