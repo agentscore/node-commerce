@@ -2303,3 +2303,68 @@ describe('Checkout zero-settle MPP carve-out', () => {
     expect(result.body.tx_hash ?? null).toBeNull();
   });
 });
+
+// signedResponse<Framework> wrappers (Tier 2 lift A)
+describe('signedResponse<Framework> wrappers', () => {
+  const NEUTRAL = {
+    body: '{"ok":true}',
+    mediaType: 'application/json',
+    headers: { 'Cache-Control': 'public, max-age=60' },
+    status: 200,
+  };
+
+  it('signedResponseHono wraps neutral payload as a Response', async () => {
+    const { signedResponseHono } = await import('../src/discovery/well_known');
+    const resp = signedResponseHono(NEUTRAL);
+    expect(resp.status).toBe(200);
+    expect(resp.headers.get('content-type')).toBe('application/json');
+    expect(resp.headers.get('cache-control')).toBe('public, max-age=60');
+    expect(await resp.text()).toBe('{"ok":true}');
+  });
+
+  it('signedResponseNextjs + signedResponseWeb mirror Hono shape', async () => {
+    const { signedResponseNextjs, signedResponseWeb } = await import('../src/discovery/well_known');
+    const next = signedResponseNextjs(NEUTRAL);
+    const web = signedResponseWeb(NEUTRAL);
+    expect(next.status).toBe(200);
+    expect(web.status).toBe(200);
+    expect(await next.text()).toBe('{"ok":true}');
+    expect(await web.text()).toBe('{"ok":true}');
+  });
+
+  it('signedResponseExpress writes status + headers + body onto res', async () => {
+    const { signedResponseExpress } = await import('../src/discovery/well_known');
+    const calls: Array<[string, unknown]> = [];
+    const res = {
+      status: (c: number) => { calls.push(['status', c]); return res; },
+      set: (h: Record<string, string>) => { calls.push(['set', h]); return res; },
+      type: (m: string) => { calls.push(['type', m]); return res; },
+      send: (b: string) => { calls.push(['send', b]); return res; },
+    };
+    signedResponseExpress(res, NEUTRAL);
+    expect(calls).toEqual([
+      ['status', 200],
+      ['set', { 'Cache-Control': 'public, max-age=60' }],
+      ['type', 'application/json'],
+      ['send', '{"ok":true}'],
+    ]);
+  });
+
+  it('signedResponseFastify writes via reply.code/header/type/send', async () => {
+    const { signedResponseFastify } = await import('../src/discovery/well_known');
+    const calls: Array<[string, ...unknown[]]> = [];
+    const reply = {
+      code: (c: number) => { calls.push(['code', c]); return reply; },
+      header: (k: string, v: string) => { calls.push(['header', k, v]); return reply; },
+      type: (m: string) => { calls.push(['type', m]); return reply; },
+      send: (b: string) => { calls.push(['send', b]); return reply; },
+    };
+    signedResponseFastify(reply, NEUTRAL);
+    expect(calls).toEqual([
+      ['code', 200],
+      ['header', 'Cache-Control', 'public, max-age=60'],
+      ['type', 'application/json'],
+      ['send', '{"ok":true}'],
+    ]);
+  });
+});
