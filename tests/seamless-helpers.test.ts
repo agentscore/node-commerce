@@ -494,6 +494,24 @@ describe('Checkout framework adapters', () => {
     expect(resp.status).toBe(400);
   });
 
+  it('handleHono accepts a pre-parsed body (skipping req.json())', async () => {
+    const checkout = minimalCheckout();
+    const c = {
+      req: {
+        method: 'POST',
+        url: 'https://api.example/purchase',
+        json: async () => {
+          throw new Error('should not be called when body is passed directly');
+        },
+        header: () => ({}),
+      },
+      json: (body: unknown, status?: number) => new Response(JSON.stringify(body), { status }),
+      body: (body: string, status?: number) => new Response(body, { status }),
+    };
+    const resp = await checkout.handleHono(c, { item: 'wine' });
+    expect(resp.status).toBe(402);
+  });
+
   it('handleExpress writes a 402 to the supplied res', async () => {
     const checkout = minimalCheckout();
     const calls: { status?: number; body?: unknown } = {};
@@ -552,6 +570,24 @@ describe('Checkout framework adapters', () => {
     });
     const resp = await checkout.handleNextjs(request);
     expect(resp.status).toBe(402);
+  });
+
+  it('handleNextjs accepts a pre-parsed body (skipping request.json())', async () => {
+    const checkout = minimalCheckout();
+    // No body in the Request; calling request.json() would throw. Passing body
+    // directly exercises the body!==undefined branch.
+    const request = new Request('https://api.example/purchase', { method: 'POST' });
+    const resp = await checkout.handleNextjs(request, { item: 'wine' });
+    expect(resp.status).toBe(402);
+  });
+
+  it('handleNextjs returns invalid_body envelope when request.json() throws', async () => {
+    const checkout = minimalCheckout();
+    const request = new Request('https://api.example/purchase', { method: 'POST' });
+    const resp = await checkout.handleNextjs(request);
+    expect(resp.status).toBe(400);
+    const body = await resp.json() as { error?: { code?: string } };
+    expect(body.error?.code).toBe('invalid_body');
   });
 
   it('handleWeb is an alias for handleNextjs', async () => {
@@ -2477,8 +2513,38 @@ describe('Checkout.mountUcpRoutes<Framework>', () => {
         type: (mt: string) => { captured2.type = mt; return undefined; },
         send: (b: string) => { captured2.body = b; return undefined; },
       };
-      await routes['OPTIONS /.well-known/ucp']({ headers: {} }, res2);
+      // Express headers normalize Array-typed values via Array.isArray ? v.join(',') : v.
+      // Pass an array on Access-Control-Request-Headers to exercise both ternary arms.
+      await routes['OPTIONS /.well-known/ucp'](
+        { headers: { 'access-control-request-headers': ['Authorization', 'X-Custom'] } },
+        res2,
+      );
       expect(captured2.status).toBe(204);
+
+      // GET /.well-known/jwks.json — covers the second mounted Express GET.
+      const captured3: Record<string, any> = {};
+      const res3 = {
+        status: (c: number) => { captured3.status = c; return undefined; },
+        set: (h: Record<string, string>) => { captured3.headers = h; return undefined; },
+        type: (mt: string) => { captured3.type = mt; return undefined; },
+        send: (b: string) => { captured3.body = b; return undefined; },
+      };
+      await routes['GET /.well-known/jwks.json']({ headers: {} }, res3);
+      expect(captured3.status).toBe(200);
+      const jwksBody = JSON.parse(captured3.body) as { keys: { kid: string }[] };
+      expect(jwksBody.keys[0].kid).toBe('mount-test');
+
+      // OPTIONS /.well-known/jwks.json — preflight on the jwks mount.
+      const captured4: Record<string, any> = {};
+      const res4 = {
+        status: (c: number) => { captured4.status = c; return undefined; },
+        set: (h: Record<string, string>) => { captured4.headers = h; return undefined; },
+        type: (mt: string) => { captured4.type = mt; return undefined; },
+        send: (b: string) => { captured4.body = b; return undefined; },
+      };
+      await routes['OPTIONS /.well-known/jwks.json']({ headers: {} }, res4);
+      expect(captured4.status).toBe(204);
+      expect(captured4.headers['Access-Control-Allow-Origin']).toBe('*');
     } finally {
       restoreEnv();
     }
@@ -2519,6 +2585,31 @@ describe('Checkout.mountUcpRoutes<Framework>', () => {
       };
       await routes['OPTIONS /.well-known/ucp']({ headers: {} }, reply2);
       expect(captured2.status).toBe(204);
+
+      // GET /.well-known/jwks.json — same fastify reply chain as ucp.
+      const captured3: Record<string, any> = {};
+      const reply3: any = {
+        code: (c: number) => { captured3.status = c; return reply3; },
+        header: (k: string, v: string) => { captured3.headers = { ...(captured3.headers ?? {}), [k]: v }; return reply3; },
+        type: (mt: string) => { captured3.type = mt; return reply3; },
+        send: (b: string) => { captured3.body = b; return reply3; },
+      };
+      await routes['GET /.well-known/jwks.json']({ headers: {} }, reply3);
+      expect(captured3.status).toBe(200);
+      const jwksBody = JSON.parse(captured3.body) as { keys: { kid: string }[] };
+      expect(jwksBody.keys[0].kid).toBe('mount-test');
+
+      // OPTIONS /.well-known/jwks.json — preflight on the second mount.
+      const captured4: Record<string, any> = {};
+      const reply4: any = {
+        code: (c: number) => { captured4.status = c; return reply4; },
+        header: (k: string, v: string) => { captured4.headers = { ...(captured4.headers ?? {}), [k]: v }; return reply4; },
+        type: (mt: string) => { captured4.type = mt; return reply4; },
+        send: (b: string) => { captured4.body = b; return reply4; },
+      };
+      await routes['OPTIONS /.well-known/jwks.json']({ headers: {} }, reply4);
+      expect(captured4.status).toBe(204);
+      expect(captured4.headers['Access-Control-Allow-Origin']).toBe('*');
     } finally {
       restoreEnv();
     }
