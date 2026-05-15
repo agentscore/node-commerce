@@ -22,6 +22,9 @@ export interface SkillMdIdentityRequirements {
   sanctionsClear?: boolean;
 }
 
+/** PHYSICAL-GOODS-ONLY. Shipping-policy block for skill.md. Digital goods and
+ *  API merchants skip this (the `shipping?:` field on BuildSkillMdInput is
+ *  optional). */
 export interface SkillMdShippingPolicy {
   /** Allowed shipping countries (ISO 3166-1 alpha-2). */
   allowedCountries?: string[];

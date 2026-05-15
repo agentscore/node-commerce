@@ -57,6 +57,10 @@ export function build402Body({
   x402?: {
     accepts: unknown[];
     version?: 1 | 2;
+    /** x402 spec `extensions` field. Per-endpoint declared extensions (e.g.
+     *  `bazaar` discovery schema from `createBazaarDiscovery({...})`). Surfaces
+     *  on the 402 body as `extensions` so spec-compliant crawlers can read it. */
+    extensions?: Record<string, unknown>;
   };
   /** Vendor-specific extra fields merged at the top level. */
   extra?: Record<string, unknown>;
@@ -69,6 +73,9 @@ export function build402Body({
   if (x402) {
     body.x402Version = x402.version ?? 2;
     body.accepts = x402.accepts;
+    if (x402.extensions !== undefined && Object.keys(x402.extensions).length > 0) {
+      body.extensions = x402.extensions;
+    }
   }
 
   if (amountUsd !== undefined) body.amount_usd = amountUsd;

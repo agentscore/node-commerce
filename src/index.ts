@@ -16,7 +16,12 @@ export type {
 } from './core';
 export { buildAgentMemoryHint } from './core';
 export type { PaymentSigner, SignerNetwork } from './signer';
-export { extractPaymentSigner, readX402PaymentHeader } from './signer';
+export {
+  extractPaymentSigner,
+  extractPaymentSignerFromAuth,
+  extractSignerForPrecheck,
+  readX402PaymentHeader,
+} from './signer';
 export {
   FIXABLE_DENIAL_REASONS,
   buildContactSupportNextSteps,
@@ -77,16 +82,29 @@ export { hashOperatorToken } from './identity/tokens';
 export {
   Checkout,
   type CheckoutContext,
+  type CheckoutGateConfig,
   type CheckoutRailSpec,
   type CheckoutRequest,
   type CheckoutResult,
+  CheckoutValidationError,
   type ComposeMppxFn,
+  type GateDenial,
   type IsCachedAddressFn,
   type MppxComposeOutcome,
   type OnSettledFn,
+  type PreValidateFn,
   type PricingFn,
   type PricingResult,
   type RecipientsFn,
   type ReferenceIdFn,
+  type RunGateFn,
   type SettleOutcome,
+  getIdentityStatus,
+  makeMppxComposeHook,
+  validationEnvelope,
+  validationResponseExpress,
+  validationResponseFastify,
+  validationResponseHono,
+  validationResponseNextjs,
+  validationResponseWeb,
 } from './checkout';

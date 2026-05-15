@@ -93,7 +93,7 @@ describe('Checkout — composeMppx hook', () => {
     expect(onSettled).toHaveBeenCalledOnce();
   });
 
-  it('402 from compose layers the rich body on mppx WWW-Authenticate', async () => {
+  it('402 from compose on settle leg maps to 400 payment_proof_invalid', async () => {
     const composeMppx = vi.fn(
       async (): Promise<MppxComposeOutcome> => ({
         status: 402,
@@ -107,8 +107,28 @@ describe('Checkout — composeMppx hook', () => {
       composeMppx,
     });
     const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
-    expect(result.status).toBe(402);
+    expect(result.status).toBe(400);
     expect(result.headers['www-authenticate']).toBe('Payment id="ord_x"');
+    expect((result.body.error as Record<string, unknown>).code).toBe('payment_proof_invalid');
+    expect(result.settlePhase).toBe('verify_failed');
+  });
+
+  it('discovery-leg compose_mppx layers fresh WWW-Auth into the 402', async () => {
+    const composeMppx = vi.fn(
+      async (): Promise<MppxComposeOutcome> => ({
+        status: 402,
+        headers: { 'www-authenticate': 'Payment id="ord_y"' },
+      }),
+    );
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: '0xtempo' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 10 }),
+      composeMppx,
+    });
+    const result = await checkout.handle(req());
+    expect(result.status).toBe(402);
+    expect(result.headers['www-authenticate']).toBe('Payment id="ord_y"');
     expect(result.body.accepted_methods).toBeDefined();
   });
 });
@@ -131,9 +151,9 @@ describe('Checkout — custom hooks', () => {
       computePricing: price,
     });
     const anon = await checkout.handle(req());
-    expect(anon.body.amount_usd).toBe('10');
+    expect(anon.body.amount_usd).toBe('10.00');
     const verified = await checkout.handle(req({ assess: { identity_status: 'verified' } }));
-    expect(verified.body.amount_usd).toBe('8');
+    expect(verified.body.amount_usd).toBe('8.00');
   });
 
   it('mintRecipients overrides rail recipients', async () => {

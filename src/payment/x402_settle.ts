@@ -62,7 +62,7 @@ export type ProcessX402SettleResult =
        *  so the agent can pick a different rail. */
       phase: 'facilitator_error';
       /** Which verify-stage step threw. */
-      step: 'build_requirements' | 'enrich_extensions' | 'process_payment_request';
+      step: 'build_requirements' | 'enrich_extensions' | 'verify_payment';
       error: unknown;
     };
 
@@ -255,19 +255,25 @@ export async function processX402Settle({
   const server = x402Server as unknown as {
     buildPaymentRequirements: (cfg: unknown) => Promise<unknown[]>;
     enrichExtensions: (ext: unknown, ctx: unknown) => unknown;
-    processPaymentRequest: (
-      payload: unknown,
-      cfg: unknown,
-      meta: unknown,
-      ext: unknown,
-    ) => Promise<{ success: boolean; [key: string]: unknown }>;
-    settlePayment: (payload: unknown, requirement: unknown) => Promise<unknown>;
+    verifyPayment: (
+      paymentPayload: unknown,
+      requirements: unknown,
+      declaredExtensions?: unknown,
+      transportContext?: unknown,
+    ) => Promise<{ success: boolean; [key: string]: unknown } | { isValid?: boolean; [key: string]: unknown }>;
+    settlePayment: (
+      paymentPayload: unknown,
+      requirements: unknown,
+      declaredExtensions?: unknown,
+      transportContext?: unknown,
+    ) => Promise<unknown>;
   };
 
   let builtRequirements: unknown[];
   try {
     builtRequirements = await server.buildPaymentRequirements(resourceConfig);
   } catch (err) {
+    console.warn('[x402_settle] build_requirements failed:', err instanceof Error ? err.message : err);
     return { success: false, phase: 'facilitator_error', step: 'build_requirements', error: err };
   }
   const matchedRequirement = builtRequirements[0];
@@ -286,27 +292,37 @@ export async function processX402Settle({
       ? server.enrichExtensions(extension, resolvedTransportContext)
       : undefined;
   } catch (err) {
+    console.warn('[x402_settle] enrich_extensions failed:', err instanceof Error ? err.message : err);
     return { success: false, phase: 'facilitator_error', step: 'enrich_extensions', error: err };
   }
 
-  let verifyResult: { success: boolean; [key: string]: unknown };
+  let verifyResult: { success?: boolean; isValid?: boolean; [key: string]: unknown };
   try {
-    verifyResult = await server.processPaymentRequest(
+    verifyResult = await server.verifyPayment(
       payload,
-      resourceConfig,
-      resourceMeta,
-      enrichedExt,
+      matchedRequirement,
+      enrichedExt as Record<string, unknown> | undefined,
+      resolvedTransportContext,
     );
   } catch (err) {
-    return { success: false, phase: 'facilitator_error', step: 'process_payment_request', error: err };
+    console.warn('[x402_settle] verify_payment failed:', err instanceof Error ? err.message : err);
+    return { success: false, phase: 'facilitator_error', step: 'verify_payment', error: err };
   }
 
-  if (!verifyResult.success) {
+  // x402/core's ResourceVerifyResponse uses `isValid` (per spec). Accept the
+  // legacy `success` field too for older facilitator builds.
+  const verifyOk = verifyResult.isValid === true || verifyResult.success === true;
+  if (!verifyOk) {
     return { success: false, phase: 'verify_failed', verifyResult };
   }
 
   try {
-    const settleResult = await server.settlePayment(payload, matchedRequirement);
+    const settleResult = await server.settlePayment(
+      payload,
+      matchedRequirement,
+      enrichedExt as Record<string, unknown> | undefined,
+      resolvedTransportContext,
+    );
     const paymentResponseHeader = settleResult
       ? Buffer.from(JSON.stringify(settleResult)).toString('base64')
       : undefined;

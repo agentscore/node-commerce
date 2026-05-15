@@ -89,7 +89,13 @@ export async function createX402Server(opts: CreateX402ServerOptions = {}): Prom
   /* v8 ignore stop */
 
   let facilitator: unknown;
-  if (opts.facilitator === 'coinbase') {
+  // Auto-select the Coinbase CDP facilitator when both env vars are present.
+  // Lets merchants drop `facilitator: process.env.CDP_API_KEY_ID && ... ? 'coinbase' : 'http'`
+  // boilerplate. Explicit `facilitator` opt still wins.
+  const facilitatorChoice =
+    opts.facilitator ??
+    (process.env.CDP_API_KEY_ID && process.env.CDP_API_KEY_SECRET ? 'coinbase' : 'http');
+  if (facilitatorChoice === 'coinbase') {
     const cb = await dynamicImport<CoinbaseModule>('@coinbase/x402');
     /* v8 ignore start -- peer-dep-absence guard; @coinbase/x402 is installed in test env */
     if (!cb?.facilitator) {
@@ -99,10 +105,10 @@ export async function createX402Server(opts: CreateX402ServerOptions = {}): Prom
     }
     /* v8 ignore stop */
     facilitator = new x402Core.HTTPFacilitatorClient(cb.facilitator);
-  } else if (opts.facilitator === undefined || opts.facilitator === 'http') {
+  } else if (facilitatorChoice === 'http') {
     facilitator = new x402Core.HTTPFacilitatorClient();
   } else {
-    facilitator = opts.facilitator;
+    facilitator = facilitatorChoice;
   }
 
   const server = new x402Core.x402ResourceServer(facilitator);

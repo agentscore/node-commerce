@@ -11,6 +11,7 @@
 export {
   extractPaymentSigner,
   extractPaymentSignerFromAuth,
+  extractSignerForPrecheck,
   readX402PaymentHeader,
 } from '../signer';
 export type { PaymentSigner, SignerNetwork } from '../signer';
