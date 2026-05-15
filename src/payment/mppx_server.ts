@@ -272,3 +272,64 @@ export function wrapSolanaChargeWithFinalizedBlockhash(
     },
   };
 }
+
+/**
+ * Result shape of `composeMppxRequest`. mppx's `mppx.compose(...)(request)`
+ * resolves to one of two variants — type-narrowed here so consumers can
+ * `if (result.status === 200) { result.withReceipt(...) }` without an
+ * `as any` cast.
+ */
+export type MppxComposeResult =
+  | {
+      status: 200;
+      /** Wraps a Response with the `Payment-Receipt` header attached. */
+      withReceipt: (response: Response) => Response;
+      [k: string]: unknown;
+    }
+  | {
+      status: 402;
+      /** The 402 challenge Response mppx emitted (carries WWW-Authenticate). */
+      challenge: Response;
+      [k: string]: unknown;
+    };
+
+/**
+ * Run `mppx.compose(...intents)(request)` with a typed return. Replaces the
+ * `(mppx as any).compose(...intents)(request)` cast every hand-rolled
+ * `composeMppx` hook ends up writing.
+ *
+ * @example
+ * ```ts
+ * const result = await composeMppxRequest(mppx, [
+ *   ['tempo/charge', { amount, currency, decimals, recipient }],
+ *   ['stripe/charge', { amount, currency: 'usd', decimals: 2 }],
+ * ], ctx.request.raw);
+ * if (result.status === 402) return { status: 402, headers: mppxChallengeHeaders(result) };
+ * return { status: 200, raw: result };
+ * ```
+ */
+export async function composeMppxRequest(
+  mppx: unknown,
+  intents: readonly unknown[],
+  request: Request,
+): Promise<MppxComposeResult> {
+  if (!mppx || typeof mppx !== 'object' || !('compose' in mppx)) {
+    throw new Error('composeMppxRequest: argument is not an mppx server instance');
+  }
+  const compose = (mppx as { compose: unknown }).compose;
+  if (typeof compose !== 'function') {
+    throw new Error('composeMppxRequest: mppx.compose is not a function');
+  }
+  const typedCompose = compose as (...intents: readonly unknown[]) => (req: Request) => Promise<MppxComposeResult>;
+  const handler = typedCompose.apply(mppx, [...intents]);
+  return handler(request);
+}
+
+/**
+ * Extract the 402 challenge response's headers as a plain `Record<string, string>`,
+ * the shape `MppxComposeOutcome.headers` accepts. Wraps the one-liner every
+ * hand-rolled compose hook writes.
+ */
+export function mppxChallengeHeaders(result: { challenge: Response }): Record<string, string> {
+  return Object.fromEntries(result.challenge.headers);
+}

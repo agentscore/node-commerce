@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createMppxServer } from '../../src/payment/mppx_server';
+import {
+  composeMppxRequest,
+  createMppxServer,
+  mppxChallengeHeaders,
+} from '../../src/payment/mppx_server';
 import { networks } from '../../src/payment/networks';
 import type {
   SolanaMppRailSpec,
@@ -82,5 +86,64 @@ describe('createMppxServer — additional rail branches', () => {
       secretKey: 'mpp_secret_xxx',
     });
     expect(server).toBeDefined();
+  });
+});
+
+describe('composeMppxRequest', () => {
+  it('typed-narrows a 200 response with withReceipt', async () => {
+    const fakeMppx = {
+      compose: (..._intents: readonly unknown[]) => async (_req: Request) => ({
+        status: 200 as const,
+        withReceipt: (response: Response) => response,
+      }),
+    };
+    const result = await composeMppxRequest(fakeMppx, [['tempo/charge', { amount: '1.00' }]], new Request('https://x/y'));
+    expect(result.status).toBe(200);
+    if (result.status === 200) {
+      expect(typeof result.withReceipt).toBe('function');
+    }
+  });
+
+  it('typed-narrows a 402 challenge response', async () => {
+    const fakeMppx = {
+      compose: (..._intents: readonly unknown[]) => async (_req: Request) => ({
+        status: 402 as const,
+        challenge: new Response(null, { status: 402, headers: { 'www-authenticate': 'Payment realm="r"' } }),
+      }),
+    };
+    const result = await composeMppxRequest(fakeMppx, [], new Request('https://x/y'));
+    expect(result.status).toBe(402);
+    if (result.status === 402) {
+      expect(result.challenge).toBeInstanceOf(Response);
+    }
+  });
+
+  it('rejects when mppx argument lacks compose', async () => {
+    await expect(
+      composeMppxRequest({} as unknown, [], new Request('https://x/y')),
+    ).rejects.toThrow(/not an mppx server instance/);
+  });
+
+  it('rejects when compose is not a function', async () => {
+    await expect(
+      composeMppxRequest({ compose: 'not-a-fn' } as unknown, [], new Request('https://x/y')),
+    ).rejects.toThrow(/not a function/);
+  });
+});
+
+describe('mppxChallengeHeaders', () => {
+  it('converts the challenge Response headers to a Record', () => {
+    const result = {
+      challenge: new Response(null, {
+        status: 402,
+        headers: {
+          'www-authenticate': 'Payment realm="r"',
+          'x-extra': 'kept',
+        },
+      }),
+    };
+    const out = mppxChallengeHeaders(result);
+    expect(out['www-authenticate']).toBe('Payment realm="r"');
+    expect(out['x-extra']).toBe('kept');
   });
 });
