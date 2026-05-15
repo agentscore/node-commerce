@@ -24,14 +24,14 @@ npm install hono mppx @x402/core @x402/evm @solana/mpp @solana/kit stripe   # wh
 | Subpath | What it provides |
 |---|---|
 | `/identity/{hono,express,fastify}` | Trust gate middleware: KYC, sanctions (account name + signer wallet), age, jurisdiction. Context-getter pattern: `agentscoreGate(opts)` middleware + `getAgentScoreData(ctx)` / `getGateDegradedState(ctx)` / `getGateQuotaInfo(ctx)` / `getSignerVerdict(ctx)` accessors, `captureWallet(...)`. Plus shared denial helpers: `denialReasonStatus`, `denialReasonToBody`, `buildSignerMismatchBody`, `buildContactSupportNextSteps`, `verificationAgentInstructions`, `isFixableDenial`, `FIXABLE_DENIAL_REASONS`. |
-| `/identity/policy` | Per-product compliance helpers for multi-product merchants (each product carries its own policy: hard gate vs soft vs none, per-product shipping allowlists): `PolicyBlock`, `GateResult`, `EnforcementMode`, `IdentityStatus`, `buildGateOptionsFromPolicy`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed`. |
+| `/identity/policy` | Per-product compliance helpers for multi-product merchants (each product carries its own policy: hard gate vs soft vs none, per-product shipping allowlists): `PolicyBlock`, `GateResult`, `EnforcementMode`, `IdentityStatus`, `buildGateOptionsFromPolicy`, `runGateWithEnforcement`, `shippingCountryAllowed`, `shippingStateAllowed`, `validateShippingAgainstPolicy` (one-call country+state validator that raises `CheckoutValidationError` with the canonical envelope on miss). |
 | `/identity/{nextjs,web}` | Same gate, wrapper pattern: `withAgentScoreGate(opts, handler)` / `createAgentScoreGate(opts) => guard(req)`. The `data` + `degraded` + `infraReason` + `getSignerVerdict` fields land directly on the handler arg / guard result (no separate getter). Plus shared `captureWallet`. |
 | `/payment` | `networks`, `USDC`, `rails` registries; `paymentDirective`, `buildPaymentDirective`, `wwwAuthenticateHeader`, `paymentRequiredHeader`, `aliasAmountFields` (v1↔v2 amount field shim: emits both `amount` and `maxAmountRequired` so v1-only x402 parsers like Coinbase awal can read v2 bodies), `settlementOverrideHeader`, `dispatchSettlementByNetwork`, `extractPaymentSigner` (Request-based; recovers signer from x402 EIP-3009 `payload.authorization.from` OR MPP `Authorization: Payment <base64>` `did:pkh:eip155:<chain>:<addr>` / `did:pkh:solana:<genesis>:<addr>` source DID, including Solana `TransferChecked` authority fallback when `@solana/kit` is installed), `extractPaymentSignerFromAuth` (header-string variant for callers that already have the `Authorization` value in hand), `detectRailFromHeaders` (returns `"x402"` / `"mpp"` / `null` from inbound headers); `createX402Server`, `createMppxServer`; drop-in x402 helpers: `validateX402NetworkConfig` (boot-time guard), `verifyX402Request` (parse + validate inbound X-Payment), `processX402Settle` (verify-then-settle with one call), `classifyX402SettleResult` (maps the tagged settle result to a recommended HTTP status / code / nextSteps so merchants get a controlled envelope without coupling to facilitator-specific error text), `classifyOrchestrationError` (same `ClassifiedX402Error` shape but for uncaught exceptions thrown elsewhere in the orchestration; returns `null` for unknown errors so merchants rethrow instead of swallowing); `zeroAmountCarveOut` (skip CDP / mppx upstream verify+settle for $0 settles where the upstream rejects value=0 payloads; parses the credential, lifts signer + network, returns a `ZeroSettleResult` shaped identically to the success path so callers branch on rail, not on result shape); `usdToAtomic` (BigInt-based USD → atomic value, ROUND_HALF_UP — for Tempo / Solana / Base USDC amount construction). |
-| `/discovery` | `isDiscoveryProbeRequest`, `buildDiscoveryProbeResponse` (with optional `x402Sample` for x402-aware crawlers, e.g. `awal x402 details`), `sampleX402AcceptForNetwork` (USDC sample-accept builder for known CAIP-2 networks), `buildWellKnownMpp`, `buildLlmsTxt` + `llmsTxtIdentitySection` + `llmsTxtPaymentSection` (compact + verbose modes), `buildSkillMd` (Claude-Skill-compatible `/skill.md` agent-discovery manifest; strictly agent-facing data only, no internal posture), `agentscoreOpenApiSnippets`, `createBazaarDiscovery`, `noindexNonDiscoveryPaths` (Hono middleware that emits `X-Robots-Tag: noindex` on every path except the agent-discovery surfaces; defaults cover `/openapi.json`, `/llms.txt`, `/skill.md`, `/.well-known/{mpp.json,agent-card.json,ucp,jwks.json}`, `/favicon.{png,ico}`; pure helpers `isDiscoveryPath` + `defaultDiscoveryPaths` for non-Hono frameworks). |
-| `/challenge` | `build402Body`, `buildAcceptedMethods`, `buildIdentityMetadata`, `buildHowToPay`, `buildAgentInstructions` (auto-emits per-rail `compatible_clients`: smoke-verified CLIs the agent should use; vendor override supported; pure helper `compatibleClientsByRails(rails)` returns the same map for vendors building custom 402s), `buildPricingBlock`, `firstEncounterAgentMemory`, `OrderReceipt`; `respond402`, a drop-in 402 emit that preserves mppx's `WWW-Authenticate` and layers x402's `PAYMENT-REQUIRED`. `buildValidationError`: structured 4xx body builder (`{error: {code, message}, required_fields?, example_body?, next_steps?, ...extra}`) so vendors compose body shapes by name instead of inlining at every validation site. |
-| `/stripe-multichain` | `createMultichainPaymentIntent`, `getDepositAddress`, `simulateCryptoDeposit`, `createMppxStripe`; `createPiCache` (TTL'd PI / deposit-address cache, Redis-backed when `redisUrl` set, in-memory otherwise), `simulateDepositIfTestMode` (gates on `sk_test_` and looks up the PI for you), `STRIPE_TEST_TX_HASH_SUCCESS` / `STRIPE_TEST_TX_HASH_FAILED` constants. Peer dep on `stripe`. |
+| `/discovery` | `isDiscoveryProbeRequest`, `buildDiscoveryProbeResponse` (with optional `x402Sample` for x402-aware crawlers, e.g. `awal x402 details`), `sampleX402AcceptForNetwork` (USDC sample-accept builder for known CAIP-2 networks), `buildWellKnownMpp`, `buildLlmsTxt` + `llmsTxtIdentitySection` + `llmsTxtPaymentSection` (compact + verbose modes), `buildSkillMd` (Claude-Skill-compatible `/skill.md` agent-discovery manifest; strictly agent-facing data only, no internal posture), `buildRedemptionSkillMd` (delivery-neutral redemption-code template — printed mailers, emailed codes, API trial credits all covered; `endpointPath`/`deliveryIntro`/`bodyShape`/`bodyRules`/`extraRecoveryRows` overrides for non-goods shapes), `agentscoreOpenApiSnippets`, `createBazaarDiscovery`, `noindexNonDiscoveryPaths` (Hono middleware emitting `X-Robots-Tag: noindex` on every path except the agent-discovery surfaces; pure helpers `isDiscoveryPath` + `defaultDiscoveryPaths` for non-Hono frameworks), `buildMerchantIndexJson` (canonical `/` discovery body), `standardEndpointDescriptions({kind})` (canonical method+path → description map for goods vs api merchants; optional `includeOrderStatusRoute` for goods), `buildSuccessNextSteps` (universal Passport-active success block), `buildAgentscoreOnboardingSteps` (canonical skill.md onboarding for goods or API merchants). Plus the UCP/JWKS publish surface: `buildSignedUcpResponse`, `buildSignedJwksResponse`, `wellKnownPreflightResponse`, `defaultA2aServices`, `bootstrapUcpSigningKey`, and the framework-neutral `SignedDiscoveryResponse` + per-framework wrappers `signedResponse{Hono,Express,Fastify,Nextjs,Web}`. |
+| `/challenge` | `build402Body`, `buildAcceptedMethods`, `buildIdentityMetadata`, `buildHowToPay`, `buildAgentInstructions` (auto-emits per-rail `compatible_clients`: smoke-verified CLIs the agent should use; vendor override supported; pure helper `compatibleClientsByRails(rails)` returns the same map for vendors building custom 402s), `buildPricingBlock`, `firstEncounterAgentMemory`, `Receipt` + `ReceiptNextSteps` + `ProductInfo` + `ShippingAddress` (canonical 200-receipt shape returned post-settle — universal: goods merchants fill the shipping/fulfillment/product slots, API merchants populate only the universal fields); `respond402`, a drop-in 402 emit that preserves mppx's `WWW-Authenticate` and layers x402's `PAYMENT-REQUIRED`. `buildValidationError`: structured 4xx body builder (`{error: {code, message}, required_fields?, example_body?, next_steps?, ...extra}`) so vendors compose body shapes by name instead of inlining at every validation site. |
+| `/stripe-multichain` | `createMultichainPaymentIntent` (returns `{ paymentIntentId, depositAddresses }` — read `depositAddresses[network]` directly), `simulateCryptoDeposit`, `createMppxStripe`; `createPiCache` (TTL'd PI / deposit-address cache, Redis-backed when `redisUrl` set, in-memory otherwise), `simulateDepositIfTestMode` (gates on `sk_test_` and looks up the PI for you), `STRIPE_TEST_TX_HASH_SUCCESS` / `STRIPE_TEST_TX_HASH_FAILED` constants. Peer dep on `stripe`. |
 | `/api` | Everything from `@agent-score/sdk` re-exported in one place: `AgentScore` + `AgentScoreError`, `AGENTSCORE_TEST_ADDRESSES` + `isAgentScoreTestAddress`. **Don't add `@agent-score/sdk` as a separate dep**; the two can drift versions and cause subtle type mismatches. |
-| `@agent-score/commerce` (top-level: key + token helpers) | `loadUCPSigningKeyFromEnv` + `LoadUCPSigningKeyOptions` (cached env-driven loader for the UCP signing key — reads `UCP_SIGNING_KEY_JWK_PRIVATE` JSON JWK, detects alg from shape, falls back to ephemeral when unset, sanitizes errors so key bytes never reach logs, concurrent-safe via Promise-pinned cache); `hashOperatorToken` (sha256 hex of plaintext `opc_...` — for merchants persisting `operator_token_id` to their own DB without ever storing the plaintext); plus the cross-vendor publishers `buildA2AAgentCard` + `buildUCPProfile` (return unsigned payloads: vendor signs + publishes). |
+| `@agent-score/commerce` (top-level) | `Checkout` orchestrator + `CheckoutContext` + `CheckoutGateConfig` + `CheckoutValidationError` + `DiscoveryProbeConfig` + `MountUcpRoutesOptions` + `SettleOutcome` + `MppxComposeOutcome` + `PricingResult` (the 2.0 high-level surface: one config object, hooks for preValidate/computePricing/onSettled/mintRecipients/composeMppx, auto-derived x402+mppx servers, per-framework adapters `handleHono`/`handleExpress`/`handleFastify`/`handleNextjs`/`handleWeb`, signed UCP routes via `mountUcpRoutes{Hono,Express,Fastify}`); `pricingResult` (factory: cents-denominated → typed `PricingResult` with embedded `PricingBlock`); `validationResponse{Hono,Express,Fastify,Nextjs,Web}` (per-framework 4xx envelope wrappers); `loadUCPSigningKeyFromEnv` + `LoadUCPSigningKeyOptions` (cached env-driven loader for the UCP signing key — reads `UCP_SIGNING_KEY_JWK_PRIVATE` JSON JWK, detects alg from shape, falls back to ephemeral when unset, sanitizes errors so key bytes never reach logs, concurrent-safe via Promise-pinned cache); `hashOperatorToken` (sha256 hex of plaintext `opc_...` — for merchants persisting `operator_token_id` to their own DB without ever storing the plaintext); plus the cross-vendor publishers `buildA2AAgentCard` + `buildUCPProfile` (return unsigned payloads: vendor signs + publishes). |
 
 ## Quick start
 
@@ -78,6 +78,70 @@ app.post("/purchase", async (c) => {
   return c.json({ ok: true });
 });
 ```
+
+### Checkout orchestrator (the 2.0 high-level surface)
+
+`Checkout` is the canonical merchant surface: one config object, hooks for the merchant-specific pieces, and the SDK handles 402 emit, identity gating, x402 verify+settle, mppx compose, $0 carve-out, and the per-framework adapter. Most merchants reach for `Checkout` first and drop to lower-level helpers only when they need custom flows (variable-cost streaming, multi-protocol composition, etc).
+
+```typescript
+import { Checkout, pricingResult } from "@agent-score/commerce";
+import { defaultA2aServices } from "@agent-score/commerce/discovery";
+import { validateShippingAgainstPolicy } from "@agent-score/commerce/identity/policy";
+
+const checkout = new Checkout({
+  rails: {
+    tempo:     { recipient: process.env.TEMPO_RECIPIENT! },
+    x402_base: { recipient: process.env.X402_BASE_RECIPIENT!, network: "eip155:8453" },
+    solana_mpp:{ recipient: process.env.SOLANA_RECIPIENT!,    network: "solana:mainnet" },
+    stripe:    { profileId: process.env.STRIPE_PROFILE_ID! },
+  },
+  url: "https://merchant.example/purchase",
+  preValidate: async (ctx) => {
+    const body = (ctx.request.body ?? {}) as { product_slug?: string; shipping?: { country?: string; state?: string } };
+    const product = await lookupProduct(body.product_slug);
+    validateShippingAgainstPolicy({ country: body.shipping?.country ?? "", state: body.shipping?.state ?? "", policy: product, productName: product.name });
+    return { product };
+  },
+  computePricing: async (ctx) => pricingResult({
+    subtotalCents: ctx.state.product.priceCents,
+    taxCents: ctx.state.product.taxCents,
+    taxRate: ctx.state.product.taxRate,
+    taxState: ctx.state.product.taxState,
+  }),
+  onSettled: async (ctx, outcome) => ({ ok: true, order_id: ctx.referenceId, tx_hash: outcome.txHash }),
+  cdpApiKeyId:     process.env.CDP_API_KEY_ID,
+  cdpApiKeySecret: process.env.CDP_API_KEY_SECRET,
+  mppxSecretKey:   process.env.MPP_SECRET_KEY,
+  gate: {
+    apiKey: process.env.AGENTSCORE_API_KEY!,
+    merchantName: "Merchant",
+    requireKyc: true, requireSanctionsClear: true, minAge: 21, allowedJurisdictions: ["US"],
+  },
+  // Optional: empty-body POSTs without a payment header auto-route to a sample 402
+  // so x402 crawlers (awal x402 details, x402-proxy, ...) can discover the surface.
+  discoveryProbe: {
+    realm: "merchant.example",
+    sampleRail: "tempo-mainnet",
+    sampleAmountUsd: 1.0,
+    sampleRecipient: process.env.TEMPO_RECIPIENT!,
+  },
+});
+
+// Mount the signed UCP profile + JWKS + OPTIONS preflights in one call.
+// (For Express / Fastify use `mountUcpRoutesExpress` / `mountUcpRoutesFastify`.
+// Next.js / Web Fetch use file-based routing — call buildSignedUcpResponse
+// directly inside the route handler.)
+checkout.mountUcpRoutesHono(app, {
+  name: "Merchant",
+  wellKnownUcpUrl: "https://merchant.example/.well-known/ucp",
+  services: defaultA2aServices({ agentCardUrl: "https://merchant.example/.well-known/agent-card.json" }),
+  signingKid: "merchant-2026-05",
+});
+
+app.post("/purchase", (c) => checkout.handleHono(c));
+```
+
+The 402 body Checkout emits auto-attaches `identity_mode` + `required_signer` + `signer_constraint` (and `linked_wallets` when the gate populated them) when an inbound `X-Wallet-Address` header is present — so agents self-correct at discovery instead of at the 403 retry.
 
 ### Payment helpers
 
@@ -166,7 +230,7 @@ const responseBody = build402Body({
 });
 ```
 
-`buildPricingBlock` handles cents → dollar-string conversion (with optional shipping). `firstEncounterAgentMemory` returns the canonical hint or `undefined` based on a per-merchant first-seen flag. `OrderReceipt` is a TS interface for the post-settlement 200 response shape.
+`buildPricingBlock` handles cents → dollar-string conversion (with optional shipping). `firstEncounterAgentMemory` returns the canonical hint or `undefined` based on a per-merchant first-seen flag. `Receipt` is a universal TS interface for the post-settlement 200 response shape — goods merchants populate the shipping/fulfillment/tracking slots, API merchants fill only the universal fields (id, created_at, pricing, payment_status, next_steps).
 
 ### Idempotency-key + multi-rail header bundle
 
@@ -266,7 +330,6 @@ ACP (Stripe + OpenAI Agentic Commerce Protocol) is a transactional checkout prot
 import {
   createMultichainPaymentIntent,
   createPiCache,
-  getDepositAddress,
   simulateCryptoDeposit,
   simulateDepositIfTestMode,
 } from "@agent-score/commerce/stripe-multichain";
@@ -278,8 +341,8 @@ const result = await createMultichainPaymentIntent({
   metadata: { order_id: orderId },
   idempotencyKey: orderId,
 });
-const baseAddress = getDepositAddress(result, "base");
-const solanaAddress = getDepositAddress(result, "solana");
+const baseAddress = result.depositAddresses.base;
+const solanaAddress = result.depositAddresses.solana;
 
 // PI / deposit-address cache. Redis-backed when REDIS_URL is set, in-memory otherwise.
 // Multi-task deployments need Redis so a deposit lands on whichever task settles it.
