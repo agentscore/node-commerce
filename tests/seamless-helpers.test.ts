@@ -2304,6 +2304,145 @@ describe('Checkout zero-settle MPP carve-out', () => {
   });
 });
 
+// Checkout.mountUcpRoutes<Framework> (Tier 2 lift E)
+/* eslint-disable @typescript-eslint/no-explicit-any */
+describe('Checkout.mountUcpRoutes<Framework>', () => {
+  async function mountedCheckout(): Promise<{ checkout: any; restoreEnv: () => void }> {
+    const { Checkout } = await import('../src/checkout');
+    const { generateUCPSigningKey, _resetUCPSigningKeyCache } = await import('../src/identity/ucp-jwks');
+    const { exportJWK } = await import('jose');
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT } as TempoRailSpec },
+      url: 'https://x/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+    });
+    _resetUCPSigningKeyCache();
+    const { privateKey } = await generateUCPSigningKey({ kid: 'mount-test' });
+    const privJwk = await exportJWK(privateKey as Parameters<typeof exportJWK>[0]);
+    const prev = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+    process.env.UCP_SIGNING_KEY_JWK_PRIVATE = JSON.stringify({ ...privJwk, kid: 'mount-test', alg: 'EdDSA' });
+    return {
+      checkout,
+      restoreEnv: () => {
+        if (prev === undefined) delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+        else process.env.UCP_SIGNING_KEY_JWK_PRIVATE = prev;
+        _resetUCPSigningKeyCache();
+      },
+    };
+  }
+
+  it('mountUcpRoutesHono registers GET ucp + GET jwks + OPTIONS', async () => {
+    const { checkout, restoreEnv } = await mountedCheckout();
+    try {
+      const routes: Record<string, (c: { req: { raw: Request } }) => Promise<Response> | Response> = {};
+      const app = {
+        get: (path: string, h: (c: { req: { raw: Request } }) => Promise<Response> | Response) => { routes[`GET ${path}`] = h; },
+        options: (path: string, h: (c: { req: { raw: Request } }) => Promise<Response> | Response) => { routes[`OPTIONS ${path}`] = h; },
+      };
+      checkout.mountUcpRoutesHono(app, {
+        name: 'Mount-Hono',
+        wellKnownUcpUrl: 'https://x/.well-known/ucp',
+        services: {},
+        signingKid: 'mount-test',
+      });
+      const ucpResp = await routes['GET /.well-known/ucp']({ req: { raw: new Request('https://x/.well-known/ucp') } });
+      const jwksResp = await routes['GET /.well-known/jwks.json']({ req: { raw: new Request('https://x/.well-known/jwks.json') } });
+      const preflightResp = await routes['OPTIONS /.well-known/ucp']({ req: { raw: new Request('https://x/.well-known/ucp', { method: 'OPTIONS' }) } });
+
+      expect(ucpResp.status).toBe(200);
+      const ucpBody = await ucpResp.json() as { ucp: { name: string } };
+      expect(ucpBody.ucp.name).toBe('Mount-Hono');
+      expect(jwksResp.status).toBe(200);
+      expect(preflightResp.status).toBe(204);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it('mountUcpRoutesExpress writes status + headers + body on res', async () => {
+    const { checkout, restoreEnv } = await mountedCheckout();
+    try {
+      const routes: Record<string, any> = {};
+      const app = {
+        get: (path: string, h: any) => { routes[`GET ${path}`] = h; },
+        options: (path: string, h: any) => { routes[`OPTIONS ${path}`] = h; },
+      };
+      checkout.mountUcpRoutesExpress(app, {
+        name: 'Mount-Express',
+        wellKnownUcpUrl: 'https://x/.well-known/ucp',
+        services: {},
+        signingKid: 'mount-test',
+      });
+      const captured: Record<string, any> = {};
+      const mkRes = () => ({
+        status: (c: number) => { captured.status = c; return undefined; },
+        set: (h: Record<string, string>) => { captured.headers = h; return undefined; },
+        type: (mt: string) => { captured.type = mt; return undefined; },
+        send: (b: string) => { captured.body = b; return undefined; },
+      });
+
+      await routes['GET /.well-known/ucp']({ headers: {} }, mkRes());
+      expect(captured.status).toBe(200);
+      expect(captured.type).toBe('application/json');
+      const ucpBody = JSON.parse(captured.body) as { ucp: { name: string } };
+      expect(ucpBody.ucp.name).toBe('Mount-Express');
+
+      const captured2: Record<string, any> = Object.create(captured);
+      const res2 = {
+        status: (c: number) => { captured2.status = c; return undefined; },
+        set: (h: Record<string, string>) => { captured2.headers = h; return undefined; },
+        type: (mt: string) => { captured2.type = mt; return undefined; },
+        send: (b: string) => { captured2.body = b; return undefined; },
+      };
+      await routes['OPTIONS /.well-known/ucp']({ headers: {} }, res2);
+      expect(captured2.status).toBe(204);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it('mountUcpRoutesFastify writes via reply.code/header/type/send', async () => {
+    const { checkout, restoreEnv } = await mountedCheckout();
+    try {
+      const routes: Record<string, any> = {};
+      const app = {
+        get: (path: string, h: any) => { routes[`GET ${path}`] = h; },
+        options: (path: string, h: any) => { routes[`OPTIONS ${path}`] = h; },
+      };
+      checkout.mountUcpRoutesFastify(app, {
+        name: 'Mount-Fastify',
+        wellKnownUcpUrl: 'https://x/.well-known/ucp',
+        services: {},
+        signingKid: 'mount-test',
+      });
+      const captured: Record<string, any> = {};
+      const reply: any = {
+        code: (c: number) => { captured.status = c; return reply; },
+        header: (k: string, v: string) => { captured.headers = { ...(captured.headers ?? {}), [k]: v }; return reply; },
+        type: (mt: string) => { captured.type = mt; return reply; },
+        send: (b: string) => { captured.body = b; return reply; },
+      };
+      await routes['GET /.well-known/ucp']({ headers: {} }, reply);
+      expect(captured.status).toBe(200);
+      const ucpBody = JSON.parse(captured.body) as { ucp: { name: string } };
+      expect(ucpBody.ucp.name).toBe('Mount-Fastify');
+
+      const captured2: Record<string, any> = {};
+      const reply2: any = {
+        code: (c: number) => { captured2.status = c; return reply2; },
+        header: (k: string, v: string) => { captured2.headers = { ...(captured2.headers ?? {}), [k]: v }; return reply2; },
+        type: (mt: string) => { captured2.type = mt; return reply2; },
+        send: (b: string) => { captured2.body = b; return reply2; },
+      };
+      await routes['OPTIONS /.well-known/ucp']({ headers: {} }, reply2);
+      expect(captured2.status).toBe(204);
+    } finally {
+      restoreEnv();
+    }
+  });
+});
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 // signedResponse<Framework> wrappers (Tier 2 lift A)
 describe('signedResponse<Framework> wrappers', () => {
   const NEUTRAL = {

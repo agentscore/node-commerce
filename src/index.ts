@@ -90,6 +90,7 @@ export {
   type ComposeMppxFn,
   type DiscoveryProbeConfig,
   type GateDenial,
+  type MountUcpRoutesOptions,
   type IsCachedAddressFn,
   type MppxComposeOutcome,
   type OnSettledFn,

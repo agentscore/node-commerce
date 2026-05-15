@@ -66,6 +66,7 @@ import { classifyX402SettleResult, processX402Settle } from './payment/x402_sett
 import { verifyX402Request } from './payment/x402_validation';
 import { zeroAmountCarveOut, type ZeroSettleRail } from './payment/zero-settle';
 import { extractPaymentSignerFromAuth } from './signer';
+import type { SignedDiscoveryResponse } from './discovery/well_known';
 
 export type CheckoutRailSpec =
   | TempoRailSpec
@@ -1750,4 +1751,200 @@ export interface Checkout {
   ): Promise<unknown>;
   handleNextjs(request: Request, body?: Record<string, unknown>): Promise<Response>;
   handleWeb(request: Request, body?: Record<string, unknown>): Promise<Response>;
+  mountUcpRoutesHono(
+    app: {
+      get: (path: string, handler: (c: { req: { raw: Request } }) => Promise<Response> | Response) => unknown;
+      options: (path: string, handler: (c: { req: { raw: Request } }) => Promise<Response> | Response) => unknown;
+    },
+    opts: MountUcpRoutesOptions,
+  ): void;
+  mountUcpRoutesExpress(
+    app: {
+      get: (path: string, handler: (req: { headers: Record<string, string | string[] | undefined> }, res: ExpressLikeRes) => Promise<void> | void) => unknown;
+      options: (path: string, handler: (req: { headers: Record<string, string | string[] | undefined> }, res: ExpressLikeRes) => Promise<void> | void) => unknown;
+    },
+    opts: MountUcpRoutesOptions,
+  ): void;
+  mountUcpRoutesFastify(
+    app: {
+      get: (path: string, handler: (request: { headers: Record<string, string | string[] | undefined> }, reply: FastifyLikeReply) => Promise<unknown> | unknown) => unknown;
+      options: (path: string, handler: (request: { headers: Record<string, string | string[] | undefined> }, reply: FastifyLikeReply) => Promise<unknown> | unknown) => unknown;
+    },
+    opts: MountUcpRoutesOptions,
+  ): void;
 }
+
+interface ExpressLikeRes {
+  status: (code: number) => unknown;
+  set: (headers: Record<string, string>) => unknown;
+  type: (mt: string) => unknown;
+  send: (body: string) => unknown;
+}
+
+interface FastifyLikeReply {
+  code: (code: number) => unknown;
+  header: (k: string, v: string) => unknown;
+  type: (mt: string) => unknown;
+  send: (body: string) => unknown;
+}
+
+/** Options for the `mountUcpRoutes<Framework>` helpers — one shape used by all
+ *  three adapters. Saves merchants from copy-pasting the same 3-route block
+ *  (GET ucp + GET jwks + OPTIONS preflights) every time. */
+export interface MountUcpRoutesOptions {
+  name: string;
+  wellKnownUcpUrl: string;
+  services: Record<string, unknown[]>;
+  signingKid?: string;
+  agentscoreGate?: unknown;
+  ucpPath?: string;
+  jwksPath?: string;
+}
+
+async function _ucpSignedResp(
+  checkout: Checkout,
+  reqHeaders: Headers,
+  opts: MountUcpRoutesOptions,
+): Promise<SignedDiscoveryResponse> {
+  const { buildSignedUcpResponse } = await import('./discovery/well_known.js');
+  return await buildSignedUcpResponse({
+    checkout,
+    name: opts.name,
+    wellKnownUcpUrl: opts.wellKnownUcpUrl,
+    services: opts.services as Parameters<typeof buildSignedUcpResponse>[0]['services'],
+    requestHeaders: reqHeaders,
+    ...(opts.signingKid !== undefined && { signingKid: opts.signingKid }),
+    ...(opts.agentscoreGate !== undefined && {
+      agentscoreGate: opts.agentscoreGate as Parameters<typeof buildSignedUcpResponse>[0]['agentscoreGate'],
+    }),
+  });
+}
+
+async function _jwksSignedResp(
+  reqHeaders: Headers,
+  opts: MountUcpRoutesOptions,
+): Promise<SignedDiscoveryResponse> {
+  const { buildSignedJwksResponse } = await import('./discovery/well_known.js');
+  return await buildSignedJwksResponse({
+    requestHeaders: reqHeaders,
+    ...(opts.signingKid !== undefined && { signingKid: opts.signingKid }),
+  });
+}
+
+function _preflightResp(reqHeaders: Headers): Response {
+  // Use the existing wellKnownPreflightResponse helper (returns Response).
+  // It's a sync function so dynamic import is unnecessary here; we already
+  // import the module lazily inside the registered handlers.
+  return new Response(null, {
+    status: 204,
+    headers: _preflightHeaders(reqHeaders),
+  });
+}
+
+function _preflightHeaders(reqHeaders: Headers): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    Vary: 'Access-Control-Request-Headers',
+  };
+  const acrh = reqHeaders.get('access-control-request-headers');
+  if (acrh) headers['Access-Control-Allow-Headers'] = acrh;
+  return headers;
+}
+
+(Checkout.prototype as unknown as {
+  mountUcpRoutesHono: (this: Checkout, app: Parameters<Checkout['mountUcpRoutesHono']>[0], opts: MountUcpRoutesOptions) => void;
+}).mountUcpRoutesHono = function (app, opts) {
+  const ucpPath = opts.ucpPath ?? '/.well-known/ucp';
+  const jwksPath = opts.jwksPath ?? '/.well-known/jwks.json';
+  // eslint-disable-next-line @typescript-eslint/no-this-alias
+  const checkout = this;
+  app.get(ucpPath, async (c) => {
+    const resp = await _ucpSignedResp(checkout, c.req.raw.headers, opts);
+    return new Response(resp.body, {
+      status: resp.status,
+      headers: { ...resp.headers, 'Content-Type': resp.mediaType },
+    });
+  });
+  app.get(jwksPath, async (c) => {
+    const resp = await _jwksSignedResp(c.req.raw.headers, opts);
+    return new Response(resp.body, {
+      status: resp.status,
+      headers: { ...resp.headers, 'Content-Type': resp.mediaType },
+    });
+  });
+  app.options(ucpPath, (c) => _preflightResp(c.req.raw.headers));
+  app.options(jwksPath, (c) => _preflightResp(c.req.raw.headers));
+};
+
+function _headersFromExpressLike(raw: Record<string, string | string[] | undefined>): Headers {
+  const out = new Headers();
+  for (const [k, v] of Object.entries(raw)) {
+    if (v === undefined) continue;
+    out.set(k, Array.isArray(v) ? v.join(',') : v);
+  }
+  return out;
+}
+
+(Checkout.prototype as unknown as {
+  mountUcpRoutesExpress: (this: Checkout, app: Parameters<Checkout['mountUcpRoutesExpress']>[0], opts: MountUcpRoutesOptions) => void;
+}).mountUcpRoutesExpress = function (app, opts) {
+  const ucpPath = opts.ucpPath ?? '/.well-known/ucp';
+  const jwksPath = opts.jwksPath ?? '/.well-known/jwks.json';
+  // eslint-disable-next-line @typescript-eslint/no-this-alias
+  const checkout = this;
+  app.get(ucpPath, async (req, res) => {
+    const resp = await _ucpSignedResp(checkout, _headersFromExpressLike(req.headers), opts);
+    res.status(resp.status);
+    res.set(resp.headers);
+    res.type(resp.mediaType);
+    res.send(resp.body);
+  });
+  app.get(jwksPath, async (req, res) => {
+    const resp = await _jwksSignedResp(_headersFromExpressLike(req.headers), opts);
+    res.status(resp.status);
+    res.set(resp.headers);
+    res.type(resp.mediaType);
+    res.send(resp.body);
+  });
+  const preflight = (req: { headers: Record<string, string | string[] | undefined> }, res: ExpressLikeRes) => {
+    const reqHeaders = _headersFromExpressLike(req.headers);
+    res.status(204);
+    res.set(_preflightHeaders(reqHeaders));
+    res.send('');
+  };
+  app.options(ucpPath, preflight);
+  app.options(jwksPath, preflight);
+};
+
+(Checkout.prototype as unknown as {
+  mountUcpRoutesFastify: (this: Checkout, app: Parameters<Checkout['mountUcpRoutesFastify']>[0], opts: MountUcpRoutesOptions) => void;
+}).mountUcpRoutesFastify = function (app, opts) {
+  const ucpPath = opts.ucpPath ?? '/.well-known/ucp';
+  const jwksPath = opts.jwksPath ?? '/.well-known/jwks.json';
+  // eslint-disable-next-line @typescript-eslint/no-this-alias
+  const checkout = this;
+  app.get(ucpPath, async (request, reply) => {
+    const resp = await _ucpSignedResp(checkout, _headersFromExpressLike(request.headers), opts);
+    reply.code(resp.status);
+    for (const [k, v] of Object.entries(resp.headers)) reply.header(k, v);
+    reply.type(resp.mediaType);
+    return reply.send(resp.body);
+  });
+  app.get(jwksPath, async (request, reply) => {
+    const resp = await _jwksSignedResp(_headersFromExpressLike(request.headers), opts);
+    reply.code(resp.status);
+    for (const [k, v] of Object.entries(resp.headers)) reply.header(k, v);
+    reply.type(resp.mediaType);
+    return reply.send(resp.body);
+  });
+  const preflight = (request: { headers: Record<string, string | string[] | undefined> }, reply: FastifyLikeReply) => {
+    const reqHeaders = _headersFromExpressLike(request.headers);
+    reply.code(204);
+    for (const [k, v] of Object.entries(_preflightHeaders(reqHeaders))) reply.header(k, v);
+    return reply.send('');
+  };
+  app.options(ucpPath, preflight);
+  app.options(jwksPath, preflight);
+};
