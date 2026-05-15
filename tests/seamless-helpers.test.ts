@@ -182,6 +182,57 @@ describe('makeMppxComposeHook', () => {
     expect(out.headers?.['www-authenticate']).toBe('Payment realm="test-realm"');
   });
 
+  it('lifts signer from a did:pkh:solana source on 200', async () => {
+    const credential = { source: 'did:pkh:solana:5eykt4:GeQg2TM4VL315Bd4LLkGrhBjdNfoatKjCJYHBDPM3D74' };
+    const receipt = { reference: 'solana_sig', transaction: null };
+    const hook = makeMppxComposeHook({
+      serverGetter: async () => ({ realm: 'r', charge: async () => [credential, receipt] }),
+    });
+    const out = await hook({
+      request: { method: 'POST', url: 'https://x/y', headers: { authorization: 'Payment <cred>' }, body: {} },
+      referenceId: 'ref',
+      pricing: { amountUsd: 1.0 },
+      recipients: {},
+      state: {},
+    });
+    expect(out.status).toBe(200);
+    expect(out.signerNetwork).toBe('solana');
+    expect(out.signerAddress).toBe('GeQg2TM4VL315Bd4LLkGrhBjdNfoatKjCJYHBDPM3D74');
+  });
+
+  it('lifts txHash from transaction field when reference is unset', async () => {
+    const credential = { source: 'did:pkh:eip155:8453:0xABC' };
+    const receipt = { reference: undefined, transaction: '0xfallback_tx' };
+    const hook = makeMppxComposeHook({
+      serverGetter: async () => ({ realm: 'r', charge: async () => [credential, receipt] }),
+    });
+    const out = await hook({
+      request: { method: 'POST', url: 'https://x/y', headers: { authorization: 'Payment <cred>' }, body: {} },
+      referenceId: 'ref',
+      pricing: { amountUsd: 1.0 },
+      recipients: {},
+      state: {},
+    });
+    expect(out.txHash).toBe('0xfallback_tx');
+  });
+
+  it('non-did source leaves signer null', async () => {
+    const credential = { source: 'plain-not-did' };
+    const receipt = { reference: '0xtx', transaction: null };
+    const hook = makeMppxComposeHook({
+      serverGetter: async () => ({ realm: 'r', charge: async () => [credential, receipt] }),
+    });
+    const out = await hook({
+      request: { method: 'POST', url: 'https://x/y', headers: { authorization: 'Payment <cred>' }, body: {} },
+      referenceId: 'ref',
+      pricing: { amountUsd: 1.0 },
+      recipients: {},
+      state: {},
+    });
+    expect(out.signerAddress).toBeNull();
+    expect(out.signerNetwork).toBeNull();
+  });
+
   it('lifts signer from a did:pkh:eip155 source on 200', async () => {
     const credential = { source: 'did:pkh:eip155:8453:0xABCD000000000000000000000000000000000003' };
     const receipt = { reference: '0xtx', transaction: null };
@@ -569,6 +620,97 @@ describe('wellKnownCorsPreflightHeaders', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // wellKnownPreflightResponse
 // ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildAgentscoreOnboardingSteps - branch coverage', () => {
+  it('vendorType=api with stripe-spt rail includes stripe fallback step', () => {
+    const steps = buildAgentscoreOnboardingSteps({
+      merchantName: 'API Co',
+      appUrl: 'https://api.example',
+      acceptedRails: ['stripe-spt'],
+      vendorType: 'api',
+    });
+    const text = steps.join('\n');
+    expect(text).toContain('@stripe/link-cli');
+    // api branch has "make the paid call"
+    expect(text).toContain('Make the paid call');
+  });
+
+  it('vendorType=goods (default) with stripe-spt rail includes catalog browse step', () => {
+    const steps = buildAgentscoreOnboardingSteps({
+      merchantName: 'Store',
+      appUrl: 'https://store.example',
+      acceptedRails: ['stripe-spt', 'tempo'],
+    });
+    const text = steps.join('\n');
+    expect(text).toContain('@stripe/link-cli');
+    expect(text).toContain('Browse the catalog');
+  });
+
+  it('vendorType=api with no stripe rail omits stripe fallback step', () => {
+    const steps = buildAgentscoreOnboardingSteps({
+      merchantName: 'API Co',
+      appUrl: 'https://api.example',
+      acceptedRails: ['x402-base'],
+      vendorType: 'api',
+    });
+    const text = steps.join('\n');
+    expect(text).not.toContain('@stripe/link-cli');
+  });
+});
+
+describe('buildSuccessNextSteps - branch coverage', () => {
+  it('omits order_status_url when not provided', () => {
+    const out = buildSuccessNextSteps({});
+    expect(out.order_status_url).toBeUndefined();
+    expect(out.fulfillment_eta).toBeUndefined();
+  });
+  it('includes fulfillment_eta when set', () => {
+    const out = buildSuccessNextSteps({ fulfillmentEta: 'ships 3-5 days', userMessage: 'Custom message.' });
+    expect(out.fulfillment_eta).toBe('ships 3-5 days');
+    expect(out.user_message).toBe('Custom message.');
+  });
+});
+
+describe('buildSignedJwksResponse + buildSignedUcpResponse - Headers instance request', () => {
+  it('reads X-Request-Id from Headers instance (not just plain object)', async () => {
+    const { buildSignedJwksResponse } = await import('../src/discovery/well_known');
+    const { generateUCPSigningKey, _resetUCPSigningKeyCache } = await import('../src/identity/ucp-jwks');
+    const { exportJWK } = await import('jose');
+    _resetUCPSigningKeyCache();
+    const { privateKey } = await generateUCPSigningKey({ kid: 'jwks-headers-test' });
+    const privJwk = await exportJWK(privateKey as Parameters<typeof exportJWK>[0]);
+    const prev = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+    process.env.UCP_SIGNING_KEY_JWK_PRIVATE = JSON.stringify({ ...privJwk, kid: 'jwks-headers-test' });
+    try {
+      const resp = await buildSignedJwksResponse({
+        requestHeaders: new Headers({ 'x-request-id': 'req-from-headers' }),
+      });
+      expect(resp.headers['X-Request-ID']).toBe('req-from-headers');
+    } finally {
+      if (prev === undefined) delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+      else process.env.UCP_SIGNING_KEY_JWK_PRIVATE = prev;
+      _resetUCPSigningKeyCache();
+    }
+  });
+  it('omits X-Request-ID when no header present', async () => {
+    const { buildSignedJwksResponse } = await import('../src/discovery/well_known');
+    const { generateUCPSigningKey, _resetUCPSigningKeyCache } = await import('../src/identity/ucp-jwks');
+    const { exportJWK } = await import('jose');
+    _resetUCPSigningKeyCache();
+    const { privateKey } = await generateUCPSigningKey({ kid: 'no-rid' });
+    const privJwk = await exportJWK(privateKey as Parameters<typeof exportJWK>[0]);
+    const prev = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+    process.env.UCP_SIGNING_KEY_JWK_PRIVATE = JSON.stringify({ ...privJwk, kid: 'no-rid' });
+    try {
+      const resp = await buildSignedJwksResponse({});
+      expect(resp.headers['X-Request-ID']).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+      else process.env.UCP_SIGNING_KEY_JWK_PRIVATE = prev;
+      _resetUCPSigningKeyCache();
+    }
+  });
+});
 
 describe('wellKnownPreflightResponse', () => {
   it('returns a 204 Response with CORS preflight headers', async () => {
