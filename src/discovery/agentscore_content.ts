@@ -253,7 +253,7 @@ export function buildSuccessNextSteps(opts: {
     action: 'done',
     user_message:
       opts.userMessage ??
-      'Order complete. Your AgentScore Passport is now active across ' +
+      'Payment complete. Your AgentScore Passport is now active across ' +
         'every AgentScore-gated merchant.',
   };
   if (opts.orderStatusUrl) out.order_status_url = opts.orderStatusUrl;

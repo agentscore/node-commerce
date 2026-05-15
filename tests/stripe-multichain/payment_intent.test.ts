@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createMultichainPaymentIntent, getDepositAddress } from '../../src/stripe-multichain/payment_intent';
+import { createMultichainPaymentIntent } from '../../src/stripe-multichain/payment_intent';
 
 function fakeStripe(piResult: object) {
   const create = vi.fn().mockResolvedValue(piResult);
@@ -51,22 +51,5 @@ describe('createMultichainPaymentIntent', () => {
     await expect(createMultichainPaymentIntent({ stripe, amount: 100 })).rejects.toThrow(
       'No deposit addresses',
     );
-  });
-});
-
-describe('getDepositAddress', () => {
-  it('returns the address for a known network', () => {
-    expect(
-      getDepositAddress(
-        { paymentIntentId: 'pi_x', depositAddresses: { tempo: '0xt', base: '0xb' } },
-        'base',
-      ),
-    ).toBe('0xb');
-  });
-
-  it('returns undefined for an unknown network', () => {
-    expect(
-      getDepositAddress({ paymentIntentId: 'pi_x', depositAddresses: { tempo: '0xt' } }, 'solana'),
-    ).toBeUndefined();
   });
 });

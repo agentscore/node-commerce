@@ -21,7 +21,6 @@
 import {
   STRIPE_TEST_TX_HASH_SUCCESS,
   createMultichainPaymentIntent,
-  getDepositAddress,
   simulateCryptoDeposit,
 } from '@agent-score/commerce/stripe-multichain';
 import { Hono } from 'hono';
@@ -51,13 +50,13 @@ app.post('/checkout', async (c) => {
     payment_intent_id: result.paymentIntentId,
     deposit_addresses: result.depositAddresses,
     instructions: {
-      tempo: getDepositAddress(result, 'tempo')
+      tempo: result.depositAddresses.tempo
         ? `Send ${body.amount_usd} USDC on Tempo to ${result.depositAddresses.tempo}`
         : 'Tempo not available for this PI',
-      base: getDepositAddress(result, 'base')
+      base: result.depositAddresses.base
         ? `Send ${body.amount_usd} USDC on Base to ${result.depositAddresses.base}`
         : 'Base not available for this PI',
-      solana: getDepositAddress(result, 'solana')
+      solana: result.depositAddresses.solana
         ? `Send ${body.amount_usd} USDC on Solana to ${result.depositAddresses.solana}`
         : 'Solana not available for this PI',
     },

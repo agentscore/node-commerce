@@ -19,10 +19,10 @@ export interface AgentInstructions {
 }
 
 const TEMPO_WARNING =
-  'Do NOT use `tempo wallet transfer`. That moves USDC on-chain without completing the protocol handshake, so the order will not complete. Use `tempo request` instead.';
+  'Do NOT use `tempo wallet transfer`. That moves USDC on-chain without completing the protocol handshake, so the request will not complete. Use `tempo request` instead.';
 
 const X402_WARNING =
-  'Do NOT send USDC manually to the deposit addresses. Use `agentscore-pay pay` so the credential is signed and submitted; otherwise the order will not complete even though the deposit lands.';
+  'Do NOT send USDC manually to the deposit addresses. Use `agentscore-pay pay` so the credential is signed and submitted; otherwise the request will not complete even though the deposit lands.';
 
 const TEMPO_TOOL = '`tempo request` for Tempo USDC';
 const AGENTSCORE_PAY_TOOL = '`agentscore-pay` — Base + Solana + Tempo from one CLI';

@@ -154,7 +154,7 @@ export function buildContactSupportNextSteps(
     support_email: supportEmail,
     user_message:
       message ??
-      `If you believe this denial is in error, contact support at ${supportEmail} with your order details.`,
+      `If you believe this denial is in error, contact support at ${supportEmail} with the details of your request.`,
   };
 }
 
