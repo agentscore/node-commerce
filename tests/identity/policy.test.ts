@@ -3,11 +3,13 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import { CheckoutValidationError } from '../../src/checkout.js';
 import {
   buildGateOptionsFromPolicy,
   runGateWithEnforcement,
   shippingCountryAllowed,
   shippingStateAllowed,
+  validateShippingAgainstPolicy,
 } from '../../src/identity/policy.js';
 
 // ── shipping helpers ────────────────────────────────────────────────────────
@@ -144,5 +146,110 @@ describe('runGateWithEnforcement', () => {
     }));
     expect(result.status).toBe('unverified');
     expect(result.denialStatus).toBe(403);
+  });
+});
+
+// ── validateShippingAgainstPolicy ────────────────────────────────────────────
+
+describe('validateShippingAgainstPolicy', () => {
+  it('no-ops when policy is null', () => {
+    expect(() => validateShippingAgainstPolicy({ country: 'AQ', state: '', policy: null })).not.toThrow();
+  });
+
+  it('no-ops when policy has no allowlist', () => {
+    expect(() =>
+      validateShippingAgainstPolicy({
+        country: 'JP',
+        state: '',
+        policy: { requireKyc: true },
+      }),
+    ).not.toThrow();
+  });
+
+  it('throws CheckoutValidationError on disallowed country', () => {
+    expect(() =>
+      validateShippingAgainstPolicy({
+        country: 'JP',
+        state: '',
+        policy: { allowedShippingCountries: ['US'] },
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        constructor: CheckoutValidationError,
+        code: 'unsupported_jurisdiction',
+        action: 'change_shipping_state',
+      }) as unknown as Error,
+    );
+  });
+
+  it('throws on disallowed state with the state in the message', () => {
+    try {
+      validateShippingAgainstPolicy({
+        country: 'US',
+        state: 'UT',
+        policy: { allowedShippingCountries: ['US'], allowedShippingStates: ['CA', 'NY'] },
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(CheckoutValidationError);
+      expect((err as CheckoutValidationError).message).toContain('UT');
+    }
+  });
+
+  it('includes productName in the message when provided', () => {
+    try {
+      validateShippingAgainstPolicy({
+        country: 'JP',
+        state: '',
+        policy: { allowedShippingCountries: ['US'] },
+        productName: 'Reserve Cabernet',
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect((err as CheckoutValidationError).message).toContain('Reserve Cabernet');
+    }
+  });
+
+  it('countryMessage / stateMessage override defaults verbatim', () => {
+    try {
+      validateShippingAgainstPolicy({
+        country: 'JP',
+        state: '',
+        policy: { allowedShippingCountries: ['US'] },
+        countryMessage: 'Sorry, regulations.',
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect((err as CheckoutValidationError).message).toBe('Sorry, regulations.');
+    }
+    try {
+      validateShippingAgainstPolicy({
+        country: 'US',
+        state: 'UT',
+        policy: { allowedShippingCountries: ['US'], allowedShippingStates: ['CA'] },
+        stateMessage: "Fulfillment partner doesn't cover that area.",
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect((err as CheckoutValidationError).message).toBe(
+        "Fulfillment partner doesn't cover that area.",
+      );
+    }
+  });
+
+  it('errorCode / errorAction override defaults', () => {
+    try {
+      validateShippingAgainstPolicy({
+        country: 'JP',
+        state: '',
+        policy: { allowedShippingCountries: ['US'] },
+        errorCode: 'ships_us_only',
+        errorAction: 'contact_support',
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect((err as CheckoutValidationError).code).toBe('ships_us_only');
+      expect((err as CheckoutValidationError).action).toBe('contact_support');
+    }
   });
 });
