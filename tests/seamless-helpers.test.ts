@@ -564,6 +564,60 @@ describe('Checkout framework adapters', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Checkout accessors
 // ─────────────────────────────────────────────────────────────────────────────
+// pricingResult factory (Tier 1 lift C)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('pricingResult', () => {
+  it('derives amountUsd from subtotal + tax in cents', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ subtotalCents: 25000, taxCents: 2000 });
+    expect(pr.amountUsd).toBe(270);
+    expect(pr.currency).toBe('USD');
+    expect(pr.block?.subtotal).toBe('250.00');
+    expect(pr.block?.tax).toBe('20.00');
+  });
+
+  it('includes shippingCents in the derived amount', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ subtotalCents: 25000, taxCents: 2000, shippingCents: 999 });
+    expect(pr.amountUsd).toBe(279.99);
+  });
+
+  it('attaches taxRate + taxState to the block', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ subtotalCents: 25000, taxCents: 2000, taxRate: 0.08, taxState: 'CA' });
+    expect(pr.block?.tax_rate).toBe(0.08);
+    expect(pr.block?.tax_state).toBe('CA');
+  });
+
+  it('passthrough mode (only amountUsd) leaves block undefined', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ amountUsd: 0.01 });
+    expect(pr.amountUsd).toBe(0.01);
+    expect(pr.block).toBeUndefined();
+  });
+
+  it('explicit amountUsd overrides the subtotal-derived value', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ subtotalCents: 25000, taxCents: 2000, amountUsd: 999.99 });
+    expect(pr.amountUsd).toBe(999.99);
+    expect(pr.block?.subtotal).toBe('250.00');
+  });
+
+  it('throws when neither subtotalCents nor amountUsd is provided', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    expect(() => pricingResult({ currency: 'USD' })).toThrowError(/subtotalCents.*amountUsd/);
+  });
+
+  it('propagates product + bodyExtras', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const product = { id: 'sku_1', name: 'Test' };
+    const extras = { redemption_code_applied: 'WELCOME' };
+    const pr = pricingResult({ subtotalCents: 100, product, bodyExtras: extras });
+    expect(pr.product).toEqual(product);
+    expect(pr.bodyExtras).toEqual(extras);
+  });
+});
 
 describe('Checkout.acceptedRails + acceptedMethodNames', () => {
   it('returns canonical RailKey + method-name lists derived from rails', () => {

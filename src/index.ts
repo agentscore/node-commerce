@@ -101,6 +101,7 @@ export {
   type SettleOutcome,
   getIdentityStatus,
   makeMppxComposeHook,
+  pricingResult,
   validationEnvelope,
   validationResponseExpress,
   validationResponseFastify,

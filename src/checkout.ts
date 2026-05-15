@@ -119,6 +119,72 @@ export interface PricingResult {
   bodyExtras?: Record<string, unknown>;
 }
 
+/**
+ * Build a {@link PricingResult} from cents-denominated inputs.
+ *
+ * Saves the `{ amountUsd: ..., block: buildPricingBlock({...}) }` dance every
+ * US-commerce merchant repeats. When `subtotalCents` is set:
+ *
+ * - `amountUsd` is derived from `(subtotal + tax + shipping) / 100` unless
+ *   explicitly provided.
+ * - A {@link PricingBlock} is built via {@link buildPricingBlock} and attached
+ *   to the result's `block` field.
+ *
+ * When `subtotalCents` is omitted, the function passes through to the raw
+ * `PricingResult` shape; `amountUsd` is then required.
+ *
+ * Use this in `computePricing` hooks instead of hand-rolling:
+ *
+ * @example
+ * computePricing: async (ctx) => pricingResult({
+ *   subtotalCents: 25000,
+ *   taxCents: 2000,
+ *   taxRate: 0.08,
+ *   taxState: 'CA',
+ * }),
+ */
+export function pricingResult(opts: {
+  subtotalCents?: number;
+  taxCents?: number;
+  shippingCents?: number;
+  taxRate?: number;
+  taxState?: string;
+  currency?: string;
+  amountUsd?: number;
+  product?: Record<string, string>;
+  bodyExtras?: Record<string, unknown>;
+}): PricingResult {
+  const currency = opts.currency ?? 'USD';
+  if (opts.subtotalCents !== undefined) {
+    const totalCents = opts.subtotalCents + (opts.taxCents ?? 0) + (opts.shippingCents ?? 0);
+    const derivedAmount = opts.amountUsd ?? totalCents / 100;
+    const block = buildPricingBlock({
+      subtotalCents: opts.subtotalCents,
+      taxCents: opts.taxCents ?? 0,
+      ...(opts.shippingCents !== undefined && { shippingCents: opts.shippingCents }),
+      ...(opts.taxRate !== undefined && { taxRate: opts.taxRate }),
+      ...(opts.taxState !== undefined && { taxState: opts.taxState }),
+      currency,
+    });
+    return {
+      amountUsd: derivedAmount,
+      currency,
+      block,
+      ...(opts.product !== undefined && { product: opts.product }),
+      ...(opts.bodyExtras !== undefined && { bodyExtras: opts.bodyExtras }),
+    };
+  }
+  if (opts.amountUsd === undefined) {
+    throw new Error('pricingResult requires either `subtotalCents` or `amountUsd`.');
+  }
+  return {
+    amountUsd: opts.amountUsd,
+    currency,
+    ...(opts.product !== undefined && { product: opts.product }),
+    ...(opts.bodyExtras !== undefined && { bodyExtras: opts.bodyExtras }),
+  };
+}
+
 /** In-flight state passed to every hook in the Checkout flow. */
 export interface CheckoutContext {
   request: CheckoutRequest;
