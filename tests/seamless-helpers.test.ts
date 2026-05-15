@@ -1740,6 +1740,17 @@ describe('Checkout preValidate', () => {
     expect(((result.body as { error: { code: string } }).error).code).toBe('product_not_found');
   });
 
+  it('CheckoutValidationError defaults to status 400 + action fix_request when unset', async () => {
+    const { CheckoutValidationError } = await import('../src/checkout');
+    const err = new CheckoutValidationError({
+      code: 'bad_thing',
+      message: 'nope',
+    });
+    expect(err.status).toBe(400);
+    expect(err.action).toBe('fix_request');
+    expect(err.extra).toBeUndefined();
+  });
+
   it('rethrows non-CheckoutValidationError errors from preValidate', async () => {
     const checkout = new Checkout({
       rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
@@ -1861,6 +1872,85 @@ describe('Framework adapter SETTLE leg', () => {
     expect(((captured.body as { order_id?: string })?.order_id)).toBe('order-1');
   });
 
+  it('handleExpress handles array-valued headers (Express normalizes to string[] for some headers)', async () => {
+    const checkout = _settleCheckout();
+    const captured: { status?: number; body?: unknown } = {};
+    const req = {
+      headers: {
+        'content-type': 'application/json',
+        // Express represents multi-value headers as string[].
+        'accept': ['application/json', 'text/plain'],
+        // Single-value: still a string.
+        authorization: 'Payment <cred>',
+      },
+      body: { item: 'wine' },
+      method: 'POST',
+      protocol: 'https',
+      get: (h: string) => (h.toLowerCase() === 'host' ? 'api.example' : ''),
+      originalUrl: '/purchase',
+    };
+    const res = {
+      statusCode: 200,
+      headers: {} as Record<string, string>,
+      set: function (k: string, v: string) { this.headers[k] = v; },
+      setHeader: function (k: string, v: string) { this.headers[k] = v; },
+      status: function (s: number) { this.statusCode = s; captured.status = s; return this; },
+      json: function (b: unknown) { captured.body = b; return this; },
+    };
+    await checkout.handleExpress(req as never, res as never);
+    expect(captured.status).toBe(200);
+  });
+
+  it('handleExpress 400 invalid_body envelope when body is non-object', async () => {
+    const checkout = _settleCheckout();
+    const captured: { status?: number; body?: unknown } = {};
+    const req = {
+      headers: { 'content-type': 'application/json' },
+      body: 'not-an-object',
+      method: 'POST',
+      get: (_h: string) => '',
+      originalUrl: '/purchase',
+    };
+    const res = {
+      statusCode: 200,
+      headers: {} as Record<string, string>,
+      set: function (k: string, v: string) { this.headers[k] = v; },
+      setHeader: function (k: string, v: string) { this.headers[k] = v; },
+      status: function (s: number) { this.statusCode = s; captured.status = s; return this; },
+      json: function (b: unknown) { captured.body = b; return this; },
+    };
+    await checkout.handleExpress(req as never, res as never);
+    expect(captured.status).toBe(400);
+    expect(((captured.body as { error?: { code: string } })?.error?.code)).toBe('invalid_body');
+  });
+
+  it('handleFastify handles array-valued headers + body null returns 400', async () => {
+    const checkout = _settleCheckout();
+    let captured: { status?: number; body?: unknown } = {};
+    const reply = {
+      code: function (s: number) { captured.status = s; return this; },
+      header: function () { return this; },
+      send: function (b: unknown) { captured.body = b; return this; },
+    };
+    // Multi-value header path
+    await checkout.handleFastify({
+      headers: { 'content-type': 'application/json', 'x-multi': ['v1', 'v2'], authorization: 'Payment <cred>' },
+      body: { item: 'wine' },
+      method: 'POST',
+      url: '/purchase',
+    } as never, reply as never);
+    expect(captured.status).toBe(200);
+    // Null body branch
+    captured = {};
+    await checkout.handleFastify({
+      headers: { 'content-type': 'application/json' },
+      body: 'not-an-object',
+      method: 'POST',
+      url: '/purchase',
+    } as never, reply as never);
+    expect(captured.status).toBe(400);
+  });
+
   it('handleFastify writes a 200 on settle leg', async () => {
     const checkout = _settleCheckout();
     const captured: { status?: number; body?: unknown } = {};
@@ -1887,6 +1977,164 @@ describe('Framework adapter SETTLE leg', () => {
     };
     await checkout.handleFastify(request as never, reply as never);
     expect(captured.status).toBe(200);
+  });
+});
+
+describe('Checkout mintRecipients - branch coverage', () => {
+  it('drops a rail with empty-string recipient even when no override is provided', async () => {
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: '' as unknown as string, network: 'tempo-mainnet' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+    });
+    // Discovery leg should still emit 402 even with an empty-recipient rail
+    // (per-order mint pattern — the rail is dropped from accepts).
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: {},
+      body: {},
+    });
+    expect(result.status).toBe(402);
+  });
+});
+
+describe('Checkout discoveryExtensions on 402 body', () => {
+  it('emits x402 extensions block when discoveryExtensions is configured', async () => {
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: _mockX402Server() as never,
+      discoveryExtensions: { bazaar: { discoveryEndpoint: 'https://x/.well-known/bazaar' } },
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: {},
+      body: {},
+    });
+    expect(result.status).toBe(402);
+    // Discovery extensions are emitted in the 402 body. The exact placement is
+    // an implementation detail of build402Body; verify the value appears somewhere.
+    const serialized = JSON.stringify(result.body);
+    expect(serialized).toContain('bazaar');
+    expect(serialized).toContain('https://x/.well-known/bazaar');
+  });
+
+  it('empty discoveryExtensions object does not emit the extensions field', async () => {
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: _mockX402Server() as never,
+      discoveryExtensions: {},
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: {},
+      body: {},
+    });
+    const x402 = (result.body as { x402?: { extensions?: Record<string, unknown> } }).x402;
+    expect(x402?.extensions).toBeUndefined();
+  });
+});
+
+describe('Checkout handleX402 settle returns payer from settleResult when verified.payload lacks from', () => {
+  it('falls back to settleResult.payer when payload.authorization.from is missing', async () => {
+    // The mock processX402Settle response provides payer = "0xfallback_payer".
+    const server = _mockX402Server({
+      settlePayment: vi.fn().mockResolvedValue({
+        success: true,
+        transaction: '0xchain_tx',
+        network: 'eip155:84532',
+        payer: '0xFallBackPayer000000000000000000000000Abcd',
+      }),
+    });
+    // Craft a payload where authorization.from is missing.
+    const payload = {
+      x402Version: 2,
+      scheme: 'exact',
+      network: 'eip155:84532',
+      accepted: {
+        scheme: 'exact', network: 'eip155:84532', payTo: RECIPIENT,
+        maxAmountRequired: '100000', maxTimeoutSeconds: 300,
+        asset: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+        extra: { name: 'USDC', version: '2' },
+      },
+      payload: { signature: '0x' + 'ee'.repeat(65), authorization: { /* no from */ } },
+    };
+    const header = Buffer.from(JSON.stringify(payload)).toString('base64');
+    const onSettledArgs: Array<{ signerAddress: string | null }> = [];
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: server as never,
+      isCachedAddress: () => true,
+      onSettled: async (_ctx, outcome) => {
+        onSettledArgs.push({ signerAddress: outcome.signerAddress });
+        return { order_id: 'o-fallback', signer: outcome.signerAddress };
+      },
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': header },
+      body: {},
+    });
+    expect(result.status).toBe(200);
+    // Signer came from settleResult.payer (no lowercase conversion in fallback path).
+    expect(onSettledArgs[0].signerAddress).toBe('0xFallBackPayer000000000000000000000000Abcd');
+  });
+});
+
+describe('Checkout zero-settle x402-base carve-out', () => {
+  it('lifts signer from x402 payload at $0 and emits 200 with tx_hash null', async () => {
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 0.0 }),
+      x402Server: _mockX402Server() as never,
+      isCachedAddress: () => true,
+      onSettled: async (_ctx, outcome) => ({
+        order_id: 'o-zero',
+        tx_hash: outcome.txHash,
+        signer: outcome.signerAddress,
+      }),
+      zeroSettleCarveOut: true,
+    });
+    const header = _x402PaymentHeader('0xAbC0000000000000000000000000000000000007');
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': header },
+      body: {},
+    });
+    expect(result.status).toBe(200);
+    expect((result.body as { tx_hash: string | null }).tx_hash).toBeNull();
+    expect((result.body as { signer: string }).signer).toBe('0xabc0000000000000000000000000000000000007');
+  });
+
+  it('falls through gracefully when x-payment header is not valid base64 json', async () => {
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 0.0 }),
+      x402Server: _mockX402Server() as never,
+      isCachedAddress: () => true,
+      onSettled: async () => ({ order_id: 'o-bad' }),
+      zeroSettleCarveOut: true,
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': '!!!not-base64!!!' },
+      body: {},
+    });
+    // Zero settle still succeeds (no signer lifted, but the carve-out doesn't gate on signer).
+    expect(result.status).toBe(200);
   });
 });
 
