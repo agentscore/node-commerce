@@ -1171,6 +1171,88 @@ describe('Checkout SDK gate path', () => {
     vi.doUnmock('../src/core');
   });
 
+  it('SDK gate signer-match mismatch denies inline as wallet_signer_mismatch', async () => {
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return {
+        ...real,
+        createAgentScoreCore: () => ({
+          evaluate: async () => ({ kind: 'allow' }),
+          getSignerVerdict: () => ({
+            signer_match: {
+              kind: 'wallet_signer_mismatch',
+              claimedOperator: 'op_a',
+              actualSignerOperator: 'op_b',
+              expectedSigner: '0xclaimed',
+              actualSigner: '0xactual',
+              linkedWallets: ['0xlinked'],
+              agentInstructions: { action: 'resign_or_switch_to_operator_token' },
+              claimedWallet: '0xclaimed',
+            },
+          }),
+          captureWallet: async () => {},
+        }),
+      };
+    });
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?sdk-gate-sm');
+
+    const checkout = new ScopedCheckout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      composeMppx: async () => ({ status: 200, railKey: 'tempo', txHash: '0x' }),
+      onSettled: async () => ({}),
+      gate: { apiKey: 'k' },
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: 'Payment <cred>', 'x-wallet-address': '0xclaimed' },
+      body: {},
+    });
+    expect(result.status).toBe(403);
+    expect((result.body as { error: { code: string } }).error.code).toBe('wallet_signer_mismatch');
+    vi.doUnmock('../src/core');
+  });
+
+  it('SDK gate signer-match wallet_auth_requires_wallet_signing also denies inline', async () => {
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return {
+        ...real,
+        createAgentScoreCore: () => ({
+          evaluate: async () => ({ kind: 'allow' }),
+          getSignerVerdict: () => ({
+            signer_match: {
+              kind: 'wallet_auth_requires_wallet_signing',
+              claimedWallet: '0xclaimed',
+              agentInstructions: { action: 'switch_to_operator_token' },
+            },
+          }),
+          captureWallet: async () => {},
+        }),
+      };
+    });
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?sdk-gate-sm-wallet');
+    const checkout = new ScopedCheckout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      composeMppx: async () => ({ status: 200, railKey: 'tempo', txHash: '0x' }),
+      onSettled: async () => ({}),
+      gate: { apiKey: 'k' },
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: 'Payment <cred>', 'x-wallet-address': '0xclaimed' },
+      body: {},
+    });
+    expect(result.status).toBe(403);
+    expect((result.body as { error: { code: string } }).error.code).toBe('wallet_auth_requires_wallet_signing');
+    vi.doUnmock('../src/core');
+  });
+
   it('SDK gate onDenied callback can reshape the canonical denial body', async () => {
     vi.doMock('../src/core', async () => {
       const real = await vi.importActual<typeof import('../src/core')>('../src/core');
