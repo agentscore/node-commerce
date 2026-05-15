@@ -1194,6 +1194,206 @@ describe('Checkout handleMppx', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// preValidate / CheckoutValidationError / validation envelope
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Checkout preValidate', () => {
+  it('populates ctx.state from the preValidate return value', async () => {
+    const seenState: Record<string, unknown>[] = [];
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async (ctx) => {
+        seenState.push({ ...ctx.state });
+        return { amountUsd: 1.0 };
+      },
+      preValidate: async (_ctx) => ({ product: { slug: 'wine-2020', purchaseMode: 'paid_only' } }),
+    });
+    await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: {},
+      body: {},
+    });
+    expect(seenState[0]).toEqual({ product: { slug: 'wine-2020', purchaseMode: 'paid_only' } });
+  });
+
+  it('returns canonical validation envelope on CheckoutValidationError', async () => {
+    const { CheckoutValidationError } = await import('../src/checkout');
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      preValidate: async () => {
+        throw new CheckoutValidationError({
+          code: 'product_not_found',
+          message: 'No such product.',
+          status: 404,
+          extra: { slug: 'mystery' },
+        });
+      },
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: {},
+      body: { product_slug: 'mystery' },
+    });
+    expect(result.status).toBe(404);
+    expect(((result.body as { error: { code: string } }).error).code).toBe('product_not_found');
+  });
+
+  it('rethrows non-CheckoutValidationError errors from preValidate', async () => {
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      preValidate: async () => {
+        throw new Error('unexpected crash');
+      },
+    });
+    await expect(
+      checkout.handle({
+        method: 'POST',
+        url: 'https://api.example/purchase',
+        headers: {},
+        body: {},
+      }),
+    ).rejects.toThrow('unexpected crash');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Framework adapter SETTLE leg (handleHono / handleExpress / handleFastify / handleNextjs / handleWeb)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _settleCheckout(): Checkout {
+  return new Checkout({
+    rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
+    url: 'https://api.example/purchase',
+    computePricing: async () => ({ amountUsd: 1.0 }),
+    composeMppx: async (ctx) => {
+      if (!ctx.request.headers.authorization) {
+        return { status: 402, headers: { 'www-authenticate': 'Payment realm="t"' } };
+      }
+      return {
+        status: 200,
+        railKey: 'tempo',
+        txHash: '0xtest_settle',
+        signerAddress: '0xabc',
+        signerNetwork: 'evm',
+      };
+    },
+    onSettled: async (_ctx, outcome) => ({
+      order_id: 'order-1',
+      tx_hash: outcome.txHash,
+    }),
+  });
+}
+
+describe('Framework adapter SETTLE leg', () => {
+  it('handleHono 200 on settle leg with authorization', async () => {
+    const checkout = _settleCheckout();
+    const { Hono } = await import('hono');
+    const app = new Hono();
+    app.post('/purchase', (c) => checkout.handleHono(c));
+    const resp = await app.request('/purchase', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Payment <cred>' },
+      body: JSON.stringify({ item: 'wine' }),
+    });
+    expect(resp.status).toBe(200);
+    const body = (await resp.json()) as { order_id: string; tx_hash: string };
+    expect(body.order_id).toBe('order-1');
+    expect(body.tx_hash).toBe('0xtest_settle');
+  });
+
+  it('handleNextjs 200 on settle leg', async () => {
+    const checkout = _settleCheckout();
+    const req = new Request('https://api.example/purchase', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Payment <cred>' },
+      body: JSON.stringify({ item: 'wine' }),
+    });
+    const resp = await checkout.handleNextjs(req);
+    expect(resp.status).toBe(200);
+    const body = (await resp.json()) as { order_id: string };
+    expect(body.order_id).toBe('order-1');
+  });
+
+  it('handleWeb 200 on settle leg (alias for handleNextjs)', async () => {
+    const checkout = _settleCheckout();
+    const req = new Request('https://api.example/purchase', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Payment <cred>' },
+      body: JSON.stringify({ item: 'wine' }),
+    });
+    const resp = await checkout.handleWeb(req);
+    expect(resp.status).toBe(200);
+  });
+
+  it('handleExpress writes a 200 on settle leg', async () => {
+    const checkout = _settleCheckout();
+    const captured: { status?: number; body?: unknown } = {};
+    const req = {
+      headers: { 'content-type': 'application/json', authorization: 'Payment <cred>' },
+      body: { item: 'wine' },
+      method: 'POST',
+      protocol: 'https',
+      get: (h: string) => (h.toLowerCase() === 'host' ? 'api.example' : ''),
+      originalUrl: '/purchase',
+    };
+    const res = {
+      statusCode: 200,
+      headers: {} as Record<string, string>,
+      set: function (k: string, v: string) {
+        this.headers[k] = v;
+      },
+      status: function (s: number) {
+        this.statusCode = s;
+        captured.status = s;
+        return this;
+      },
+      json: function (b: unknown) {
+        captured.body = b;
+        return this;
+      },
+    };
+    await checkout.handleExpress(req as never, res as never);
+    expect(captured.status).toBe(200);
+    expect(((captured.body as { order_id?: string })?.order_id)).toBe('order-1');
+  });
+
+  it('handleFastify writes a 200 on settle leg', async () => {
+    const checkout = _settleCheckout();
+    const captured: { status?: number; body?: unknown } = {};
+    const request = {
+      headers: { 'content-type': 'application/json', authorization: 'Payment <cred>' },
+      body: { item: 'wine' },
+      method: 'POST',
+      protocol: 'https',
+      hostname: 'api.example',
+      url: '/purchase',
+    };
+    const reply = {
+      code: function (s: number) {
+        captured.status = s;
+        return this;
+      },
+      header: function () {
+        return this;
+      },
+      send: function (b: unknown) {
+        captured.body = b;
+        return this;
+      },
+    };
+    await checkout.handleFastify(request as never, reply as never);
+    expect(captured.status).toBe(200);
+  });
+});
+
 describe('Checkout zero-settle MPP carve-out', () => {
   it('zeroSettleCarveOut=true + $0 + MPP authorization → 200 with tx_hash null', async () => {
     const { Checkout } = await import('../src/checkout');
