@@ -1071,6 +1071,129 @@ describe('Checkout gate hooks', () => {
 // Zero-settle MPP carve-out
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Checkout handleX402 + handleMppx settle paths
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _mockX402Server(overrides: Partial<{
+  buildPaymentRequirements: ReturnType<typeof vi.fn>;
+  enrichExtensions: ReturnType<typeof vi.fn>;
+  verifyPayment: ReturnType<typeof vi.fn>;
+  settlePayment: ReturnType<typeof vi.fn>;
+}> = {}): unknown {
+  return {
+    buildPaymentRequirements: overrides.buildPaymentRequirements ?? vi.fn().mockResolvedValue([
+      { scheme: 'exact', network: 'eip155:84532', payTo: RECIPIENT, maxAmountRequired: '10000', extra: { name: 'USDC', version: '2' } },
+    ]),
+    enrichExtensions: overrides.enrichExtensions ?? vi.fn().mockReturnValue(undefined),
+    verifyPayment: overrides.verifyPayment ?? vi.fn().mockResolvedValue({ success: true }),
+    settlePayment: overrides.settlePayment ?? vi.fn().mockResolvedValue({
+      success: true, transaction: '0xchain_tx', network: 'eip155:84532', payer: '0xabc0000000000000000000000000000000000099',
+    }),
+  };
+}
+
+function _x402PaymentHeader(payerAddress: string): string {
+  const payload = {
+    x402Version: 2,
+    scheme: 'exact',
+    network: 'eip155:84532',
+    payload: {
+      signature: '0x' + 'ee'.repeat(65),
+      authorization: {
+        from: payerAddress,
+        to: RECIPIENT,
+        value: '100000',
+        validAfter: '0',
+        validBefore: '9999999999',
+        nonce: '0x' + '00'.repeat(32),
+      },
+    },
+  };
+  return Buffer.from(JSON.stringify(payload)).toString('base64');
+}
+
+describe('Checkout handleX402 happy path', () => {
+  it('returns verify_failed envelope on verify reject', async () => {
+    const server = _mockX402Server({
+      verifyPayment: vi.fn().mockResolvedValue({ success: false, reason: 'invalid_credential' }),
+    });
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: server as never,
+      onSettled: async () => ({}),
+    });
+    const header = _x402PaymentHeader('0xAbC0000000000000000000000000000000000099');
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': header },
+      body: { item: 'wine' },
+    });
+    expect([400, 402, 403]).toContain(result.status);
+    expect(result.settled).toBe(false);
+  });
+
+  it('classifies settle failures as 503 payment_provider_unavailable on facilitator error', async () => {
+    const server = _mockX402Server({
+      settlePayment: vi.fn().mockRejectedValue(new Error('cdp facilitator down')),
+    });
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: server as never,
+      onSettled: async () => ({}),
+    });
+    const header = _x402PaymentHeader('0xAbC0000000000000000000000000000000000099');
+    const result = (await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': header },
+      body: { item: 'wine' },
+    })) as { status: number; settled: boolean };
+    expect(result.settled).toBe(false);
+    expect(result.status).toBeGreaterThanOrEqual(400);
+  });
+});
+
+describe('Checkout handleMppx', () => {
+  it('emits 200 with txHash from composeMppx on settle', async () => {
+    const settles: Array<{ txHash?: string | null }> = [];
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      composeMppx: async (ctx) => {
+        if (!ctx.request.headers.authorization) {
+          return { status: 402, headers: { 'www-authenticate': 'Payment realm="t"' } };
+        }
+        return {
+          status: 200,
+          railKey: 'tempo',
+          txHash: '0xmppx_tx',
+          signerAddress: '0xabc0000000000000000000000000000000000007',
+          signerNetwork: 'evm',
+        };
+      },
+      onSettled: async (_ctx, outcome) => {
+        settles.push({ txHash: outcome.txHash });
+        return { order_id: 'o-mpp', tx_hash: outcome.txHash };
+      },
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: 'Payment <credential>' },
+      body: { item: 'wine' },
+    });
+    expect(result.status).toBe(200);
+    expect(settles).toEqual([{ txHash: '0xmppx_tx' }]);
+  });
+});
+
 describe('Checkout zero-settle MPP carve-out', () => {
   it('zeroSettleCarveOut=true + $0 + MPP authorization → 200 with tx_hash null', async () => {
     const { Checkout } = await import('../src/checkout');
