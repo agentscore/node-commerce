@@ -42,11 +42,11 @@ import {
   Checkout,
   CheckoutGateConfig,
   CheckoutValidationError,
+  pricingResult,
   type CheckoutContext,
   type PricingResult,
   type SettleOutcome,
 } from '@agent-score/commerce';
-import { buildPricingBlock } from '@agent-score/commerce/challenge';
 import {
   type SolanaMppRailSpec,
   type StripeRailSpec,
@@ -90,17 +90,12 @@ async function _validatePurchase(ctx: CheckoutContext): Promise<Record<string, u
 }
 
 async function _computePricing(ctx: CheckoutContext): Promise<PricingResult> {
-  const subtotalCents = 25000;
-  const taxCents = 2000;
-  const totalCents = subtotalCents + taxCents;
-  const pricing = buildPricingBlock({
-    subtotalCents,
-    taxCents,
+  return pricingResult({
+    subtotalCents: 25000,
+    taxCents: 2000,
     taxRate: 0.08,
     taxState: (ctx.state.shippingState as string | undefined) ?? 'CA',
-    currency: 'USD',
   });
-  return { amountUsd: totalCents / 100, bodyExtras: { pricing } };
 }
 
 async function _mintRecipients(ctx: CheckoutContext): Promise<Record<string, string>> {

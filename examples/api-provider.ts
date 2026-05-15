@@ -32,12 +32,8 @@
  * Run: bun run examples/api-provider.ts
  */
 
-import { Checkout, type SettleOutcome } from '@agent-score/commerce';
-import {
-  buildDiscoveryProbeResponse,
-  isDiscoveryProbeRequest,
-  noindexNonDiscoveryPaths,
-} from '@agent-score/commerce/discovery';
+import { Checkout, type DiscoveryProbeConfig, type SettleOutcome } from '@agent-score/commerce';
+import { noindexNonDiscoveryPaths } from '@agent-score/commerce/discovery';
 import {
   type SolanaMppRailSpec,
   type TempoRailSpec,
@@ -83,6 +79,20 @@ const checkout = new Checkout({
   ...(process.env.CDP_API_KEY_ID !== undefined && { cdpApiKeyId: process.env.CDP_API_KEY_ID }),
   ...(process.env.CDP_API_KEY_SECRET !== undefined && { cdpApiKeySecret: process.env.CDP_API_KEY_SECRET }),
   ...(process.env.MPP_SECRET_KEY !== undefined && { mppxSecretKey: process.env.MPP_SECRET_KEY }),
+  // Auto-route empty-body POSTs without a payment header to a sample 402 so
+  // crawlers (`awal x402 details`, x402-proxy, ...) can find this surface
+  // without committing to a real charge. The probe advertises SAMPLE accepts;
+  // real rails fire only when the agent retries with a credential.
+  discoveryProbe: {
+    realm: REALM,
+    sampleRail: _TEMPO_RAIL_NAME,
+    sampleAmountUsd: PRICE_USDC,
+    sampleRecipient: TEMPO_RECIPIENT,
+    x402Sample: {
+      networks: [X402_BASE_NETWORK, SOLANA_NETWORK_CAIP2],
+      resourceUrl: `https://${REALM}/search`,
+    },
+  } satisfies DiscoveryProbeConfig,
 });
 
 const app = new Hono();
@@ -90,26 +100,6 @@ const app = new Hono();
 // noindex non-discovery paths so /search doesn't end up in human-shaped SERPs.
 app.use('*', noindexNonDiscoveryPaths());
 
-app.post('/search', async (c: Context) => {
-  // Discovery probe: empty-body POST without any payment header. Return sample
-  // 402 so crawlers (`awal x402 details`, x402-proxy, ...) can find this surface
-  // without committing to a real charge. Handle inline because the probe
-  // advertises SAMPLE accepts (not the merchant's real settle rails).
-  if (await isDiscoveryProbeRequest(c.req.raw)) {
-    const probe = buildDiscoveryProbeResponse({
-      realm: REALM,
-      sampleRail: _TEMPO_RAIL_NAME,
-      sampleAmountUsd: PRICE_USDC,
-      sampleRecipient: TEMPO_RECIPIENT,
-      x402Sample: {
-        networks: [X402_BASE_NETWORK, SOLANA_NETWORK_CAIP2],
-        resourceUrl: `https://${REALM}/search`,
-      },
-    });
-    return new Response(probe.body, { status: probe.status, headers: probe.headers });
-  }
-
-  return checkout.handleHono(c);
-});
+app.post('/search', (c: Context) => checkout.handleHono(c));
 
 export default app;

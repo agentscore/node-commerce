@@ -36,7 +36,7 @@ import {
   type PricingResult,
   type SettleOutcome,
 } from '@agent-score/commerce';
-import { shippingCountryAllowed, shippingStateAllowed } from '@agent-score/commerce/identity/policy';
+import { validateShippingAgainstPolicy } from '@agent-score/commerce/identity/policy';
 import { type TempoRailSpec } from '@agent-score/commerce/payment';
 import { Hono, type Context } from 'hono';
 
@@ -87,18 +87,12 @@ async function _validatePurchase(ctx: CheckoutContext): Promise<Record<string, u
   }
 
   const policy = product.policy;
-  if (!shippingCountryAllowed(shipping.country ?? '', policy)) {
-    throw new CheckoutValidationError({
-      code: 'unsupported_jurisdiction',
-      message: `Cannot ship to ${shipping.country ?? '<unset>'}.`,
-    });
-  }
-  if (!shippingStateAllowed(shipping.state ?? '', shipping.country ?? '', policy)) {
-    throw new CheckoutValidationError({
-      code: 'unsupported_jurisdiction',
-      message: `Cannot ship to ${shipping.state ?? '<unset>'}.`,
-    });
-  }
+  validateShippingAgainstPolicy({
+    country: shipping.country ?? '',
+    state: shipping.state ?? '',
+    policy,
+    productName: product.name,
+  });
   return { product, policy };
 }
 
