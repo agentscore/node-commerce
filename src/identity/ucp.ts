@@ -441,12 +441,13 @@ function ucpNetworkName(caip2OrUcp: string | undefined, fallback: string): strin
 }
 
 /**
- * Return the recipient as a string when it's already concrete; `undefined` for factories.
- * Per-order factory recipients cannot be advertised in the static UCP profile — the
- * authoritative recipient ships in the 402 body at request time instead.
+ * Return the recipient as a string when it's both a string AND non-empty;
+ * `undefined` for factory callables OR empty-string sentinels (both signal
+ * per-order minting; the authoritative recipient ships in the 402 body at
+ * request time, not in the static UCP profile).
  */
 function staticRecipient(r: RecipientLike): string | undefined {
-  return typeof r === 'string' ? r : undefined;
+  return typeof r === 'string' && r.length > 0 ? r : undefined;
 }
 
 function tempoToNetworkEntry(spec: TempoRailSpec): Record<string, unknown> {

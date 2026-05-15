@@ -79,3 +79,15 @@ export function usdToAtomic(usd: string | number, opts: { decimals: number }): b
   }
   return result;
 }
+
+/**
+ * Format an integer cent amount as a fixed-2-decimal USD string.
+ *
+ * `formatUsdCents(500)` returns `"5.00"`. Negative values are formatted with a
+ * leading minus. Use everywhere a merchant emits `(cents / 100).toFixed(2)`;
+ * consistent formatting across catalog rows, order responses, and 402 bodies
+ * prevents agent-side string-comparison flakiness.
+ */
+export function formatUsdCents(cents: number): string {
+  return (cents / 100).toFixed(2);
+}

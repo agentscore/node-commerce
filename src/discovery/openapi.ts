@@ -179,19 +179,35 @@ export interface XPaymentInfoX402Protocol {
 }
 
 export interface XPaymentInfoMppProtocol {
-  mpp: { method: string; intent: string; currency: string };
+  mpp: { method: string; intent: string; currency?: string; [key: string]: unknown };
 }
 
 export type XPaymentInfoProtocol = XPaymentInfoX402Protocol | XPaymentInfoMppProtocol;
 
+export interface XPaymentInfoBlock {
+  authMode: 'payment';
+  price: XPaymentInfoPrice;
+  protocols: XPaymentInfoProtocol[];
+  description?: string;
+}
+
 export function xPaymentInfoExtension({
   price,
   protocols,
+  description,
 }: {
   price: XPaymentInfoPrice;
   protocols: XPaymentInfoProtocol[];
-}): { 'x-payment-info': { price: XPaymentInfoPrice; protocols: XPaymentInfoProtocol[] } } {
-  return { 'x-payment-info': { price, protocols } };
+  description?: string;
+}): { 'x-payment-info': XPaymentInfoBlock } {
+  return {
+    'x-payment-info': {
+      authMode: 'payment',
+      price,
+      protocols,
+      ...(description !== undefined && { description }),
+    },
+  };
 }
 
 /**
@@ -213,6 +229,119 @@ export function xPaymentInfoExtension({
  */
 export function xGuidanceExtension(text: string): { 'x-guidance': string } {
   return { 'x-guidance': text };
+}
+
+/**
+ * `x-service-info` extension for the OpenAPI document's root. Discovery
+ * crawlers (x402scan, agent CLIs) read this to categorize the service and
+ * follow links to human-side docs. Spread into the OpenAPI doc's root
+ * alongside `paths`, `info`, etc.
+ *
+ * @example
+ * ```ts
+ * const spec = {
+ *   openapi: '3.1.0',
+ *   info: {...},
+ *   ...xServiceInfoExtension({
+ *     categories: ['commerce', 'wine'],
+ *     docs: { homepage: 'https://www.martinestate.com', llms: 'https://agents.martinestate.com/llms.txt' },
+ *   }),
+ *   paths: {...},
+ * };
+ * ```
+ */
+export function xServiceInfoExtension(opts: {
+  categories: string[];
+  docs?: Record<string, string>;
+}): { 'x-service-info': { categories: string[]; docs?: Record<string, string> } } {
+  return {
+    'x-service-info': {
+      categories: opts.categories,
+      ...(opts.docs !== undefined && { docs: opts.docs }),
+    },
+  };
+}
+
+/**
+ * Derive an `x-payment-info` extension from a configured `Checkout` instance.
+ *
+ * Walks `checkout.rails` and emits one entry in `protocols[]` per rail —
+ * Tempo MPP, x402 (Base), Solana MPP, Stripe SPT. Saves merchants from
+ * enumerating protocols by hand and keeps the OpenAPI doc in sync with the
+ * actual rails the Checkout serves.
+ *
+ * `price` is merchant-supplied (the rail registry doesn't carry per-merchant
+ * pricing; rates live on each Checkout's `computePricing` hook). Per-rail
+ * extras (client commands, asset names) can be merged via `protocolExtras`
+ * keyed by rail slug (`tempo`, `base`, `solana`, `stripe`).
+ */
+export function xPaymentInfoFromCheckout(opts: {
+  checkout: {
+    rails: Record<
+      string,
+      { network?: string; recipient?: unknown; currency?: unknown; token?: unknown; profileId?: unknown }
+    >;
+  };
+  price: XPaymentInfoPrice;
+  description?: string;
+  protocolExtras?: Partial<{
+    tempo: Record<string, unknown>;
+    base: Record<string, unknown>;
+    solana: Record<string, unknown>;
+    stripe: Record<string, unknown>;
+  }>;
+}): { 'x-payment-info': XPaymentInfoBlock } {
+  const protocols: XPaymentInfoProtocol[] = [];
+  const extras = opts.protocolExtras ?? {};
+  for (const spec of Object.values(opts.checkout.rails)) {
+    const isStripe = !('recipient' in spec);
+    const network = typeof spec.network === 'string' ? spec.network : '';
+    // MPP protocols emit `currency` = on-chain token contract (Tempo USDC.e
+    // address, Solana USDC mint). `spec.currency` wins when set explicitly;
+    // `spec.token` is the RailSpec canonical name and is the typical source.
+    const tokenCurrency =
+      (typeof spec.currency === 'string' ? spec.currency : '') ||
+      (typeof spec.token === 'string' ? spec.token : '');
+    if (isStripe) {
+      protocols.push({ mpp: { method: 'stripe', intent: 'charge', currency: 'usd', ...(extras.stripe ?? {}) } });
+    } else if (network.startsWith('eip155:')) {
+      protocols.push({
+        x402: {
+          scheme: 'exact',
+          network: 'base',
+          asset: 'USDC',
+          ...(extras.base ?? {}),
+        },
+      });
+    } else if (network.startsWith('solana:')) {
+      // Per MPP solana/charge spec (paymentauth.org/draft-solana-charge-00):
+      // `currency` = SPL mint address (base58) for tokens, `"sol"` for native.
+      // No `asset` field in the spec — token symbols are not part of the
+      // discovery contract.
+      protocols.push({
+        mpp: {
+          method: 'solana',
+          intent: 'charge',
+          ...(tokenCurrency ? { currency: tokenCurrency } : {}),
+          ...(extras.solana ?? {}),
+        },
+      });
+    } else {
+      protocols.push({
+        mpp: {
+          method: 'tempo',
+          intent: 'charge',
+          ...(tokenCurrency ? { currency: tokenCurrency } : {}),
+          ...(extras.tempo ?? {}),
+        },
+      });
+    }
+  }
+  return xPaymentInfoExtension({
+    price: opts.price,
+    protocols,
+    ...(opts.description !== undefined && { description: opts.description }),
+  });
 }
 
 /**

@@ -1,0 +1,761 @@
+/**
+ * Coverage for the seamless-merchant helpers shipped in the latest SDK additions:
+ *
+ * - `lazyX402Server` / `lazyMppxServer` (memoized async getters)
+ * - `extractSignerForPrecheck` (one-call signer across x402 + mpp headers)
+ * - `makeMppxComposeHook` (canonical `composeMppx` factory)
+ * - `purchaseModeNote` / `buildAgentscoreOnboardingSteps` /
+ *   `standardEndpointDescriptions` / `buildSuccessNextSteps`
+ * - `buildRedemptionSkillMd`
+ * - `validationEnvelope` + per-framework `validationResponse*` wrappers
+ * - Checkout framework adapters: `handleHono` / `handleExpress` / `handleFastify`
+ *   / `handleNextjs` / `handleWeb`
+ * - `defaultA2aServices` / `wellKnownCorsPreflightHeaders`
+ * - `formatUsdCents`
+ */
+
+import { describe, expect, it, vi } from 'vitest';
+import {
+  Checkout,
+  type CheckoutContext,
+  type MppxComposeOutcome,
+  validationEnvelope,
+  validationResponseExpress,
+  validationResponseFastify,
+  validationResponseHono,
+  validationResponseNextjs,
+  validationResponseWeb,
+} from '../src/checkout';
+import { makeMppxComposeHook } from '../src/checkout';
+import {
+  PURCHASE_MODE_NOTES,
+  buildAgentscoreOnboardingSteps,
+  buildSuccessNextSteps,
+  purchaseModeNote,
+  standardEndpointDescriptions,
+} from '../src/discovery/agentscore_content';
+import { buildRedemptionSkillMd } from '../src/discovery/redemption_md';
+import {
+  defaultA2aServices,
+  wellKnownCorsPreflightHeaders,
+} from '../src/discovery/well_known';
+import { formatUsdCents } from '../src/payment/amounts';
+import { lazyX402Server } from '../src/payment/lazy';
+import { extractSignerForPrecheck } from '../src/signer';
+import type { TempoRailSpec, X402BaseRailSpec } from '../src/payment/rail_spec';
+
+const RECIPIENT = '0x000000000000000000000000000000000000dEaD';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// formatUsdCents
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('formatUsdCents', () => {
+  it('formats integer cents as 2-decimal USD strings', () => {
+    expect(formatUsdCents(0)).toBe('0.00');
+    expect(formatUsdCents(5)).toBe('0.05');
+    expect(formatUsdCents(500)).toBe('5.00');
+    expect(formatUsdCents(7500)).toBe('75.00');
+  });
+  it('formats negatives with a leading minus', () => {
+    expect(formatUsdCents(-50)).toBe('-0.50');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// lazyX402Server / lazyMppxServer
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('lazyX402Server', () => {
+  it('memoizes the server across concurrent first-callers', async () => {
+    const spec: X402BaseRailSpec = { recipient: RECIPIENT, network: 'eip155:84532' };
+    const sentinel = {};
+    let calls = 0;
+    vi.doMock('../src/payment/x402_server', () => ({
+      createX402Server: async ({ facilitator, rails }: { facilitator: string; rails: string[] }) => {
+        calls += 1;
+        expect(facilitator).toBe('http');
+        expect(rails).toEqual(['x402-base-sepolia']);
+        return sentinel;
+      },
+    }));
+    // Re-import to pick up the mock.
+    const { lazyX402Server: fresh } = await import('../src/payment/lazy?lazy-fresh');
+    const getter = fresh({ spec });
+    const [a, b] = await Promise.all([getter(), getter()]);
+    expect(a).toBe(sentinel);
+    expect(b).toBe(sentinel);
+    expect(calls).toBe(1);
+    vi.doUnmock('../src/payment/x402_server');
+  });
+
+  it('rejects unknown networks', () => {
+    const bad: X402BaseRailSpec = { recipient: RECIPIENT, network: 'eip155:1' };
+    expect(() => lazyX402Server({ spec: bad })).toThrow(/unsupported X402BaseRailSpec\.network/);
+  });
+});
+
+describe('lazyMppxServer', () => {
+  it('memoizes the server across concurrent first-callers', async () => {
+    const spec: TempoRailSpec = { recipient: RECIPIENT };
+    const sentinel = {};
+    let calls = 0;
+    vi.doMock('../src/payment/mppx_server', () => ({
+      createMppxServer: async () => {
+        calls += 1;
+        return sentinel;
+      },
+    }));
+    const { lazyMppxServer: fresh } = await import('../src/payment/lazy?mppx-fresh');
+    const getter = fresh({ rails: { tempo: spec }, secretKey: 'secret' });
+    const [a, b] = await Promise.all([getter(), getter()]);
+    expect(a).toBe(sentinel);
+    expect(b).toBe(sentinel);
+    expect(calls).toBe(1);
+    vi.doUnmock('../src/payment/mppx_server');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// extractSignerForPrecheck
+// ─────────────────────────────────────────────────────────────────────────────
+
+function encodeX402(payload: object): string {
+  return Buffer.from(JSON.stringify(payload)).toString('base64');
+}
+
+describe('extractSignerForPrecheck', () => {
+  it('reads the x402 payment-signature header', async () => {
+    const payload = {
+      x402Version: 2,
+      scheme: 'exact',
+      network: 'eip155:84532',
+      payload: { authorization: { from: '0xAbC0000000000000000000000000000000000001' } },
+    };
+    const signer = await extractSignerForPrecheck({ 'Payment-Signature': encodeX402(payload) });
+    expect(signer?.address).toBe('0xabc0000000000000000000000000000000000001');
+    expect(signer?.network).toBe('evm');
+  });
+
+  it('reads the x-payment alias', async () => {
+    const payload = {
+      payload: { authorization: { from: '0xAbC0000000000000000000000000000000000002' } },
+    };
+    const signer = await extractSignerForPrecheck({ 'X-Payment': encodeX402(payload) });
+    expect(signer?.address).toBe('0xabc0000000000000000000000000000000000002');
+  });
+
+  it('returns null with no payment headers', async () => {
+    expect(await extractSignerForPrecheck({})).toBeNull();
+    expect(await extractSignerForPrecheck({ authorization: 'Bearer not-a-payment' })).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// makeMppxComposeHook
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('makeMppxComposeHook', () => {
+  function buildCtx(headers: Record<string, string> = {}, pricing: { amountUsd: number } | null = { amountUsd: 1.0 }): CheckoutContext {
+    return {
+      request: { method: 'POST', url: 'https://x/y', headers, body: {} },
+      referenceId: 'ref',
+      pricing,
+      recipients: {},
+      state: {},
+    };
+  }
+
+  it('returns 402 when pricing is null', async () => {
+    const hook = makeMppxComposeHook({ serverGetter: async () => ({ charge: async () => ({}) }) });
+    const out = await hook(buildCtx({}, null));
+    expect(out.status).toBe(402);
+  });
+
+  it('emits challenge headers on a 402', async () => {
+    const challenge = { toWwwAuthenticate: (realm: string) => `Payment realm="${realm}"` };
+    const hook = makeMppxComposeHook({
+      serverGetter: async () => ({ realm: 'test-realm', charge: async () => challenge }),
+    });
+    const out = await hook(buildCtx());
+    expect(out.status).toBe(402);
+    expect(out.headers?.['www-authenticate']).toBe('Payment realm="test-realm"');
+  });
+
+  it('lifts signer from a did:pkh:eip155 source on 200', async () => {
+    const credential = { source: 'did:pkh:eip155:8453:0xABCD000000000000000000000000000000000003' };
+    const receipt = { reference: '0xtx', transaction: null };
+    const hook = makeMppxComposeHook({
+      serverGetter: async () => ({ realm: 'r', charge: async () => [credential, receipt] }),
+    });
+    const out = await hook(buildCtx({ authorization: 'Payment somevalidcred' }));
+    expect(out.status).toBe(200);
+    expect(out.txHash).toBe('0xtx');
+    expect(out.signerAddress).toBe('0xabcd000000000000000000000000000000000003');
+    expect(out.signerNetwork).toBe('evm');
+  });
+
+  it('returns 402 when charge throws', async () => {
+    const hook = makeMppxComposeHook({
+      serverGetter: async () => ({
+        realm: 'r',
+        charge: async () => {
+          throw new Error('pympp blew up');
+        },
+      }),
+    });
+    const out = await hook(buildCtx());
+    expect(out.status).toBe(402);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// agentscore_content + redemption_md
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('purchaseModeNote', () => {
+  it('returns the canonical note for each known mode', () => {
+    expect(purchaseModeNote('redemption_only')).toBe(PURCHASE_MODE_NOTES.redemption_only);
+    expect(purchaseModeNote('coupon_applicable')).toBe(PURCHASE_MODE_NOTES.coupon_applicable);
+    expect(purchaseModeNote('paid_only')).toBe(PURCHASE_MODE_NOTES.paid_only);
+  });
+  it('returns empty string for unknown modes', () => {
+    expect(purchaseModeNote('not-a-mode')).toBe('');
+  });
+});
+
+describe('buildAgentscoreOnboardingSteps', () => {
+  it('substitutes merchant name, url, and rails', () => {
+    const steps = buildAgentscoreOnboardingSteps({
+      merchantName: 'AgentScore Store',
+      appUrl: 'https://store.example',
+      acceptedRails: ['tempo', 'x402-base', 'solana-mpp'],
+      requiresKyc: true,
+    });
+    const text = steps.join('\n');
+    expect(text).toContain('AgentScore Store');
+    expect(text).toContain('Tempo USDC');
+    expect(text).toContain('x402 USDC on Base');
+    expect(text).toContain('Solana SPL USDC');
+    expect(text).toContain('tempo | base | solana');
+    expect(text).toContain('required for this merchant');
+    expect(text).toContain('https://store.example/catalog');
+  });
+  it('omits the KYC clause when requiresKyc is false', () => {
+    const steps = buildAgentscoreOnboardingSteps({
+      merchantName: 'X',
+      appUrl: 'https://x',
+      acceptedRails: ['x402-base'],
+    });
+    expect(steps.join('\n')).not.toContain('required for this merchant');
+  });
+  it('passes unknown rails through verbatim', () => {
+    const steps = buildAgentscoreOnboardingSteps({
+      merchantName: 'X',
+      appUrl: 'https://x',
+      acceptedRails: ['future-rail'],
+    });
+    expect(steps.join('\n')).toContain('future-rail');
+  });
+});
+
+describe('standardEndpointDescriptions', () => {
+  it('includes the canonical AgentScore commerce routes', () => {
+    const desc = standardEndpointDescriptions({ appUrl: 'https://x' });
+    expect(Object.keys(desc)).toEqual([
+      'GET /catalog',
+      'GET /catalog/{slug}',
+      'POST /purchase',
+      'GET /orders/{id}',
+    ]);
+  });
+});
+
+describe('buildSuccessNextSteps', () => {
+  it('omits fulfillment_eta when not provided', () => {
+    const out = buildSuccessNextSteps({ orderStatusUrl: 'https://x/orders/1' });
+    expect(out.fulfillment_eta).toBeUndefined();
+    expect(out.action).toBe('done');
+    expect(out.order_status_url).toBe('https://x/orders/1');
+  });
+  it('includes fulfillment_eta when provided', () => {
+    const out = buildSuccessNextSteps({
+      orderStatusUrl: 'https://x/orders/1',
+      fulfillmentEta: '5-7 business days.',
+    });
+    expect(out.fulfillment_eta).toBe('5-7 business days.');
+  });
+});
+
+describe('buildRedemptionSkillMd', () => {
+  it('substitutes merchant name and url, omits peer section by default', () => {
+    const md = buildRedemptionSkillMd({
+      merchantName: 'AgentScore Store',
+      appUrl: 'https://store.example',
+    });
+    expect(md).toContain('AgentScore Store');
+    expect(md).toContain('https://store.example/catalog');
+    expect(md).not.toContain("Don't have a code?");
+  });
+  it('emits the peer section when peerMerchantPointer is set', () => {
+    const md = buildRedemptionSkillMd({
+      merchantName: 'X',
+      appUrl: 'https://x',
+      peerMerchantPointer: 'https://other.example',
+      skuIntro: 'a custom intro.',
+    });
+    expect(md).toContain("Don't have a code?");
+    // `see: ` prefix anchors the URL inside the rendered markdown section
+    // rather than a bare URL substring match (CodeQL incomplete-url-substring-sanitization).
+    expect(md).toContain('see: https://other.example');
+    expect(md).toContain('a custom intro.');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// validationEnvelope + per-framework validationResponse*
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('validationEnvelope + framework wrappers', () => {
+  it('validationEnvelope returns the canonical 4xx body', () => {
+    const out = validationEnvelope({ code: 'bad', message: 'nope', extra: { hint: 'x' } });
+    expect((out.error as { code: string }).code).toBe('bad');
+    expect((out.error as { message: string }).message).toBe('nope');
+    expect((out.next_steps as { action: string }).action).toBe('fix_request');
+    expect((out.hint as string | undefined) ?? null).toBe('x');
+  });
+
+  it('validationResponseHono returns a Response with the body + status', async () => {
+    const resp = validationResponseHono({ code: 'bad', message: 'nope', status: 422 });
+    expect(resp.status).toBe(422);
+    const body = (await resp.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('bad');
+  });
+
+  it('validationResponseNextjs returns a Response', async () => {
+    const resp = validationResponseNextjs({ code: 'bad', message: 'nope' });
+    expect(resp.status).toBe(400);
+  });
+
+  it('validationResponseWeb returns a Response', async () => {
+    const resp = validationResponseWeb({ code: 'bad', message: 'nope', status: 400 });
+    expect(resp.status).toBe(400);
+  });
+
+  it('validationResponseExpress writes status + json to the supplied res', () => {
+    const calls: { status?: number; body?: unknown } = {};
+    const res = {
+      status: (code: number) => {
+        calls.status = code;
+        return res;
+      },
+      json: (body: unknown) => {
+        calls.body = body;
+        return res;
+      },
+    };
+    validationResponseExpress(res, { code: 'bad', message: 'nope', status: 400 });
+    expect(calls.status).toBe(400);
+    expect((calls.body as { error: { code: string } }).error.code).toBe('bad');
+  });
+
+  it('validationResponseFastify writes code + body on the supplied reply', () => {
+    const calls: { code?: number; body?: unknown } = {};
+    const reply = {
+      code: (code: number) => {
+        calls.code = code;
+        return reply;
+      },
+      send: (body: unknown) => {
+        calls.body = body;
+        return reply;
+      },
+    };
+    validationResponseFastify(reply, { code: 'bad', message: 'nope' });
+    expect(calls.code).toBe(400);
+    expect((calls.body as { error: { code: string } }).error.code).toBe('bad');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Checkout framework adapters
+// ─────────────────────────────────────────────────────────────────────────────
+
+function minimalCheckout(): Checkout {
+  return new Checkout({
+    rails: { tempo: { recipient: RECIPIENT } as TempoRailSpec },
+    url: 'https://api.example/purchase',
+    computePricing: () => ({ amountUsd: 1.0 }),
+    composeMppx: async (ctx: CheckoutContext): Promise<MppxComposeOutcome> => {
+      const auth = ctx.request.headers['authorization'] ?? ctx.request.headers['Authorization'];
+      if (auth === undefined || auth === '') {
+        return { status: 402, headers: { 'www-authenticate': 'Payment realm="test"' } };
+      }
+      return {
+        status: 200,
+        railKey: 'tempo',
+        txHash: '0xtest',
+        signerAddress: '0xeb2ca790f72787c7e61bc6c861353a1e4acdfca5',
+        signerNetwork: 'evm',
+      };
+    },
+    onSettled: (_ctx, outcome) => ({ order_id: 'o-1', tx_hash: outcome.txHash ?? null }),
+  });
+}
+
+describe('Checkout framework adapters', () => {
+  it('handleHono emits a 402 on the discovery leg', async () => {
+    const checkout = minimalCheckout();
+    const c = {
+      req: {
+        method: 'POST',
+        url: 'https://api.example/purchase',
+        json: async () => ({ item: 'wine' }),
+        header: () => ({}),
+      },
+      json: (body: unknown, status?: number) => new Response(JSON.stringify(body), { status }),
+      body: (body: string, status?: number) => new Response(body, { status }),
+    };
+    const resp = await checkout.handleHono(c);
+    expect(resp.status).toBe(402);
+  });
+
+  it('handleHono returns invalid_body envelope when json() throws', async () => {
+    const checkout = minimalCheckout();
+    const c = {
+      req: {
+        method: 'POST',
+        url: 'https://api.example/purchase',
+        json: async () => {
+          throw new Error('not json');
+        },
+        header: () => ({}),
+      },
+      json: (body: unknown, status?: number) => new Response(JSON.stringify(body), { status }),
+      body: (body: string, status?: number) => new Response(body, { status }),
+    };
+    const resp = await checkout.handleHono(c);
+    expect(resp.status).toBe(400);
+  });
+
+  it('handleExpress writes a 402 to the supplied res', async () => {
+    const checkout = minimalCheckout();
+    const calls: { status?: number; body?: unknown } = {};
+    const req = {
+      method: 'POST',
+      url: '/purchase',
+      headers: {},
+      body: { item: 'wine' },
+    };
+    const res = {
+      status: (code: number) => {
+        calls.status = code;
+        return res;
+      },
+      setHeader: () => res,
+      json: (body: unknown) => {
+        calls.body = body;
+        return res;
+      },
+    };
+    await checkout.handleExpress(req, res);
+    expect(calls.status).toBe(402);
+    expect(calls.body).toBeDefined();
+  });
+
+  it('handleFastify writes a 402 to the supplied reply', async () => {
+    const checkout = minimalCheckout();
+    const calls: { code?: number; body?: unknown } = {};
+    const request = {
+      method: 'POST',
+      url: '/purchase',
+      headers: {},
+      body: { item: 'wine' },
+    };
+    const reply = {
+      code: (code: number) => {
+        calls.code = code;
+        return reply;
+      },
+      header: () => reply,
+      send: (body: unknown) => {
+        calls.body = body;
+        return reply;
+      },
+    };
+    await checkout.handleFastify(request, reply);
+    expect(calls.code).toBe(402);
+  });
+
+  it('handleNextjs returns a 402 Response', async () => {
+    const checkout = minimalCheckout();
+    const request = new Request('https://api.example/purchase', {
+      method: 'POST',
+      body: JSON.stringify({ item: 'wine' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const resp = await checkout.handleNextjs(request);
+    expect(resp.status).toBe(402);
+  });
+
+  it('handleWeb is an alias for handleNextjs', async () => {
+    const checkout = minimalCheckout();
+    const request = new Request('https://api.example/purchase', {
+      method: 'POST',
+      body: JSON.stringify({ item: 'wine' }),
+      headers: { 'content-type': 'application/json' },
+    });
+    const resp = await checkout.handleWeb(request);
+    expect(resp.status).toBe(402);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Checkout accessors
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Checkout.acceptedRails + acceptedMethodNames', () => {
+  it('returns canonical RailKey + method-name lists derived from rails', () => {
+    const checkout = new Checkout({
+      rails: {
+        tempo: { recipient: RECIPIENT } as TempoRailSpec,
+        x402_base: { recipient: RECIPIENT, network: 'eip155:8453' } as X402BaseRailSpec,
+      },
+      url: 'https://x',
+      computePricing: () => ({ amountUsd: 1.0 }),
+    });
+    expect(checkout.acceptedRails).toEqual(['tempo_mpp', 'x402_base']);
+    expect(checkout.acceptedMethodNames).toEqual(['tempo/charge', 'x402/exact (base)']);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// well_known helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('defaultA2aServices', () => {
+  it('returns the canonical dev.ucp.shopping A2A binding', () => {
+    const services = defaultA2aServices({ agentCardUrl: 'https://x/.well-known/agent-card.json' });
+    expect(services['dev.ucp.shopping']).toBeDefined();
+    expect(services['dev.ucp.shopping'][0]).toMatchObject({
+      version: '2026-04-08',
+      transport: 'a2a',
+      endpoint: 'https://x/.well-known/agent-card.json',
+    });
+  });
+});
+
+describe('wellKnownCorsPreflightHeaders', () => {
+  it('returns CORS preflight headers without ACRH echo when absent', () => {
+    const headers = wellKnownCorsPreflightHeaders();
+    expect(headers['Access-Control-Allow-Origin']).toBe('*');
+    expect(headers['Access-Control-Allow-Methods']).toContain('GET');
+    expect(headers['Access-Control-Allow-Headers']).toBeUndefined();
+  });
+  it('echoes Access-Control-Request-Headers verbatim when present', () => {
+    const headers = wellKnownCorsPreflightHeaders({
+      'access-control-request-headers': 'content-type, x-custom',
+    });
+    expect(headers['Access-Control-Allow-Headers']).toBe('content-type, x-custom');
+  });
+  it('reads from Headers instance', () => {
+    const headers = wellKnownCorsPreflightHeaders(
+      new Headers({ 'access-control-request-headers': 'x-test' }),
+    );
+    expect(headers['Access-Control-Allow-Headers']).toBe('x-test');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// wellKnownPreflightResponse
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('wellKnownPreflightResponse', () => {
+  it('returns a 204 Response with CORS preflight headers', async () => {
+    const { wellKnownPreflightResponse } = await import('../src/discovery/well_known');
+    const resp = wellKnownPreflightResponse();
+    expect(resp.status).toBe(204);
+    expect(resp.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(resp.headers.get('Access-Control-Allow-Methods')).toContain('GET');
+  });
+  it('propagates the request ACRH echo when present', async () => {
+    const { wellKnownPreflightResponse } = await import('../src/discovery/well_known');
+    const resp = wellKnownPreflightResponse({ 'access-control-request-headers': 'x-foo' });
+    expect(resp.headers.get('Access-Control-Allow-Headers')).toBe('x-foo');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// buildMerchantIndexJson
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildMerchantIndexJson', () => {
+  it('emits canonical fields', async () => {
+    const { buildMerchantIndexJson } = await import('../src/discovery/agentscore_content');
+    const body = buildMerchantIndexJson({
+      name: 'AgentScore Store',
+      description: 'Wine and merch for agents.',
+      docs: { llms: 'https://x/llms.txt' },
+      endpoints: { 'GET /catalog': 'List products.' },
+      supportedRails: ['tempo', 'x402-base'],
+    });
+    expect(body.name).toBe('AgentScore Store');
+    expect(body.audience).toBe('agents');
+    expect(body.supported_rails).toEqual(['tempo', 'x402-base']);
+    expect(body.docs).toEqual({ llms: 'https://x/llms.txt' });
+  });
+  it('merges extras over the canonical fields', async () => {
+    const { buildMerchantIndexJson } = await import('../src/discovery/agentscore_content');
+    const body = buildMerchantIndexJson({
+      name: 'X',
+      description: 'Y',
+      docs: {},
+      endpoints: {},
+      supportedRails: [],
+      extra: { compliance: { min_age: 21 }, website: 'https://x.example' },
+    });
+    expect(body.compliance).toEqual({ min_age: 21 });
+    expect(body.website).toBe('https://x.example');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// xServiceInfoExtension + xPaymentInfoFromCheckout (new openapi helpers)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('xServiceInfoExtension', () => {
+  it('emits minimal block with just categories', async () => {
+    const { xServiceInfoExtension } = await import('../src/discovery/openapi');
+    const ext = xServiceInfoExtension({ categories: ['commerce', 'wine'] });
+    expect(ext).toEqual({ 'x-service-info': { categories: ['commerce', 'wine'] } });
+  });
+  it('includes docs when provided', async () => {
+    const { xServiceInfoExtension } = await import('../src/discovery/openapi');
+    const ext = xServiceInfoExtension({
+      categories: ['commerce'],
+      docs: { human: 'https://x.example/about' },
+    });
+    expect(ext['x-service-info'].docs).toEqual({ human: 'https://x.example/about' });
+  });
+});
+
+describe('xPaymentInfoExtension authMode + description', () => {
+  it('emits authMode=payment and description when set', async () => {
+    const { xPaymentInfoExtension } = await import('../src/discovery/openapi');
+    const ext = xPaymentInfoExtension({
+      price: { mode: 'fixed', currency: 'USD', amount: '5.00' },
+      protocols: [{ x402: {} }],
+      description: 'Per-purchase fee.',
+    });
+    expect(ext['x-payment-info'].authMode).toBe('payment');
+    expect(ext['x-payment-info'].description).toBe('Per-purchase fee.');
+  });
+});
+
+describe('xPaymentInfoFromCheckout', () => {
+  it('emits one protocol entry per rail and merges extras', async () => {
+    const { xPaymentInfoFromCheckout } = await import('../src/discovery/openapi');
+    const checkout = {
+      rails: {
+        tempo: { recipient: RECIPIENT, network: 'tempo-mainnet', token: '0xtokenT' },
+        base: { recipient: RECIPIENT, network: 'eip155:8453', token: 'USDC' },
+        stripe: { profileId: 'profile_abc' },
+        solana: { recipient: 'SoLaNaReCiPiEnT', network: 'solana:5eykt4', token: 'SoLaNaMiNt' },
+      },
+    };
+    const ext = xPaymentInfoFromCheckout({
+      checkout,
+      price: { mode: 'fixed', currency: 'USD', amount: '1.00' },
+      description: 'Per-call fee.',
+      protocolExtras: { tempo: { client_command: 'pay --chain tempo' } },
+    });
+    const protocols = ext['x-payment-info'].protocols;
+    const tempoEntry = protocols.find((p) => 'mpp' in p && p.mpp.method === 'tempo');
+    expect(tempoEntry).toBeDefined();
+    expect((tempoEntry as { mpp: Record<string, unknown> }).mpp.client_command).toBe('pay --chain tempo');
+    expect(protocols.some((p) => 'mpp' in p && p.mpp.method === 'stripe')).toBe(true);
+    expect(protocols.some((p) => 'x402' in p)).toBe(true);
+    expect(protocols.some((p) => 'mpp' in p && p.mpp.method === 'solana')).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// loadSolanaFeePayer
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('loadSolanaFeePayer', () => {
+  it('returns undefined for empty / undefined privateKey', async () => {
+    const { loadSolanaFeePayer } = await import('../src/payment/solana');
+    expect(await loadSolanaFeePayer({ privateKey: undefined })).toBeUndefined();
+    expect(await loadSolanaFeePayer({ privateKey: '' })).toBeUndefined();
+  });
+  it('accepts a 128-char hex keypair (takes first 32 bytes as seed)', async () => {
+    const { loadSolanaFeePayer } = await import('../src/payment/solana');
+    const hex = '01'.repeat(64);
+    const signer = await loadSolanaFeePayer({ privateKey: hex });
+    expect(signer).toBeDefined();
+  });
+  it('accepts a 64-byte base58 keypair (Phantom export)', async () => {
+    const kit = (await import('@solana/kit').catch(() => null)) as
+      | { getBase58Codec?: () => { decode: (b: Uint8Array) => string } }
+      | null;
+    if (!kit?.getBase58Codec) {
+      return;  // peer dep missing — covered by the hex-input test
+    }
+    const { loadSolanaFeePayer } = await import('../src/payment/solana');
+    const seed = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
+    const fullBytes = new Uint8Array(64);
+    fullBytes.set(seed);
+    const codec = kit.getBase58Codec();
+    const base58 = codec.decode(fullBytes);
+    const signer = await loadSolanaFeePayer({ privateKey: base58 });
+    expect(signer).toBeDefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// buildSignedUcpResponse / buildSignedJwksResponse / bootstrapUcpSigningKey
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('buildSignedUcpResponse', () => {
+  it('returns 503 ucp_misconfigured when no payment handlers can be derived', async () => {
+    const { buildSignedUcpResponse } = await import('../src/discovery/well_known');
+    const emptyCheckout = new Checkout({ merchantName: 'X', rails: {} });
+    const resp = await buildSignedUcpResponse({
+      checkout: emptyCheckout,
+      name: 'X',
+      wellKnownUcpUrl: 'https://x/.well-known/ucp',
+      services: {},
+    });
+    expect(resp.status).toBe(503);
+    expect(resp.headers['Cache-Control']).toContain('max-age=60');
+    const body = JSON.parse(resp.body);
+    expect(body.error.code).toBe('ucp_misconfigured');
+  });
+  it('echoes X-Request-ID from request headers on the misconfigured envelope', async () => {
+    const { buildSignedUcpResponse } = await import('../src/discovery/well_known');
+    const emptyCheckout = new Checkout({ merchantName: 'X', rails: {} });
+    const resp = await buildSignedUcpResponse({
+      checkout: emptyCheckout,
+      name: 'X',
+      wellKnownUcpUrl: 'https://x/.well-known/ucp',
+      services: {},
+      requestHeaders: { 'X-Request-Id': 'req-abc' },
+    });
+    expect(resp.headers['X-Request-ID']).toBe('req-abc');
+  });
+});
+
+describe('bootstrapUcpSigningKey', () => {
+  it('throws when UCP_SIGNING_KEY_JWK_PRIVATE env is malformed', async () => {
+    const { bootstrapUcpSigningKey } = await import('../src/discovery/well_known');
+    const prev = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+    process.env.UCP_SIGNING_KEY_JWK_PRIVATE = 'not-json';
+    try {
+      await expect(bootstrapUcpSigningKey()).rejects.toThrow();
+    } finally {
+      if (prev === undefined) delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+      else process.env.UCP_SIGNING_KEY_JWK_PRIVATE = prev;
+    }
+  });
+});

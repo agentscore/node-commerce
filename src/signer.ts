@@ -189,3 +189,42 @@ export function readX402PaymentHeader(request: Request): string | undefined {
     undefined
   );
 }
+
+function lowerHeaders(headers: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(headers)) out[k.toLowerCase()] = v;
+  return out;
+}
+
+/**
+ * One-call signer extraction across both supported credential formats.
+ *
+ * Tries the x402 `payment-signature` / `x-payment` header first (EIP-3009
+ * `payload.authorization.from`), then falls back to the MPP
+ * `Authorization: Payment` header DID. Returns the first one that resolves,
+ * or `null`.
+ *
+ * Use this for wallet-cap prechecks and other "did the agent claim to sign as
+ * X?" checks where you need the signer BEFORE invoking Checkout. Checkout's
+ * own settle path runs verification separately and surfaces the verified
+ * signer on `SettleOutcome.signerAddress`.
+ *
+ * Accepts a plain headers dict so it works regardless of which framework the
+ * merchant uses (the gate adapters all serialize headers down to a dict by
+ * the time they reach the merchant's hooks).
+ */
+export async function extractSignerForPrecheck(
+  headers: Record<string, string>,
+): Promise<PaymentSigner | null> {
+  const lower = lowerHeaders(headers);
+  const x402 = lower['payment-signature'] ?? lower['x-payment'];
+  if (x402) {
+    const signer = await extractPaymentSignerFromAuth(undefined, x402);
+    if (signer !== null) return signer;
+  }
+  const authorization = lower['authorization'];
+  if (authorization && authorization.toLowerCase().startsWith('payment ')) {
+    return await extractPaymentSignerFromAuth(authorization);
+  }
+  return null;
+}

@@ -12,13 +12,13 @@ const baseInput = {
 function makeServer(overrides: Partial<{
   buildPaymentRequirements: ReturnType<typeof vi.fn>;
   enrichExtensions: ReturnType<typeof vi.fn>;
-  processPaymentRequest: ReturnType<typeof vi.fn>;
+  verifyPayment: ReturnType<typeof vi.fn>;
   settlePayment: ReturnType<typeof vi.fn>;
 }>): X402Server {
   return {
     buildPaymentRequirements: overrides.buildPaymentRequirements ?? vi.fn().mockResolvedValue([{ matched: true }]),
     enrichExtensions: overrides.enrichExtensions ?? vi.fn().mockReturnValue(undefined),
-    processPaymentRequest: overrides.processPaymentRequest ?? vi.fn().mockResolvedValue({ success: true }),
+    verifyPayment: overrides.verifyPayment ?? vi.fn().mockResolvedValue({ success: true }),
     settlePayment: overrides.settlePayment ?? vi.fn().mockResolvedValue({ tx: '0xabc' }),
   } as unknown as X402Server;
 }
@@ -45,8 +45,8 @@ describe('processX402Settle', () => {
     });
   });
 
-  it('returns verify_failed when processPaymentRequest yields { success: false }', async () => {
-    const server = makeServer({ processPaymentRequest: vi.fn().mockResolvedValue({ success: false, reason: 'invalid_credential' }) });
+  it('returns verify_failed when verifyPayment yields { success: false }', async () => {
+    const server = makeServer({ verifyPayment: vi.fn().mockResolvedValue({ success: false, reason: 'invalid_credential' }) });
     const result = await processX402Settle({ x402Server: server, ...baseInput });
     expect(result.success).toBe(false);
     if (!result.success && result.phase === 'verify_failed') {
@@ -88,14 +88,14 @@ describe('processX402Settle', () => {
       }
     });
 
-    it('wraps processPaymentRequest throws as facilitator_error step=process_payment_request', async () => {
+    it('wraps verifyPayment throws as facilitator_error step=process_payment_request', async () => {
       const server = makeServer({
-        processPaymentRequest: vi.fn().mockRejectedValue(new Error('CDP facilitator: solana:devnet not supported')),
+        verifyPayment: vi.fn().mockRejectedValue(new Error('CDP facilitator: solana:devnet not supported')),
       });
       const result = await processX402Settle({ x402Server: server, ...baseInput });
       expect(result.success).toBe(false);
       if (!result.success && result.phase === 'facilitator_error') {
-        expect(result.step).toBe('process_payment_request');
+        expect(result.step).toBe('verify_payment');
         expect((result.error as Error).message).toBe('CDP facilitator: solana:devnet not supported');
       }
     });

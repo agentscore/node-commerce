@@ -6,3 +6,7 @@ export * from './llms_txt';
 export * from './openapi';
 export * from './robots_tag';
 export * from './skill_md';
+export * from './agentscore_content';
+export * from './redemption_md';
+export * from './well_known';
+export * from './request_id';
