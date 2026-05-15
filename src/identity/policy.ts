@@ -16,7 +16,7 @@
  * This module ships three primitives:
  *
  * 1. {@link PolicyBlock} — the typed shape.
- * 2. {@link buildGateOptionsFromPolicy} — translate a block into the options object the
+ * 2. {@link buildGateFromPolicy} — translate a block into the options object the
  *    per-framework `agentscoreGate(...)` accepts. Returns `null` when the policy
  *    has no enforcement (treat as "no gate; anonymous OK").
  * 3. {@link runGateWithEnforcement} — wrap a per-framework middleware in the
@@ -76,7 +76,7 @@ export interface GateResult {
  * when the policy varies per resource (e.g. per product). Each adapter's gate
  * is cheap to instantiate.
  */
-export function buildGateOptionsFromPolicy(
+export function buildGateFromPolicy(
   policy: PolicyBlock | null | undefined,
   base: { apiKey: string; baseUrl?: string },
 ): AgentScoreCoreOptions | null {

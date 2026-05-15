@@ -73,7 +73,7 @@ export {
   type GateResult,
   type IdentityStatus,
   type PolicyBlock,
-  buildGateOptionsFromPolicy,
+  buildGateFromPolicy,
   runGateWithEnforcement,
   shippingCountryAllowed,
   shippingStateAllowed,

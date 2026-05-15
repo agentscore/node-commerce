@@ -5,7 +5,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CheckoutValidationError } from '../../src/checkout.js';
 import {
-  buildGateOptionsFromPolicy,
+  buildGateFromPolicy,
   runGateWithEnforcement,
   shippingCountryAllowed,
   shippingStateAllowed,
@@ -62,19 +62,19 @@ describe('shippingStateAllowed', () => {
   });
 });
 
-// ── buildGateOptionsFromPolicy ─────────────────────────────────────────────────────
+// ── buildGateFromPolicy ─────────────────────────────────────────────────────
 
-describe('buildGateOptionsFromPolicy', () => {
+describe('buildGateFromPolicy', () => {
   it('returns null for null policy', () => {
-    expect(buildGateOptionsFromPolicy(null, { apiKey: 'as_test' })).toBeNull();
+    expect(buildGateFromPolicy(null, { apiKey: 'as_test' })).toBeNull();
   });
 
   it('returns null when policy has no enforcement', () => {
-    expect(buildGateOptionsFromPolicy({}, { apiKey: 'as_test' })).toBeNull();
+    expect(buildGateFromPolicy({}, { apiKey: 'as_test' })).toBeNull();
   });
 
   it('returns options when enforcement is set', () => {
-    const opts = buildGateOptionsFromPolicy(
+    const opts = buildGateFromPolicy(
       {
         enforcement: 'hard',
         requireKyc: true,
@@ -92,7 +92,7 @@ describe('buildGateOptionsFromPolicy', () => {
   });
 
   it('passes baseUrl through when given', () => {
-    const opts = buildGateOptionsFromPolicy(
+    const opts = buildGateFromPolicy(
       { enforcement: 'soft' },
       { apiKey: 'as_test', baseUrl: 'https://api.example.com' },
     );
@@ -100,7 +100,7 @@ describe('buildGateOptionsFromPolicy', () => {
   });
 
   it('omits absent fields rather than passing undefined', () => {
-    const opts = buildGateOptionsFromPolicy({ enforcement: 'soft' }, { apiKey: 'as_test' });
+    const opts = buildGateFromPolicy({ enforcement: 'soft' }, { apiKey: 'as_test' });
     expect(opts).not.toBeNull();
     expect(Object.prototype.hasOwnProperty.call(opts, 'requireKyc')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(opts, 'minAge')).toBe(false);
