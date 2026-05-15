@@ -1,150 +1,116 @@
 /**
- * Signed UCP profile example — `/.well-known/ucp` + `/.well-known/jwks.json`.
+ * Signed UCP profile example: `/.well-known/ucp` + `/.well-known/jwks.json`.
  *
- * AgentScore's `agentscore-profile+jws` is a vendor extension layered on top of
- * the UCP profile for trust-mode verifiers (regulated-commerce, AP2-aware) that
- * opt into auditable cryptographic provenance. UCP §6 itself does NOT mandate
- * profile-body signing; production UCP merchants commonly ship unsigned, and
- * vanilla UCP-aware agents read the canonical body and ignore the `signature`
- * field. This example wires both routes against a persistent signing key
- * (env-loaded for prod, ephemeral for dev) for verifiers that DO opt into the
- * signed envelope.
+ * AgentScore's `agentscore-profile+jws` is a vendor extension on top of UCP for
+ * trust-mode verifiers (regulated-commerce, AP2-aware) that opt into auditable
+ * cryptographic provenance. UCP §6 itself does NOT mandate profile-body
+ * signing; production UCP merchants commonly ship unsigned, and vanilla
+ * UCP-aware agents read the canonical body and ignore the `signature` field.
+ *
+ * The 2.0 SDK ships `buildSignedUcpResponse` + `buildSignedJwksResponse` which
+ * fold loading + signing + Cache-Control + CORS into one call. Pass a
+ * `Checkout` instance and the helpers compose the `payment_handlers` block
+ * from the configured rails automatically.
  *
  * Run: `bun examples/signed-ucp-merchant.ts` (port 3010).
  *
  * Production checklist:
  *   - Set `UCP_SIGNING_KEY_JWK_PRIVATE` to a JSON-encoded private JWK (mint via
  *     `generateUCPSigningKey()` once, persist in your secret manager).
- *   - The kid in the env JWK MUST match what verifiers will see in your published
- *     profile — pick a stable name like `merchant-2026-05`.
- *   - Configure `Cache-Control: public, max-age=300` (or longer) on /.well-known/jwks.json
- *     so verifiers don't hammer the endpoint.
- *   - Rotate by minting a new key + new kid, publishing both in the JWKS, signing
- *     new profiles with the new key, then dropping the old JWK after your verifier
- *     cache TTL expires.
+ *   - The kid in the env JWK MUST match what verifiers will see in your
+ *     published profile; pick a stable name like `merchant-2026-05`.
+ *   - Rotate by minting a new key + new kid, publishing both in the JWKS,
+ *     signing new profiles with the new key, then dropping the old JWK after
+ *     your verifier cache TTL expires.
+ *
+ * Call `bootstrapUcpSigningKey()` at startup so a malformed
+ * `UCP_SIGNING_KEY_JWK_PRIVATE` env value fails the deploy fast instead of
+ * surfacing on the first `/.well-known/ucp` hit.
  */
 
 import {
-  buildJWKSResponse,
-  buildUCPProfile,
-  generateUCPSigningKey,
-  mppPaymentHandler,
-  signUCPProfile,
-  type GeneratedUCPKey,
-  UCPSigningKey,
+  Checkout,
+  type AgentScoreGatePolicy,
+  type PricingResult,
   UCPVerificationError,
   verifyUCPProfile,
 } from '@agent-score/commerce';
-import { Hono } from 'hono';
-import { importJWK, type CryptoKey, type JWK } from 'jose';
+import {
+  bootstrapUcpSigningKey,
+  buildSignedJwksResponse,
+  buildSignedUcpResponse,
+  defaultA2aServices,
+  wellKnownPreflightResponse,
+} from '@agent-score/commerce/discovery';
+import { type TempoRailSpec } from '@agent-score/commerce/payment';
+import { Hono, type Context } from 'hono';
 
-const KID = process.env.UCP_SIGNING_KEY_KID ?? 'merchant-2026-05';
-const ALG = (process.env.UCP_SIGNING_KEY_ALG ?? 'EdDSA') as 'EdDSA' | 'ES256';
+const SIGNING_KID = 'merchant-2026-05';
 
-let cached: Promise<GeneratedUCPKey> | null = null;
+const checkout = new Checkout({
+  rails: { tempo: { recipient: '0xfeedface', network: 'tempo-mainnet' } as TempoRailSpec },
+  url: 'https://agents.example.com/purchase',
+  computePricing: async (): Promise<PricingResult> => ({ amountUsd: 1.0 }),
+});
 
-function loadSigningKey(): Promise<GeneratedUCPKey> {
-  // Cache the in-flight Promise (not the resolved value) so two concurrent
-  // first-callers can't independently generate different keys. On rejection
-  // the cache clears so the next caller retries.
-  if (cached) return cached;
-  cached = (async () => {
-    const envJwk = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
-    if (envJwk) {
-      let jwk: JWK;
-      try {
-        jwk = JSON.parse(envJwk) as JWK;
-      } catch (err) {
-        throw new Error(
-          `Failed to parse UCP_SIGNING_KEY_JWK_PRIVATE as JSON: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-      // Detect alg from JWK shape (parity with python sibling); ignore env ALG if it conflicts.
-      let effectiveAlg: 'EdDSA' | 'ES256';
-      if (jwk.kty === 'OKP' && jwk.crv === 'Ed25519') {
-        effectiveAlg = 'EdDSA';
-      } else if (jwk.kty === 'EC' && jwk.crv === 'P-256') {
-        effectiveAlg = 'ES256';
-      } else {
-        throw new Error(`Unsupported env JWK: kty=${jwk.kty} crv=${jwk.crv}`);
-      }
-      const privateKey = (await importJWK(jwk, effectiveAlg)) as CryptoKey;
-      // Derive the public JWK from the INPUT JWK rather than re-exporting through
-      // the CryptoKey: jose's `exportJWK` rejects non-extractable CryptoKeys with
-      // "non-extractable CryptoKey cannot be exported as a JWK", and Node's
-      // WebCrypto returns non-extractable keys from `importJWK` by default. Using
-      // the input JWK is runtime-independent and avoids the footgun.
-      const publicJWK = { ...jwk } as Record<string, unknown>;
-      for (const k of ['d', 'p', 'q', 'dp', 'dq', 'qi']) delete publicJWK[k];
-      publicJWK.kid = jwk.kid ?? KID;
-      publicJWK.alg = effectiveAlg;
-      publicJWK.use = 'sig';
-      return { privateKey, publicJWK: publicJWK as JWK } as GeneratedUCPKey;
-    }
-    console.warn('[ucp] UCP_SIGNING_KEY_JWK_PRIVATE not set — generating ephemeral key. Verifier caches will break across restarts.');
-    return generateUCPSigningKey({ kid: KID, alg: ALG });
-  })().catch((err) => {
-    cached = null;
-    throw err;
-  });
-  return cached;
-}
+const AGENTSCORE_GATE: AgentScoreGatePolicy = {
+  require_kyc: true,
+  min_age: 21,
+  allowed_jurisdictions: ['US'],
+};
+
+// Eager-load the signing key at startup so a malformed env JWK fails the
+// deploy fast (rather than surfacing on the first /.well-known/ucp hit).
+await bootstrapUcpSigningKey({ defaultKid: SIGNING_KID });
 
 const app = new Hono();
 
-app.get('/.well-known/ucp', async (c) => {
-  const key = await loadSigningKey();
-  const profile = buildUCPProfile({
+app.get('/.well-known/ucp', async (c: Context) => {
+  const resp = await buildSignedUcpResponse({
+    checkout,
     name: 'My Agent Service',
-    services: {
-      'dev.ucp.shopping': [
-        {
-          version: '2026-04-08',
-          spec: 'https://ucp.dev/2026-04-08/specification/overview',
-          transport: 'mcp',
-          endpoint: 'https://agents.example.com/api/ucp/mcp',
-          schema: 'https://ucp.dev/services/shopping/mcp.openrpc.json',
-        },
-      ],
-    },
-    payment_handlers: {
-      ...mppPaymentHandler({
-        networks: [
-          { network: 'tempo-mainnet', chain_id: 4217, recipient: '0xfeedface' },
-        ],
-      }),
-    },
-    signing_keys: [UCPSigningKey.fromJWK(key.publicJWK as Record<string, unknown>)],
-    // Optional: declare merchant gate policy as an `sh.agentscore.identity` capability
-    // binding inside the public profile. Static policy declaration only — no per-operator
-    // claims. Per-operator identity attestation flows through the AP2 risk-signal endpoint.
-    agentscore_gate: { require_kyc: true, min_age: 21, allowed_jurisdictions: ['US'] },
+    wellKnownUcpUrl: 'https://agents.example.com/.well-known/ucp',
+    services: defaultA2aServices({
+      agentCardUrl: 'https://agents.example.com/.well-known/agent-card.json',
+    }),
+    requestHeaders: c.req.raw.headers,
+    signingKid: SIGNING_KID,
+    // Optional: declare merchant gate policy as an `sh.agentscore.identity`
+    // capability binding inside the public profile. Static policy declaration
+    // only; per-operator identity attestation flows through the AP2
+    // risk-signal endpoint.
+    agentscoreGate: AGENTSCORE_GATE,
   });
-  const signed = await signUCPProfile(profile, {
-    signingKey: key.privateKey,
-    kid: key.publicJWK.kid as string,
-    alg: ALG,
-  });
-  c.header('Cache-Control', 'public, max-age=60');
-  return c.json(signed);
+  return new Response(resp.body, { status: resp.status, headers: resp.headers });
 });
 
-app.get('/.well-known/jwks.json', async (c) => {
-  const key = await loadSigningKey();
-  c.header('Cache-Control', 'public, max-age=300');
-  c.header('Content-Type', 'application/jwk-set+json');
-  return c.json(buildJWKSResponse([key.publicJWK]));
+app.get('/.well-known/jwks.json', async (c: Context) => {
+  const resp = await buildSignedJwksResponse({
+    requestHeaders: c.req.raw.headers,
+    signingKid: SIGNING_KID,
+  });
+  return new Response(resp.body, { status: resp.status, headers: resp.headers });
 });
+
+app.options('/.well-known/ucp', (c: Context) =>
+  wellKnownPreflightResponse(c.req.raw.headers),
+);
+app.options('/.well-known/jwks.json', (c: Context) =>
+  wellKnownPreflightResponse(c.req.raw.headers),
+);
 
 // Self-smoke: confirm sign + verify round-trip locally.
-app.get('/_selftest/ucp', async (c) => {
+app.get('/_selftest/ucp', async (c: Context) => {
   const profileRes = await app.request('/.well-known/ucp');
   const jwksRes = await app.request('/.well-known/jwks.json');
-  const profile = await profileRes.json() as Awaited<ReturnType<typeof signUCPProfile>>;
-  const jwks = await jwksRes.json() as Parameters<typeof verifyUCPProfile>[1];
+  const profile = (await profileRes.json()) as Record<string, unknown>;
+  const jwks = (await jwksRes.json()) as Parameters<typeof verifyUCPProfile>[1];
   try {
-    await verifyUCPProfile(profile, jwks);
-    return c.json({ ok: true, kid: (profile.signing_keys?.[0] as { kid?: string } | undefined)?.kid });
+    await verifyUCPProfile(profile as never, jwks);
+    return c.json({
+      ok: true,
+      kid: ((profile.signing_keys as Array<{ kid?: string }> | undefined)?.[0])?.kid,
+    });
   } catch (err) {
     if (err instanceof UCPVerificationError) {
       return c.json({ ok: false, code: err.code, message: err.message }, 500);

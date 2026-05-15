@@ -1,42 +1,41 @@
 /**
- * Example: variable-cost merchant supporting BOTH x402 upto AND MPP tempo session
+ * Example: variable-cost merchant supporting BOTH x402 upto AND MPP tempo session.
  *
- * Scenario: you sell something where the cost depends on output — LLM completions,
- * transcription, video transcode, etc. You don't know the final price until the work
- * is done. Two protocols solve this; both are advertised on the 402 so agents can
- * pick whichever they support.
+ * Scenario: you sell something where the cost depends on output (LLM
+ * completions, transcription, video transcode, etc.). You don't know the
+ * final price until the work is done. Two protocols solve this; both are
+ * advertised on the 402 so agents can pick whichever they support.
  *
- *   ┌─ x402 upto (one-shot) ──────────────────────────────────────────┐
- *   │ - Agent signs Permit2 authorizing up to a max amount            │
- *   │ - Vendor does the work, knows actual cost after                 │
- *   │ - Response sets Settlement-Overrides: {"amount":"<actual>"}     │
- *   │ - Facilitator settles for actual; difference auto-refunds       │
- *   │ - Best for: short-ish jobs returning a single response          │
- *   │ - Rails: x402-base-mainnet-upto, x402-base-sepolia-upto         │
- *   └─────────────────────────────────────────────────────────────────┘
+ *   x402 upto (one-shot)
+ *     - Agent signs Permit2 authorizing up to a max amount.
+ *     - Vendor does the work, knows actual cost after.
+ *     - Response sets Settlement-Overrides: {"amount":"<actual>"}.
+ *     - Facilitator settles for actual; difference auto-refunds.
  *
- *   ┌─ MPP tempo session (streaming) ─────────────────────────────────┐
- *   │ - Agent opens a channel with on-chain deposit                   │
- *   │ - Vendor streams output as SSE                                  │
- *   │ - As cumulative cost grows, vendor emits voucher requests       │
- *   │ - Agent signs each voucher mid-stream; channel keeps flowing    │
- *   │ - Final settle on close reclaims unspent deposit                │
- *   │ - Best for: long-running streams (live LLM tokens, audio, etc.) │
- *   │ - Rails: tempo session intent (separate from one-shot tempo)    │
- *   └─────────────────────────────────────────────────────────────────┘
+ *   MPP tempo session (streaming)
+ *     - Agent opens a channel with on-chain deposit.
+ *     - Vendor streams output as SSE.
+ *     - Cumulative cost grows; vendor emits voucher requests.
+ *     - Agent signs each voucher mid-stream.
+ *     - Final settle on close reclaims unspent deposit.
  *
- * Most agents pick one or the other based on what their wallet supports. Vendors
- * who care about reach offer both.
+ * These flows are too custom to fit the one-shot `Checkout(...)` model:
+ * `computePricing` returns a single amount, but variable-cost discovers the
+ * amount AFTER the request runs (upto) or grows it cumulatively (session).
+ * The example keeps the 402-emit path custom (using `build402Body` +
+ * `buildAcceptedMethods` + `buildHowToPay`) and the settle path manual;
+ * vendors compose `createX402Server` + Permit2 extensions or
+ * `createMppxServer` (tempo_session rail) at the vendor layer.
  *
  * Peer deps:
  *   bun add @agent-score/commerce hono mppx @x402/core @x402/evm
  *
  * Env vars:
- *   APP_URL               — public URL of your service (for 402 commands)
- *   MPP_SECRET_KEY        — random base64
- *   TEMPO_RECIPIENT       — your Tempo wallet
- *   TEMPO_ESCROW_CONTRACT — your deployed escrow contract for channel deposits
- *   X402_BASE_RECIPIENT   — your Base wallet (USDC payouts for upto rail)
+ *   APP_URL               public URL of your service
+ *   MPP_SECRET_KEY        random base64
+ *   TEMPO_RECIPIENT       your Tempo wallet
+ *   TEMPO_ESCROW_CONTRACT your deployed escrow contract for channel deposits
+ *   X402_BASE_RECIPIENT   your Base wallet (USDC payouts for upto rail)
  *
  * Run: bun run examples/variable-cost-merchant.ts
  */
@@ -51,10 +50,11 @@ import {
   createMppxServer,
   createX402Server,
   paymentDirective,
+  paymentRequiredHeader,
   settlementOverrideHeader,
   wwwAuthenticateHeader,
 } from '@agent-score/commerce/payment';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { Store } from 'mppx';
 import { Session } from 'mppx/tempo';
 
@@ -62,10 +62,12 @@ const APP_URL = process.env.APP_URL!;
 const TEMPO_RECIPIENT = process.env.TEMPO_RECIPIENT!;
 const TEMPO_ESCROW_CONTRACT = process.env.TEMPO_ESCROW_CONTRACT!;
 const X402_BASE_RECIPIENT = process.env.X402_BASE_RECIPIENT!;
+const MPP_SECRET_KEY = process.env.MPP_SECRET_KEY!;
 
-// ── Boot both rails ─────────────────────────────────────────────────────────
-// In production, swap Store.memory() for a durable backend (Postgres, D1,
-// Durable Objects). The in-memory store is fine for examples and dev.
+const REALM = new URL(APP_URL).host;
+const MAX_USDC = 0.5; // upper bound vendor advertises; actual bill <= this
+const MAX_USDC_CENTS = Math.round(MAX_USDC * 100);
+
 const channelStore = Session.ChannelStore.fromStore(Store.memory());
 
 await createX402Server({
@@ -81,16 +83,10 @@ const mppx = await createMppxServer({
       store: channelStore,
     },
   },
-  secretKey: process.env.MPP_SECRET_KEY!,
+  secretKey: MPP_SECRET_KEY,
 });
 
-const app = new Hono();
-const REALM = new URL(APP_URL).host;
-const MAX_USDC = 0.5; // upper bound vendor advertises; actual bill ≤ this
-const MAX_USDC_CENTS = Math.round(MAX_USDC * 100);
-
-// ── 402 challenge advertising both options ──────────────────────────────────
-function buildChallenge(url: string) {
+async function buildChallenge(url: string): Promise<Response> {
   const challengeId = `chg_${Date.now()}`;
   const directives = [
     paymentDirective({
@@ -124,9 +120,10 @@ function buildChallenge(url: string) {
     maxSpend: MAX_USDC,
   });
 
-  // For variable-cost work, advertise the upper bound as `subtotal` and let the
-  // vendor charge ≤ that. The actual amount lands via Settlement-Overrides
-  // (x402 upto) or the highest voucher signed mid-stream (tempo session).
+  // For variable-cost work, advertise the upper bound as `subtotal` and let
+  // the vendor charge <= that. The actual amount lands via
+  // Settlement-Overrides (x402 upto) or the highest voucher signed mid-stream
+  // (tempo session).
   const body = build402Body({
     product: { id: 'llm-completion', name: 'LLM completion' },
     acceptedMethods,
@@ -134,7 +131,7 @@ function buildChallenge(url: string) {
     agentInstructions: buildAgentInstructions({
       howToPay,
       warnings: [
-        'Cost is variable — final amount depends on output length.',
+        'Cost is variable; final amount depends on output length.',
         'For one-shot completions use x402 upto. For long streams use tempo session.',
       ],
     }),
@@ -149,35 +146,54 @@ function buildChallenge(url: string) {
     headers: {
       'content-type': 'application/json',
       'www-authenticate': wwwAuthenticateHeader(directives),
+      // x402 wire requires the body to also appear as base64 in this header;
+      // spec-strict clients (Coinbase awal, purl) parse it before falling
+      // back to the JSON body.
+      'PAYMENT-REQUIRED': paymentRequiredHeader({
+        x402Version: 2,
+        resource: { url },
+      }),
     },
   });
 }
 
-// ── /llm/complete: x402 upto path (single JSON response) ────────────────────
-app.post('/llm/complete', async (c) => {
-  const auth = c.req.header('authorization');
-  if (!auth?.startsWith('Payment ')) return buildChallenge(c.req.url);
+const app = new Hono();
 
-  // Validate the x402 payment via processX402Settle from `@agent-score/commerce/payment`
-  // (single-call verify + settle). Omitted for brevity — see multi-rail-merchant.ts for
-  // the full drop-in pattern.
+async function _runYourLlm(_prompt: string): Promise<{ text: string; tokensUsed: number }> {
+  return { text: 'completion text here', tokensUsed: 1234 };
+}
 
-  const body = await c.req.json();
-  const { text, tokensUsed } = await runYourLlm(body.prompt);
+async function* _yourLlmTokenStream(): AsyncGenerator<string> {
+  for (let i = 0; i < 100; i += 1) {
+    yield `token_${i} `;
+    await new Promise<void>((r) => setTimeout(r, 50));
+  }
+}
 
-  // Calculate actual cost based on tokens consumed
+app.post('/llm/complete', async (c: Context) => {
+  // x402 carries the credential in either `x-payment` or `payment-signature`
+  // depending on client (purl uses payment-signature; awal uses x-payment).
+  if (!(c.req.header('x-payment') ?? c.req.header('payment-signature'))) {
+    return buildChallenge(c.req.url);
+  }
+
+  // Validate the x402 payment via `processX402Settle` from
+  // `@agent-score/commerce/payment` (single-call verify + settle). Omitted
+  // for brevity; see multi-rail-merchant.ts for the full drop-in pattern.
+
+  const body = (await c.req.json()) as { prompt?: string };
+  const { text, tokensUsed } = await _runYourLlm(body.prompt ?? '');
+
   const actualUsd = tokensUsed * 0.000_002; // $2 per 1M tokens
   const actualAtomic = String(Math.ceil(actualUsd * 1_000_000)); // USDC atomic units
 
-  // Tell the facilitator to settle for actualAtomic instead of the authorized max.
   const { name, value } = settlementOverrideHeader({ amount: actualAtomic });
   c.header(name, value);
 
   return c.json({ text, tokens_used: tokensUsed, charged_usd: actualUsd });
 });
 
-// ── /llm/stream: MPP tempo session path (SSE with mid-stream vouchers) ──────
-app.post('/llm/stream', async (c) => {
+app.post('/llm/stream', (c: Context) => {
   const ctx = Session.Sse.fromRequest(c.req.raw);
   if (!ctx) return buildChallenge(c.req.url);
 
@@ -186,21 +202,10 @@ app.post('/llm/stream', async (c) => {
     channelId: ctx.channelId,
     challengeId: ctx.challengeId,
     tickCost: ctx.tickCost,
-    generate: yourLlmTokenStream(),
+    generate: _yourLlmTokenStream(),
   });
   return Session.Sse.toResponse(stream);
 });
-
-async function runYourLlm(_prompt: string): Promise<{ text: string; tokensUsed: number }> {
-  return { text: 'completion text here', tokensUsed: 1234 };
-}
-
-async function* yourLlmTokenStream(): AsyncGenerator<string> {
-  for (let i = 0; i < 100; i++) {
-    yield `token_${i} `;
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
 
 void mppx;
 export default app;
