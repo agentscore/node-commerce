@@ -320,6 +320,11 @@ describe('standardEndpointDescriptions', () => {
       'GET /orders/{id}',
     ]);
   });
+
+  it('returns api bundle when kind=api', () => {
+    const desc = standardEndpointDescriptions({ kind: 'api' });
+    expect(Object.keys(desc)).toEqual(['POST /<endpoint>', 'GET /usage']);
+  });
 });
 
 describe('buildSuccessNextSteps', () => {
@@ -489,6 +494,24 @@ describe('Checkout framework adapters', () => {
     expect(resp.status).toBe(400);
   });
 
+  it('handleHono accepts a pre-parsed body (skipping req.json())', async () => {
+    const checkout = minimalCheckout();
+    const c = {
+      req: {
+        method: 'POST',
+        url: 'https://api.example/purchase',
+        json: async () => {
+          throw new Error('should not be called when body is passed directly');
+        },
+        header: () => ({}),
+      },
+      json: (body: unknown, status?: number) => new Response(JSON.stringify(body), { status }),
+      body: (body: string, status?: number) => new Response(body, { status }),
+    };
+    const resp = await checkout.handleHono(c, { item: 'wine' });
+    expect(resp.status).toBe(402);
+  });
+
   it('handleExpress writes a 402 to the supplied res', async () => {
     const checkout = minimalCheckout();
     const calls: { status?: number; body?: unknown } = {};
@@ -549,6 +572,24 @@ describe('Checkout framework adapters', () => {
     expect(resp.status).toBe(402);
   });
 
+  it('handleNextjs accepts a pre-parsed body (skipping request.json())', async () => {
+    const checkout = minimalCheckout();
+    // No body in the Request; calling request.json() would throw. Passing body
+    // directly exercises the body!==undefined branch.
+    const request = new Request('https://api.example/purchase', { method: 'POST' });
+    const resp = await checkout.handleNextjs(request, { item: 'wine' });
+    expect(resp.status).toBe(402);
+  });
+
+  it('handleNextjs returns invalid_body envelope when request.json() throws', async () => {
+    const checkout = minimalCheckout();
+    const request = new Request('https://api.example/purchase', { method: 'POST' });
+    const resp = await checkout.handleNextjs(request);
+    expect(resp.status).toBe(400);
+    const body = await resp.json() as { error?: { code?: string } };
+    expect(body.error?.code).toBe('invalid_body');
+  });
+
   it('handleWeb is an alias for handleNextjs', async () => {
     const checkout = minimalCheckout();
     const request = new Request('https://api.example/purchase', {
@@ -564,6 +605,84 @@ describe('Checkout framework adapters', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Checkout accessors
 // ─────────────────────────────────────────────────────────────────────────────
+// pricingResult factory
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('pricingResult', () => {
+  it('derives amountUsd from subtotal + tax in cents', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ subtotalCents: 25000, taxCents: 2000 });
+    expect(pr.amountUsd).toBe(270);
+    expect(pr.currency).toBe('USD');
+    expect(pr.block?.subtotal).toBe('250.00');
+    expect(pr.block?.tax).toBe('20.00');
+  });
+
+  it('includes shippingCents in the derived amount', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ subtotalCents: 25000, taxCents: 2000, shippingCents: 999 });
+    expect(pr.amountUsd).toBe(279.99);
+  });
+
+  it('attaches taxRate + taxState to the block', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ subtotalCents: 25000, taxCents: 2000, taxRate: 0.08, taxState: 'CA' });
+    expect(pr.block?.tax_rate).toBe(0.08);
+    expect(pr.block?.tax_state).toBe('CA');
+  });
+
+  it('passthrough mode (only amountUsd) leaves block undefined', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ amountUsd: 0.01 });
+    expect(pr.amountUsd).toBe(0.01);
+    expect(pr.block).toBeUndefined();
+  });
+
+  it('explicit amountUsd overrides the subtotal-derived value', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ subtotalCents: 25000, taxCents: 2000, amountUsd: 999.99 });
+    expect(pr.amountUsd).toBe(999.99);
+    expect(pr.block?.subtotal).toBe('250.00');
+  });
+
+  it('throws when neither subtotalCents nor amountUsd is provided', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    expect(() => pricingResult({ currency: 'USD' })).toThrowError(/subtotalCents.*amountUsd/);
+  });
+
+  it('propagates product + bodyExtras', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const product = { id: 'sku_1', name: 'Test' };
+    const extras = { redemption_code_applied: 'WELCOME' };
+    const pr = pricingResult({ subtotalCents: 100, product, bodyExtras: extras });
+    expect(pr.product).toEqual(product);
+    expect(pr.bodyExtras).toEqual(extras);
+  });
+
+  it('full discount: subtotal stays list, discount equals list, amount is 0', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ subtotalCents: 7500, discountCents: 7500 });
+    expect(pr.amountUsd).toBe(0);
+    expect(pr.block?.subtotal).toBe('75.00');
+    expect(pr.block?.discount).toBe('75.00');
+    expect(pr.block?.total).toBe('0.00');
+  });
+
+  it('partial discount leaves a settle floor (74.99 discount against 75.00 list → 0.01)', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ subtotalCents: 7500, discountCents: 7499 });
+    expect(pr.amountUsd).toBe(0.01);
+    expect(pr.block?.discount).toBe('74.99');
+    expect(pr.block?.total).toBe('0.01');
+  });
+
+  it('floors amountUsd at 0 when discount exceeds gross', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ subtotalCents: 1000, discountCents: 5000 });
+    expect(pr.amountUsd).toBe(0);
+    expect(pr.block?.total).toBe('0.00');
+  });
+});
 
 describe('Checkout.acceptedRails + acceptedMethodNames', () => {
   it('returns canonical RailKey + method-name lists derived from rails', () => {
@@ -2138,6 +2257,143 @@ describe('Checkout zero-settle x402-base carve-out', () => {
   });
 });
 
+// Checkout._emit_402 auto-attaches identity_metadata when wallet-mode is detected (wave-2 cleanup)
+describe('Checkout 402 emit attaches identity_metadata for wallet mode', () => {
+  it('omits identity_metadata when X-Wallet-Address is absent', async () => {
+    const { Checkout } = await import('../src/checkout');
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT } as TempoRailSpec },
+      url: 'https://x/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+    });
+    const result = (await checkout.handle({
+      method: 'POST',
+      url: 'https://x/purchase',
+      headers: {},
+      body: { item: 'wine' },
+    })) as { status: number; body: Record<string, unknown> };
+    expect(result.body.identity_mode).toBeUndefined();
+  });
+
+  it('advertises required_signer when X-Wallet-Address is present', async () => {
+    const { Checkout } = await import('../src/checkout');
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT } as TempoRailSpec },
+      url: 'https://x/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+    });
+    const result = (await checkout.handle({
+      method: 'POST',
+      url: 'https://x/purchase',
+      headers: { 'X-Wallet-Address': '0xCAFEBEEF' },
+      body: { item: 'wine' },
+    })) as { status: number; body: Record<string, unknown> };
+    expect(result.body.identity_mode).toBe('wallet');
+    expect(result.body.required_signer).toBe('0xCAFEBEEF');
+    expect(result.body.signer_constraint).toBeTypeOf('string');
+  });
+
+  it('lifts linked_wallets from request.assess when populated', async () => {
+    const { Checkout } = await import('../src/checkout');
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT } as TempoRailSpec },
+      url: 'https://x/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+    });
+    const result = (await checkout.handle({
+      method: 'POST',
+      url: 'https://x/purchase',
+      headers: { 'X-Wallet-Address': '0xCAFEBEEF' },
+      body: { item: 'wine' },
+      assess: { identity: { linked_wallets: ['0xSIB1', '0xSIB2'] } },
+    })) as { status: number; body: Record<string, unknown> };
+    expect(result.body.linked_wallets).toEqual(['0xSIB1', '0xSIB2']);
+  });
+});
+
+// Checkout(discoveryProbe=...) auto-routing
+describe('Checkout discoveryProbe routing', () => {
+  it('empty-body POST without payment header returns probe 402', async () => {
+    const { Checkout } = await import('../src/checkout');
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      discoveryProbe: {
+        realm: 'example',
+        sampleRail: 'tempo',
+        sampleAmountUsd: 1.0,
+        sampleRecipient: RECIPIENT,
+        message: 'probe-msg',
+      },
+    });
+    const result = (await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: {},
+      body: {},
+    })) as { status: number; body: Record<string, unknown>; headers: Record<string, string> };
+    expect(result.status).toBe(402);
+    expect(result.body.discovery).toBe(true);
+    expect((result.body.error as { code: string }).code).toBe('payment_required');
+    expect(result.headers['www-authenticate']).toContain('realm="example"');
+  });
+
+  it('POST with Payment authorization bypasses probe routing', async () => {
+    const { Checkout } = await import('../src/checkout');
+    let pricingCalled = false;
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } },
+      url: 'https://api.example/purchase',
+      computePricing: async () => {
+        pricingCalled = true;
+        return { amountUsd: 1.0 };
+      },
+      discoveryProbe: {
+        realm: 'example',
+        sampleRail: 'tempo',
+        sampleAmountUsd: 1.0,
+        sampleRecipient: RECIPIENT,
+      },
+    });
+    // Real Payment auth + a body → bypass probe, run normal flow.
+    // composeMppx is unset, so this falls through to the discovery emit path; pricing still runs.
+    await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: 'Payment <opaque-credential>' },
+      body: { item: 'wine' },
+    });
+    expect(pricingCalled).toBe(true);
+  });
+
+  it('GET request never triggers probe', async () => {
+    const { Checkout } = await import('../src/checkout');
+    let pricingCalled = false;
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } },
+      url: 'https://api.example/purchase',
+      computePricing: async () => {
+        pricingCalled = true;
+        return { amountUsd: 1.0 };
+      },
+      discoveryProbe: {
+        realm: 'example',
+        sampleRail: 'tempo',
+        sampleAmountUsd: 1.0,
+        sampleRecipient: RECIPIENT,
+      },
+    });
+    await checkout.handle({
+      method: 'GET',
+      url: 'https://api.example/purchase',
+      headers: {},
+      body: undefined,
+    });
+    expect(pricingCalled).toBe(true);
+  });
+});
+
 describe('Checkout zero-settle MPP carve-out', () => {
   it('zeroSettleCarveOut=true + $0 + MPP authorization → 200 with tx_hash null', async () => {
     const { Checkout } = await import('../src/checkout');
@@ -2164,5 +2420,264 @@ describe('Checkout zero-settle MPP carve-out', () => {
     })) as { status: number; body: Record<string, unknown> };
     expect(result.status).toBe(200);
     expect(result.body.tx_hash ?? null).toBeNull();
+  });
+});
+
+// Checkout.mountUcpRoutes<Framework>
+/* eslint-disable @typescript-eslint/no-explicit-any */
+describe('Checkout.mountUcpRoutes<Framework>', () => {
+  async function mountedCheckout(): Promise<{ checkout: any; restoreEnv: () => void }> {
+    const { Checkout } = await import('../src/checkout');
+    const { generateUCPSigningKey, _resetUCPSigningKeyCache } = await import('../src/identity/ucp-jwks');
+    const { exportJWK } = await import('jose');
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT } as TempoRailSpec },
+      url: 'https://x/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+    });
+    _resetUCPSigningKeyCache();
+    const { privateKey } = await generateUCPSigningKey({ kid: 'mount-test' });
+    const privJwk = await exportJWK(privateKey as Parameters<typeof exportJWK>[0]);
+    const prev = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+    process.env.UCP_SIGNING_KEY_JWK_PRIVATE = JSON.stringify({ ...privJwk, kid: 'mount-test', alg: 'EdDSA' });
+    return {
+      checkout,
+      restoreEnv: () => {
+        if (prev === undefined) delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+        else process.env.UCP_SIGNING_KEY_JWK_PRIVATE = prev;
+        _resetUCPSigningKeyCache();
+      },
+    };
+  }
+
+  it('mountUcpRoutesHono registers GET ucp + GET jwks + OPTIONS', async () => {
+    const { checkout, restoreEnv } = await mountedCheckout();
+    try {
+      const routes: Record<string, (c: { req: { raw: Request } }) => Promise<Response> | Response> = {};
+      const app = {
+        get: (path: string, h: (c: { req: { raw: Request } }) => Promise<Response> | Response) => { routes[`GET ${path}`] = h; },
+        options: (path: string, h: (c: { req: { raw: Request } }) => Promise<Response> | Response) => { routes[`OPTIONS ${path}`] = h; },
+      };
+      checkout.mountUcpRoutesHono(app, {
+        name: 'Mount-Hono',
+        wellKnownUcpUrl: 'https://x/.well-known/ucp',
+        services: {},
+        signingKid: 'mount-test',
+      });
+      const ucpResp = await routes['GET /.well-known/ucp']({ req: { raw: new Request('https://x/.well-known/ucp') } });
+      const jwksResp = await routes['GET /.well-known/jwks.json']({ req: { raw: new Request('https://x/.well-known/jwks.json') } });
+      const preflightResp = await routes['OPTIONS /.well-known/ucp']({ req: { raw: new Request('https://x/.well-known/ucp', { method: 'OPTIONS' }) } });
+
+      expect(ucpResp.status).toBe(200);
+      const ucpBody = await ucpResp.json() as { ucp: { name: string } };
+      expect(ucpBody.ucp.name).toBe('Mount-Hono');
+      expect(jwksResp.status).toBe(200);
+      expect(preflightResp.status).toBe(204);
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it('mountUcpRoutesExpress writes status + headers + body on res', async () => {
+    const { checkout, restoreEnv } = await mountedCheckout();
+    try {
+      const routes: Record<string, any> = {};
+      const app = {
+        get: (path: string, h: any) => { routes[`GET ${path}`] = h; },
+        options: (path: string, h: any) => { routes[`OPTIONS ${path}`] = h; },
+      };
+      checkout.mountUcpRoutesExpress(app, {
+        name: 'Mount-Express',
+        wellKnownUcpUrl: 'https://x/.well-known/ucp',
+        services: {},
+        signingKid: 'mount-test',
+      });
+      const captured: Record<string, any> = {};
+      const mkRes = () => ({
+        status: (c: number) => { captured.status = c; return undefined; },
+        set: (h: Record<string, string>) => { captured.headers = h; return undefined; },
+        type: (mt: string) => { captured.type = mt; return undefined; },
+        send: (b: string) => { captured.body = b; return undefined; },
+      });
+
+      await routes['GET /.well-known/ucp']({ headers: {} }, mkRes());
+      expect(captured.status).toBe(200);
+      expect(captured.type).toBe('application/json');
+      const ucpBody = JSON.parse(captured.body) as { ucp: { name: string } };
+      expect(ucpBody.ucp.name).toBe('Mount-Express');
+
+      const captured2: Record<string, any> = Object.create(captured);
+      const res2 = {
+        status: (c: number) => { captured2.status = c; return undefined; },
+        set: (h: Record<string, string>) => { captured2.headers = h; return undefined; },
+        type: (mt: string) => { captured2.type = mt; return undefined; },
+        send: (b: string) => { captured2.body = b; return undefined; },
+      };
+      // Express headers normalize Array-typed values via Array.isArray ? v.join(',') : v.
+      // Pass an array on Access-Control-Request-Headers to exercise both ternary arms.
+      await routes['OPTIONS /.well-known/ucp'](
+        { headers: { 'access-control-request-headers': ['Authorization', 'X-Custom'] } },
+        res2,
+      );
+      expect(captured2.status).toBe(204);
+
+      // GET /.well-known/jwks.json — covers the second mounted Express GET.
+      const captured3: Record<string, any> = {};
+      const res3 = {
+        status: (c: number) => { captured3.status = c; return undefined; },
+        set: (h: Record<string, string>) => { captured3.headers = h; return undefined; },
+        type: (mt: string) => { captured3.type = mt; return undefined; },
+        send: (b: string) => { captured3.body = b; return undefined; },
+      };
+      await routes['GET /.well-known/jwks.json']({ headers: {} }, res3);
+      expect(captured3.status).toBe(200);
+      const jwksBody = JSON.parse(captured3.body) as { keys: { kid: string }[] };
+      expect(jwksBody.keys[0].kid).toBe('mount-test');
+
+      // OPTIONS /.well-known/jwks.json — preflight on the jwks mount.
+      const captured4: Record<string, any> = {};
+      const res4 = {
+        status: (c: number) => { captured4.status = c; return undefined; },
+        set: (h: Record<string, string>) => { captured4.headers = h; return undefined; },
+        type: (mt: string) => { captured4.type = mt; return undefined; },
+        send: (b: string) => { captured4.body = b; return undefined; },
+      };
+      await routes['OPTIONS /.well-known/jwks.json']({ headers: {} }, res4);
+      expect(captured4.status).toBe(204);
+      expect(captured4.headers['Access-Control-Allow-Origin']).toBe('*');
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it('mountUcpRoutesFastify writes via reply.code/header/type/send', async () => {
+    const { checkout, restoreEnv } = await mountedCheckout();
+    try {
+      const routes: Record<string, any> = {};
+      const app = {
+        get: (path: string, h: any) => { routes[`GET ${path}`] = h; },
+        options: (path: string, h: any) => { routes[`OPTIONS ${path}`] = h; },
+      };
+      checkout.mountUcpRoutesFastify(app, {
+        name: 'Mount-Fastify',
+        wellKnownUcpUrl: 'https://x/.well-known/ucp',
+        services: {},
+        signingKid: 'mount-test',
+      });
+      const captured: Record<string, any> = {};
+      const reply: any = {
+        code: (c: number) => { captured.status = c; return reply; },
+        header: (k: string, v: string) => { captured.headers = { ...(captured.headers ?? {}), [k]: v }; return reply; },
+        type: (mt: string) => { captured.type = mt; return reply; },
+        send: (b: string) => { captured.body = b; return reply; },
+      };
+      await routes['GET /.well-known/ucp']({ headers: {} }, reply);
+      expect(captured.status).toBe(200);
+      const ucpBody = JSON.parse(captured.body) as { ucp: { name: string } };
+      expect(ucpBody.ucp.name).toBe('Mount-Fastify');
+
+      const captured2: Record<string, any> = {};
+      const reply2: any = {
+        code: (c: number) => { captured2.status = c; return reply2; },
+        header: (k: string, v: string) => { captured2.headers = { ...(captured2.headers ?? {}), [k]: v }; return reply2; },
+        type: (mt: string) => { captured2.type = mt; return reply2; },
+        send: (b: string) => { captured2.body = b; return reply2; },
+      };
+      await routes['OPTIONS /.well-known/ucp']({ headers: {} }, reply2);
+      expect(captured2.status).toBe(204);
+
+      // GET /.well-known/jwks.json — same fastify reply chain as ucp.
+      const captured3: Record<string, any> = {};
+      const reply3: any = {
+        code: (c: number) => { captured3.status = c; return reply3; },
+        header: (k: string, v: string) => { captured3.headers = { ...(captured3.headers ?? {}), [k]: v }; return reply3; },
+        type: (mt: string) => { captured3.type = mt; return reply3; },
+        send: (b: string) => { captured3.body = b; return reply3; },
+      };
+      await routes['GET /.well-known/jwks.json']({ headers: {} }, reply3);
+      expect(captured3.status).toBe(200);
+      const jwksBody = JSON.parse(captured3.body) as { keys: { kid: string }[] };
+      expect(jwksBody.keys[0].kid).toBe('mount-test');
+
+      // OPTIONS /.well-known/jwks.json — preflight on the second mount.
+      const captured4: Record<string, any> = {};
+      const reply4: any = {
+        code: (c: number) => { captured4.status = c; return reply4; },
+        header: (k: string, v: string) => { captured4.headers = { ...(captured4.headers ?? {}), [k]: v }; return reply4; },
+        type: (mt: string) => { captured4.type = mt; return reply4; },
+        send: (b: string) => { captured4.body = b; return reply4; },
+      };
+      await routes['OPTIONS /.well-known/jwks.json']({ headers: {} }, reply4);
+      expect(captured4.status).toBe(204);
+      expect(captured4.headers['Access-Control-Allow-Origin']).toBe('*');
+    } finally {
+      restoreEnv();
+    }
+  });
+});
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+// signedResponse<Framework> wrappers
+describe('signedResponse<Framework> wrappers', () => {
+  const NEUTRAL = {
+    body: '{"ok":true}',
+    mediaType: 'application/json',
+    headers: { 'Cache-Control': 'public, max-age=60' },
+    status: 200,
+  };
+
+  it('signedResponseHono wraps neutral payload as a Response', async () => {
+    const { signedResponseHono } = await import('../src/discovery/well_known');
+    const resp = signedResponseHono(NEUTRAL);
+    expect(resp.status).toBe(200);
+    expect(resp.headers.get('content-type')).toBe('application/json');
+    expect(resp.headers.get('cache-control')).toBe('public, max-age=60');
+    expect(await resp.text()).toBe('{"ok":true}');
+  });
+
+  it('signedResponseNextjs + signedResponseWeb mirror Hono shape', async () => {
+    const { signedResponseNextjs, signedResponseWeb } = await import('../src/discovery/well_known');
+    const next = signedResponseNextjs(NEUTRAL);
+    const web = signedResponseWeb(NEUTRAL);
+    expect(next.status).toBe(200);
+    expect(web.status).toBe(200);
+    expect(await next.text()).toBe('{"ok":true}');
+    expect(await web.text()).toBe('{"ok":true}');
+  });
+
+  it('signedResponseExpress writes status + headers + body onto res', async () => {
+    const { signedResponseExpress } = await import('../src/discovery/well_known');
+    const calls: Array<[string, unknown]> = [];
+    const res = {
+      status: (c: number) => { calls.push(['status', c]); return res; },
+      set: (h: Record<string, string>) => { calls.push(['set', h]); return res; },
+      type: (m: string) => { calls.push(['type', m]); return res; },
+      send: (b: string) => { calls.push(['send', b]); return res; },
+    };
+    signedResponseExpress(res, NEUTRAL);
+    expect(calls).toEqual([
+      ['status', 200],
+      ['set', { 'Cache-Control': 'public, max-age=60' }],
+      ['type', 'application/json'],
+      ['send', '{"ok":true}'],
+    ]);
+  });
+
+  it('signedResponseFastify writes via reply.code/header/type/send', async () => {
+    const { signedResponseFastify } = await import('../src/discovery/well_known');
+    const calls: Array<[string, ...unknown[]]> = [];
+    const reply = {
+      code: (c: number) => { calls.push(['code', c]); return reply; },
+      header: (k: string, v: string) => { calls.push(['header', k, v]); return reply; },
+      type: (m: string) => { calls.push(['type', m]); return reply; },
+      send: (b: string) => { calls.push(['send', b]); return reply; },
+    };
+    signedResponseFastify(reply, NEUTRAL);
+    expect(calls).toEqual([
+      ['code', 200],
+      ['header', 'Cache-Control', 'public, max-age=60'],
+      ['type', 'application/json'],
+      ['send', '{"ok":true}'],
+    ]);
   });
 });

@@ -341,3 +341,61 @@ export async function bootstrapUcpSigningKey(opts?: {
   const defaultKid = opts?.defaultKid ?? 'merchant-default';
   await loadUCPSigningKeyFromEnv({ defaultKid });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// signedResponse<Framework> wrappers
+//
+// Convert the framework-neutral SignedDiscoveryResponse / Response (preflight)
+// into a framework-specific response. Saves the 4-line per-framework wrapper
+// every UCP-publishing merchant otherwise hand-rolls.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Hono / Web Fetch wrapper. Returns a `Response`. */
+export function signedResponseHono(resp: SignedDiscoveryResponse): Response {
+  return new Response(resp.body, {
+    status: resp.status,
+    headers: { ...resp.headers, 'Content-Type': resp.mediaType },
+  });
+}
+
+/** Next.js wrapper. Returns a `Response` (interchangeable with NextResponse). */
+export function signedResponseNextjs(resp: SignedDiscoveryResponse): Response {
+  return signedResponseHono(resp);
+}
+
+/** Web Fetch wrapper. Returns a standard `Response`. */
+export function signedResponseWeb(resp: SignedDiscoveryResponse): Response {
+  return signedResponseHono(resp);
+}
+
+/** Express wrapper. Writes onto `res`; returns `void` to match Express convention. */
+export function signedResponseExpress(
+  res: {
+    status: (code: number) => unknown;
+    set: (headers: Record<string, string>) => unknown;
+    type: (mt: string) => unknown;
+    send: (body: string) => unknown;
+  },
+  resp: SignedDiscoveryResponse,
+): void {
+  res.status(resp.status);
+  res.set(resp.headers);
+  res.type(resp.mediaType);
+  res.send(resp.body);
+}
+
+/** Fastify wrapper. Writes onto `reply` and returns it. */
+export function signedResponseFastify(
+  reply: {
+    code: (code: number) => unknown;
+    header: (k: string, v: string) => unknown;
+    type: (mt: string) => unknown;
+    send: (body: string) => unknown;
+  },
+  resp: SignedDiscoveryResponse,
+): unknown {
+  reply.code(resp.status);
+  for (const [k, v] of Object.entries(resp.headers)) reply.header(k, v);
+  reply.type(resp.mediaType);
+  return reply.send(resp.body);
+}

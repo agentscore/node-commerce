@@ -90,15 +90,3 @@ export async function createMultichainPaymentIntent({
 
   return { paymentIntentId: pi.id, depositAddresses };
 }
-
-/**
- * Convenience accessor: get the deposit address for a specific network from a
- * createMultichainPaymentIntent result. Returns undefined if Stripe didn't issue
- * an address for that network.
- */
-export function getDepositAddress(
-  result: MultichainPaymentIntentResult,
-  network: string,
-): string | undefined {
-  return result.depositAddresses[network];
-}

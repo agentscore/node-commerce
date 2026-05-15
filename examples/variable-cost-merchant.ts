@@ -151,6 +151,7 @@ async function buildChallenge(url: string): Promise<Response> {
       // back to the JSON body.
       'PAYMENT-REQUIRED': paymentRequiredHeader({
         x402Version: 2,
+        accepts: [],
         resource: { url },
       }),
     },

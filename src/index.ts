@@ -73,10 +73,11 @@ export {
   type GateResult,
   type IdentityStatus,
   type PolicyBlock,
-  buildGateOptionsFromPolicy,
+  buildGateFromPolicy,
   runGateWithEnforcement,
   shippingCountryAllowed,
   shippingStateAllowed,
+  validateShippingAgainstPolicy,
 } from './identity/policy';
 export { hashOperatorToken } from './identity/tokens';
 export {
@@ -88,7 +89,9 @@ export {
   type CheckoutResult,
   CheckoutValidationError,
   type ComposeMppxFn,
+  type DiscoveryProbeConfig,
   type GateDenial,
+  type MountUcpRoutesOptions,
   type IsCachedAddressFn,
   type MppxComposeOutcome,
   type OnSettledFn,
@@ -101,6 +104,7 @@ export {
   type SettleOutcome,
   getIdentityStatus,
   makeMppxComposeHook,
+  pricingResult,
   validationEnvelope,
   validationResponseExpress,
   validationResponseFastify,
@@ -108,3 +112,14 @@ export {
   validationResponseNextjs,
   validationResponseWeb,
 } from './checkout';
+// RailSpec types + payment helpers re-exported at top-level for cross-language
+// parity with python-commerce. Power users can still import from `./payment`.
+export {
+  formatUsdCents,
+  loadSolanaFeePayer,
+  type SolanaMppRailSpec,
+  type StripeRailSpec,
+  type TempoRailSpec,
+  type TempoSessionRailSpec,
+  type X402BaseRailSpec,
+} from './payment';

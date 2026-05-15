@@ -39,6 +39,7 @@ import { type RailKey, buildAgentInstructions } from './challenge/agent_instruct
 import { firstEncounterAgentMemory } from './challenge/agent_memory';
 import { build402Body } from './challenge/body';
 import { buildHowToPay } from './challenge/how_to_pay';
+import { type IdentityMetadataBlock, buildIdentityMetadata } from './challenge/identity';
 import { buildPricingBlock, type PricingBlock } from './challenge/pricing';
 import { respond402 } from './challenge/respond_402';
 import { buildValidationError } from './challenge/validation_error';
@@ -66,6 +67,7 @@ import { classifyX402SettleResult, processX402Settle } from './payment/x402_sett
 import { verifyX402Request } from './payment/x402_validation';
 import { zeroAmountCarveOut, type ZeroSettleRail } from './payment/zero-settle';
 import { extractPaymentSignerFromAuth } from './signer';
+import type { SignedDiscoveryResponse } from './discovery/well_known';
 
 export type CheckoutRailSpec =
   | TempoRailSpec
@@ -117,6 +119,113 @@ export interface PricingResult {
    *  Useful for `redemption_code_applied`, coupon hints, or any other field the
    *  merchant wants the agent to see in the challenge body. */
   bodyExtras?: Record<string, unknown>;
+}
+
+/**
+ * Build a {@link PricingResult} from cents-denominated inputs.
+ *
+ * Saves the `{ amountUsd: ..., block: buildPricingBlock({...}) }` dance every
+ * US-commerce merchant repeats. When `subtotalCents` is set:
+ *
+ * - `subtotalCents` is the list price (pre-discount). `discountCents` is the
+ *   deduction applied (redemption code / coupon / promo).
+ * - `amountUsd` is derived from `(subtotal + tax + shipping - discount) / 100`
+ *   (floored at 0) unless explicitly provided.
+ * - A {@link PricingBlock} is built via {@link buildPricingBlock} and attached
+ *   to the result's `block` field. `discount` is surfaced as a dollar-string
+ *   when `discountCents` is supplied.
+ *
+ * When `subtotalCents` is omitted, the function passes through to the raw
+ * `PricingResult` shape; `amountUsd` is then required.
+ *
+ * Use this in `computePricing` hooks instead of hand-rolling:
+ *
+ * @example
+ * computePricing: async (ctx) => pricingResult({
+ *   subtotalCents: 25000,
+ *   taxCents: 2000,
+ *   taxRate: 0.08,
+ *   taxState: 'CA',
+ * }),
+ *
+ * @example
+ * // Redemption-code applied (free order, agent sees the savings line):
+ * computePricing: async (ctx) => pricingResult({
+ *   subtotalCents: 7500,
+ *   discountCents: 7500,
+ * }),
+ */
+export function pricingResult(opts: {
+  subtotalCents?: number;
+  taxCents?: number;
+  shippingCents?: number;
+  discountCents?: number;
+  taxRate?: number;
+  taxState?: string;
+  currency?: string;
+  amountUsd?: number;
+  product?: Record<string, string>;
+  bodyExtras?: Record<string, unknown>;
+}): PricingResult {
+  const currency = opts.currency ?? 'USD';
+  if (opts.subtotalCents !== undefined) {
+    const totalCents = Math.max(
+      0,
+      opts.subtotalCents + (opts.taxCents ?? 0) + (opts.shippingCents ?? 0) - (opts.discountCents ?? 0),
+    );
+    const derivedAmount = opts.amountUsd ?? totalCents / 100;
+    const block = buildPricingBlock({
+      subtotalCents: opts.subtotalCents,
+      taxCents: opts.taxCents ?? 0,
+      ...(opts.shippingCents !== undefined && { shippingCents: opts.shippingCents }),
+      ...(opts.discountCents !== undefined && { discountCents: opts.discountCents }),
+      ...(opts.taxRate !== undefined && { taxRate: opts.taxRate }),
+      ...(opts.taxState !== undefined && { taxState: opts.taxState }),
+      currency,
+    });
+    return {
+      amountUsd: derivedAmount,
+      currency,
+      block,
+      ...(opts.product !== undefined && { product: opts.product }),
+      ...(opts.bodyExtras !== undefined && { bodyExtras: opts.bodyExtras }),
+    };
+  }
+  if (opts.amountUsd === undefined) {
+    throw new Error('pricingResult requires either `subtotalCents` or `amountUsd`.');
+  }
+  return {
+    amountUsd: opts.amountUsd,
+    currency,
+    ...(opts.product !== undefined && { product: opts.product }),
+    ...(opts.bodyExtras !== undefined && { bodyExtras: opts.bodyExtras }),
+  };
+}
+
+/**
+ * Per-route discovery-probe config. When passed to {@link Checkout}, any
+ * empty-body POST without a payment credential short-circuits with a sample
+ * 402 advertising the merchant's payment shape — the canonical pattern x402
+ * crawlers (`awal x402 details`, `x402-proxy`, `x402scan`) rely on.
+ *
+ * Mirrors python's `DiscoveryProbeConfig` dataclass.
+ */
+export interface DiscoveryProbeConfig {
+  realm: string;
+  sampleRail: 'tempo' | 'base' | 'solana' | 'stripe';
+  sampleAmountUsd: number;
+  sampleRecipient: string;
+  intent?: 'charge' | 'authorize' | 'session.open';
+  ttlSeconds?: number;
+  docsUrl?: string;
+  message?: string;
+  x402Sample?: {
+    version?: 1 | 2;
+    networks?: string[];
+    accepts?: unknown[];
+    amountAtomic?: string;
+    resourceUrl?: string;
+  };
 }
 
 /** In-flight state passed to every hook in the Checkout flow. */
@@ -372,6 +481,30 @@ function hasMppxHeader(headers: Record<string, string>): boolean {
   return (h['authorization'] ?? '').startsWith('Payment ');
 }
 
+function resolveIdentityMetadata(
+  ctx: CheckoutContext,
+): IdentityMetadataBlock | undefined {
+  const h = lowerHeaders(ctx.request.headers);
+  const wallet = h['x-wallet-address'];
+  if (!wallet) return undefined;
+  let linkedWallets: string[] | undefined;
+  const assess = ctx.request.assess;
+  if (assess && typeof assess === 'object') {
+    const identity = (assess as Record<string, unknown>)['identity'];
+    if (identity && typeof identity === 'object') {
+      const lw = (identity as Record<string, unknown>)['linked_wallets'];
+      if (Array.isArray(lw) && lw.every((x): x is string => typeof x === 'string')) {
+        linkedWallets = lw;
+      }
+    }
+  }
+  return buildIdentityMetadata({
+    mode: 'wallet',
+    wallet,
+    ...(linkedWallets !== undefined ? { linkedWallets } : {}),
+  });
+}
+
 function isStripeRailSpec(s: CheckoutRailSpec): s is StripeRailSpec {
   return !('recipient' in s);
 }
@@ -548,6 +681,7 @@ export class Checkout {
   readonly zeroSettleCarveOut: boolean;
   readonly gate: CheckoutGateConfig | undefined;
   readonly discoveryExtensions: Record<string, unknown> | undefined;
+  readonly discoveryProbe: DiscoveryProbeConfig | undefined;
   private _x402ServerGetter: (() => Promise<X402Server>) | undefined;
 
   constructor(opts: {
@@ -599,6 +733,10 @@ export class Checkout {
      *  `extensions` field so Bazaar crawlers and other spec-compliant clients
      *  read the route's declared input/output schema. */
     discoveryExtensions?: Record<string, unknown>;
+    /** Optional discovery-probe config: auto-route empty-body POSTs without a
+     *  payment header to a sample 402 advertising the merchant's shape for
+     *  crawlers (`awal x402 details`, x402-proxy, x402scan, ...). */
+    discoveryProbe?: DiscoveryProbeConfig;
   }) {
     const x402Server = opts.x402Server;
     let x402ServerGetter: (() => Promise<X402Server>) | undefined;
@@ -655,6 +793,7 @@ export class Checkout {
     this.zeroSettleCarveOut = opts.zeroSettleCarveOut ?? false;
     this.gate = opts.gate;
     this.discoveryExtensions = opts.discoveryExtensions;
+    this.discoveryProbe = opts.discoveryProbe;
   }
 
   /** Canonical `RailKey` list derived from the configured rails dict. Each
@@ -743,6 +882,38 @@ export class Checkout {
       recipients: {},
       state: {},
     };
+
+    if (this.discoveryProbe !== undefined && request.method === 'POST') {
+      const auth = request.headers['authorization'] ?? request.headers['Authorization'];
+      const isProbe =
+        !(auth?.startsWith('Payment ')) &&
+        !hasX402Header(request.headers) &&
+        !hasMppxHeader(request.headers) &&
+        (request.body === undefined || request.body === null ||
+         (typeof request.body === 'object' && Object.keys(request.body as object).length === 0));
+      if (isProbe) {
+        const { buildDiscoveryProbeResponse } = await import('./discovery/probe.js');
+        const cfg = this.discoveryProbe;
+        const probe = buildDiscoveryProbeResponse({
+          realm: cfg.realm,
+          sampleRail: cfg.sampleRail,
+          sampleAmountUsd: cfg.sampleAmountUsd,
+          sampleRecipient: cfg.sampleRecipient,
+          ...(cfg.intent !== undefined && { intent: cfg.intent }),
+          ...(cfg.ttlSeconds !== undefined && { ttlSeconds: cfg.ttlSeconds }),
+          ...(cfg.docsUrl !== undefined && { docsUrl: cfg.docsUrl }),
+          ...(cfg.message !== undefined && { message: cfg.message }),
+          ...(cfg.x402Sample !== undefined && { x402Sample: cfg.x402Sample }),
+        });
+        return {
+          status: probe.status,
+          body: JSON.parse(probe.body),
+          headers: probe.headers,
+          referenceId: ctx.referenceId,
+          settled: false,
+        };
+      }
+    }
 
     // 1. Pre-validate (merchant-supplied per-request validation).
     if (this.preValidate !== undefined) {
@@ -1208,9 +1379,15 @@ export class Checkout {
       }
     }
 
+    // Pre-advertise wallet-mode signer constraint when the request shows
+    // wallet intent. Saves agents a round trip: they learn required_signer +
+    // linked_wallets at discovery instead of at the 403 on retry.
+    const identityMetadata = resolveIdentityMetadata(ctx);
+
     const body = build402Body({
       acceptedMethods: accepted,
       agentInstructions: buildAgentInstructions({ howToPay }),
+      ...(identityMetadata !== undefined ? { identityMetadata } : {}),
       pricing: pricingBlock,
       amountUsd: ctx.pricing.amountUsd.toFixed(2),
       retryBody: ctx.request.body,
@@ -1620,4 +1797,200 @@ export interface Checkout {
   ): Promise<unknown>;
   handleNextjs(request: Request, body?: Record<string, unknown>): Promise<Response>;
   handleWeb(request: Request, body?: Record<string, unknown>): Promise<Response>;
+  mountUcpRoutesHono(
+    app: {
+      get: (path: string, handler: (c: { req: { raw: Request } }) => Promise<Response> | Response) => unknown;
+      options: (path: string, handler: (c: { req: { raw: Request } }) => Promise<Response> | Response) => unknown;
+    },
+    opts: MountUcpRoutesOptions,
+  ): void;
+  mountUcpRoutesExpress(
+    app: {
+      get: (path: string, handler: (req: { headers: Record<string, string | string[] | undefined> }, res: ExpressLikeRes) => Promise<void> | void) => unknown;
+      options: (path: string, handler: (req: { headers: Record<string, string | string[] | undefined> }, res: ExpressLikeRes) => Promise<void> | void) => unknown;
+    },
+    opts: MountUcpRoutesOptions,
+  ): void;
+  mountUcpRoutesFastify(
+    app: {
+      get: (path: string, handler: (request: { headers: Record<string, string | string[] | undefined> }, reply: FastifyLikeReply) => Promise<unknown> | unknown) => unknown;
+      options: (path: string, handler: (request: { headers: Record<string, string | string[] | undefined> }, reply: FastifyLikeReply) => Promise<unknown> | unknown) => unknown;
+    },
+    opts: MountUcpRoutesOptions,
+  ): void;
 }
+
+interface ExpressLikeRes {
+  status: (code: number) => unknown;
+  set: (headers: Record<string, string>) => unknown;
+  type: (mt: string) => unknown;
+  send: (body: string) => unknown;
+}
+
+interface FastifyLikeReply {
+  code: (code: number) => unknown;
+  header: (k: string, v: string) => unknown;
+  type: (mt: string) => unknown;
+  send: (body: string) => unknown;
+}
+
+/** Options for the `mountUcpRoutes<Framework>` helpers — one shape used by all
+ *  three adapters. Saves merchants from copy-pasting the same 3-route block
+ *  (GET ucp + GET jwks + OPTIONS preflights) every time. */
+export interface MountUcpRoutesOptions {
+  name: string;
+  wellKnownUcpUrl: string;
+  services: Record<string, unknown[]>;
+  signingKid?: string;
+  agentscoreGate?: unknown;
+  ucpPath?: string;
+  jwksPath?: string;
+}
+
+async function _ucpSignedResp(
+  checkout: Checkout,
+  reqHeaders: Headers,
+  opts: MountUcpRoutesOptions,
+): Promise<SignedDiscoveryResponse> {
+  const { buildSignedUcpResponse } = await import('./discovery/well_known.js');
+  return await buildSignedUcpResponse({
+    checkout,
+    name: opts.name,
+    wellKnownUcpUrl: opts.wellKnownUcpUrl,
+    services: opts.services as Parameters<typeof buildSignedUcpResponse>[0]['services'],
+    requestHeaders: reqHeaders,
+    ...(opts.signingKid !== undefined && { signingKid: opts.signingKid }),
+    ...(opts.agentscoreGate !== undefined && {
+      agentscoreGate: opts.agentscoreGate as Parameters<typeof buildSignedUcpResponse>[0]['agentscoreGate'],
+    }),
+  });
+}
+
+async function _jwksSignedResp(
+  reqHeaders: Headers,
+  opts: MountUcpRoutesOptions,
+): Promise<SignedDiscoveryResponse> {
+  const { buildSignedJwksResponse } = await import('./discovery/well_known.js');
+  return await buildSignedJwksResponse({
+    requestHeaders: reqHeaders,
+    ...(opts.signingKid !== undefined && { signingKid: opts.signingKid }),
+  });
+}
+
+function _preflightResp(reqHeaders: Headers): Response {
+  // Use the existing wellKnownPreflightResponse helper (returns Response).
+  // It's a sync function so dynamic import is unnecessary here; we already
+  // import the module lazily inside the registered handlers.
+  return new Response(null, {
+    status: 204,
+    headers: _preflightHeaders(reqHeaders),
+  });
+}
+
+function _preflightHeaders(reqHeaders: Headers): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    Vary: 'Access-Control-Request-Headers',
+  };
+  const acrh = reqHeaders.get('access-control-request-headers');
+  if (acrh) headers['Access-Control-Allow-Headers'] = acrh;
+  return headers;
+}
+
+(Checkout.prototype as unknown as {
+  mountUcpRoutesHono: (this: Checkout, app: Parameters<Checkout['mountUcpRoutesHono']>[0], opts: MountUcpRoutesOptions) => void;
+}).mountUcpRoutesHono = function (app, opts) {
+  const ucpPath = opts.ucpPath ?? '/.well-known/ucp';
+  const jwksPath = opts.jwksPath ?? '/.well-known/jwks.json';
+  // eslint-disable-next-line @typescript-eslint/no-this-alias
+  const checkout = this;
+  app.get(ucpPath, async (c) => {
+    const resp = await _ucpSignedResp(checkout, c.req.raw.headers, opts);
+    return new Response(resp.body, {
+      status: resp.status,
+      headers: { ...resp.headers, 'Content-Type': resp.mediaType },
+    });
+  });
+  app.get(jwksPath, async (c) => {
+    const resp = await _jwksSignedResp(c.req.raw.headers, opts);
+    return new Response(resp.body, {
+      status: resp.status,
+      headers: { ...resp.headers, 'Content-Type': resp.mediaType },
+    });
+  });
+  app.options(ucpPath, (c) => _preflightResp(c.req.raw.headers));
+  app.options(jwksPath, (c) => _preflightResp(c.req.raw.headers));
+};
+
+function _headersFromExpressLike(raw: Record<string, string | string[] | undefined>): Headers {
+  const out = new Headers();
+  for (const [k, v] of Object.entries(raw)) {
+    if (v === undefined) continue;
+    out.set(k, Array.isArray(v) ? v.join(',') : v);
+  }
+  return out;
+}
+
+(Checkout.prototype as unknown as {
+  mountUcpRoutesExpress: (this: Checkout, app: Parameters<Checkout['mountUcpRoutesExpress']>[0], opts: MountUcpRoutesOptions) => void;
+}).mountUcpRoutesExpress = function (app, opts) {
+  const ucpPath = opts.ucpPath ?? '/.well-known/ucp';
+  const jwksPath = opts.jwksPath ?? '/.well-known/jwks.json';
+  // eslint-disable-next-line @typescript-eslint/no-this-alias
+  const checkout = this;
+  app.get(ucpPath, async (req, res) => {
+    const resp = await _ucpSignedResp(checkout, _headersFromExpressLike(req.headers), opts);
+    res.status(resp.status);
+    res.set(resp.headers);
+    res.type(resp.mediaType);
+    res.send(resp.body);
+  });
+  app.get(jwksPath, async (req, res) => {
+    const resp = await _jwksSignedResp(_headersFromExpressLike(req.headers), opts);
+    res.status(resp.status);
+    res.set(resp.headers);
+    res.type(resp.mediaType);
+    res.send(resp.body);
+  });
+  const preflight = (req: { headers: Record<string, string | string[] | undefined> }, res: ExpressLikeRes) => {
+    const reqHeaders = _headersFromExpressLike(req.headers);
+    res.status(204);
+    res.set(_preflightHeaders(reqHeaders));
+    res.send('');
+  };
+  app.options(ucpPath, preflight);
+  app.options(jwksPath, preflight);
+};
+
+(Checkout.prototype as unknown as {
+  mountUcpRoutesFastify: (this: Checkout, app: Parameters<Checkout['mountUcpRoutesFastify']>[0], opts: MountUcpRoutesOptions) => void;
+}).mountUcpRoutesFastify = function (app, opts) {
+  const ucpPath = opts.ucpPath ?? '/.well-known/ucp';
+  const jwksPath = opts.jwksPath ?? '/.well-known/jwks.json';
+  // eslint-disable-next-line @typescript-eslint/no-this-alias
+  const checkout = this;
+  app.get(ucpPath, async (request, reply) => {
+    const resp = await _ucpSignedResp(checkout, _headersFromExpressLike(request.headers), opts);
+    reply.code(resp.status);
+    for (const [k, v] of Object.entries(resp.headers)) reply.header(k, v);
+    reply.type(resp.mediaType);
+    return reply.send(resp.body);
+  });
+  app.get(jwksPath, async (request, reply) => {
+    const resp = await _jwksSignedResp(_headersFromExpressLike(request.headers), opts);
+    reply.code(resp.status);
+    for (const [k, v] of Object.entries(resp.headers)) reply.header(k, v);
+    reply.type(resp.mediaType);
+    return reply.send(resp.body);
+  });
+  const preflight = (request: { headers: Record<string, string | string[] | undefined> }, reply: FastifyLikeReply) => {
+    const reqHeaders = _headersFromExpressLike(request.headers);
+    reply.code(204);
+    for (const [k, v] of Object.entries(_preflightHeaders(reqHeaders))) reply.header(k, v);
+    return reply.send('');
+  };
+  app.options(ucpPath, preflight);
+  app.options(jwksPath, preflight);
+};

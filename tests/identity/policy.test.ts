@@ -3,11 +3,13 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import { CheckoutValidationError } from '../../src/checkout.js';
 import {
-  buildGateOptionsFromPolicy,
+  buildGateFromPolicy,
   runGateWithEnforcement,
   shippingCountryAllowed,
   shippingStateAllowed,
+  validateShippingAgainstPolicy,
 } from '../../src/identity/policy.js';
 
 // ── shipping helpers ────────────────────────────────────────────────────────
@@ -60,19 +62,19 @@ describe('shippingStateAllowed', () => {
   });
 });
 
-// ── buildGateOptionsFromPolicy ─────────────────────────────────────────────────────
+// ── buildGateFromPolicy ─────────────────────────────────────────────────────
 
-describe('buildGateOptionsFromPolicy', () => {
+describe('buildGateFromPolicy', () => {
   it('returns null for null policy', () => {
-    expect(buildGateOptionsFromPolicy(null, { apiKey: 'as_test' })).toBeNull();
+    expect(buildGateFromPolicy(null, { apiKey: 'as_test' })).toBeNull();
   });
 
   it('returns null when policy has no enforcement', () => {
-    expect(buildGateOptionsFromPolicy({}, { apiKey: 'as_test' })).toBeNull();
+    expect(buildGateFromPolicy({}, { apiKey: 'as_test' })).toBeNull();
   });
 
   it('returns options when enforcement is set', () => {
-    const opts = buildGateOptionsFromPolicy(
+    const opts = buildGateFromPolicy(
       {
         enforcement: 'hard',
         requireKyc: true,
@@ -90,7 +92,7 @@ describe('buildGateOptionsFromPolicy', () => {
   });
 
   it('passes baseUrl through when given', () => {
-    const opts = buildGateOptionsFromPolicy(
+    const opts = buildGateFromPolicy(
       { enforcement: 'soft' },
       { apiKey: 'as_test', baseUrl: 'https://api.example.com' },
     );
@@ -98,7 +100,7 @@ describe('buildGateOptionsFromPolicy', () => {
   });
 
   it('omits absent fields rather than passing undefined', () => {
-    const opts = buildGateOptionsFromPolicy({ enforcement: 'soft' }, { apiKey: 'as_test' });
+    const opts = buildGateFromPolicy({ enforcement: 'soft' }, { apiKey: 'as_test' });
     expect(opts).not.toBeNull();
     expect(Object.prototype.hasOwnProperty.call(opts, 'requireKyc')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(opts, 'minAge')).toBe(false);
@@ -144,5 +146,110 @@ describe('runGateWithEnforcement', () => {
     }));
     expect(result.status).toBe('unverified');
     expect(result.denialStatus).toBe(403);
+  });
+});
+
+// ── validateShippingAgainstPolicy ────────────────────────────────────────────
+
+describe('validateShippingAgainstPolicy', () => {
+  it('no-ops when policy is null', () => {
+    expect(() => validateShippingAgainstPolicy({ country: 'AQ', state: '', policy: null })).not.toThrow();
+  });
+
+  it('no-ops when policy has no allowlist', () => {
+    expect(() =>
+      validateShippingAgainstPolicy({
+        country: 'JP',
+        state: '',
+        policy: { requireKyc: true },
+      }),
+    ).not.toThrow();
+  });
+
+  it('throws CheckoutValidationError on disallowed country', () => {
+    expect(() =>
+      validateShippingAgainstPolicy({
+        country: 'JP',
+        state: '',
+        policy: { allowedShippingCountries: ['US'] },
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        constructor: CheckoutValidationError,
+        code: 'unsupported_jurisdiction',
+        action: 'change_shipping_state',
+      }) as unknown as Error,
+    );
+  });
+
+  it('throws on disallowed state with the state in the message', () => {
+    try {
+      validateShippingAgainstPolicy({
+        country: 'US',
+        state: 'UT',
+        policy: { allowedShippingCountries: ['US'], allowedShippingStates: ['CA', 'NY'] },
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(CheckoutValidationError);
+      expect((err as CheckoutValidationError).message).toContain('UT');
+    }
+  });
+
+  it('includes productName in the message when provided', () => {
+    try {
+      validateShippingAgainstPolicy({
+        country: 'JP',
+        state: '',
+        policy: { allowedShippingCountries: ['US'] },
+        productName: 'Reserve Cabernet',
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect((err as CheckoutValidationError).message).toContain('Reserve Cabernet');
+    }
+  });
+
+  it('countryMessage / stateMessage override defaults verbatim', () => {
+    try {
+      validateShippingAgainstPolicy({
+        country: 'JP',
+        state: '',
+        policy: { allowedShippingCountries: ['US'] },
+        countryMessage: 'Sorry, regulations.',
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect((err as CheckoutValidationError).message).toBe('Sorry, regulations.');
+    }
+    try {
+      validateShippingAgainstPolicy({
+        country: 'US',
+        state: 'UT',
+        policy: { allowedShippingCountries: ['US'], allowedShippingStates: ['CA'] },
+        stateMessage: "Fulfillment partner doesn't cover that area.",
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect((err as CheckoutValidationError).message).toBe(
+        "Fulfillment partner doesn't cover that area.",
+      );
+    }
+  });
+
+  it('errorCode / errorAction override defaults', () => {
+    try {
+      validateShippingAgainstPolicy({
+        country: 'JP',
+        state: '',
+        policy: { allowedShippingCountries: ['US'] },
+        errorCode: 'ships_us_only',
+        errorAction: 'contact_support',
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect((err as CheckoutValidationError).code).toBe('ships_us_only');
+      expect((err as CheckoutValidationError).action).toBe('contact_support');
+    }
   });
 });

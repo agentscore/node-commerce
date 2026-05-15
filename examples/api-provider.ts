@@ -32,18 +32,21 @@
  * Run: bun run examples/api-provider.ts
  */
 
-import { Checkout, type SettleOutcome } from '@agent-score/commerce';
 import {
-  buildDiscoveryProbeResponse,
-  isDiscoveryProbeRequest,
-  noindexNonDiscoveryPaths,
-} from '@agent-score/commerce/discovery';
-import {
+  Checkout,
+  type DiscoveryProbeConfig,
+  type SettleOutcome,
   type SolanaMppRailSpec,
   type TempoRailSpec,
   type X402BaseRailSpec,
-  networks,
-} from '@agent-score/commerce/payment';
+} from '@agent-score/commerce';
+import {
+  buildMerchantIndexJson,
+  buildRedemptionSkillMd,
+  noindexNonDiscoveryPaths,
+  standardEndpointDescriptions,
+} from '@agent-score/commerce/discovery';
+import { networks } from '@agent-score/commerce/payment';
 import { Hono, type Context } from 'hono';
 
 const PRICE_USDC = 0.01; // per-call price in USD
@@ -83,6 +86,20 @@ const checkout = new Checkout({
   ...(process.env.CDP_API_KEY_ID !== undefined && { cdpApiKeyId: process.env.CDP_API_KEY_ID }),
   ...(process.env.CDP_API_KEY_SECRET !== undefined && { cdpApiKeySecret: process.env.CDP_API_KEY_SECRET }),
   ...(process.env.MPP_SECRET_KEY !== undefined && { mppxSecretKey: process.env.MPP_SECRET_KEY }),
+  // Auto-route empty-body POSTs without a payment header to a sample 402 so
+  // crawlers (`awal x402 details`, x402-proxy, ...) can find this surface
+  // without committing to a real charge. The probe advertises SAMPLE accepts;
+  // real rails fire only when the agent retries with a credential.
+  discoveryProbe: {
+    realm: REALM,
+    sampleRail: _TEMPO_RAIL_NAME,
+    sampleAmountUsd: PRICE_USDC,
+    sampleRecipient: TEMPO_RECIPIENT,
+    x402Sample: {
+      networks: [X402_BASE_NETWORK, SOLANA_NETWORK_CAIP2],
+      resourceUrl: `https://${REALM}/search`,
+    },
+  } satisfies DiscoveryProbeConfig,
 });
 
 const app = new Hono();
@@ -90,26 +107,59 @@ const app = new Hono();
 // noindex non-discovery paths so /search doesn't end up in human-shaped SERPs.
 app.use('*', noindexNonDiscoveryPaths());
 
-app.post('/search', async (c: Context) => {
-  // Discovery probe: empty-body POST without any payment header. Return sample
-  // 402 so crawlers (`awal x402 details`, x402-proxy, ...) can find this surface
-  // without committing to a real charge. Handle inline because the probe
-  // advertises SAMPLE accepts (not the merchant's real settle rails).
-  if (await isDiscoveryProbeRequest(c.req.raw)) {
-    const probe = buildDiscoveryProbeResponse({
-      realm: REALM,
-      sampleRail: _TEMPO_RAIL_NAME,
-      sampleAmountUsd: PRICE_USDC,
-      sampleRecipient: TEMPO_RECIPIENT,
-      x402Sample: {
-        networks: [X402_BASE_NETWORK, SOLANA_NETWORK_CAIP2],
-        resourceUrl: `https://${REALM}/search`,
-      },
-    });
-    return new Response(probe.body, { status: probe.status, headers: probe.headers });
-  }
+app.post('/search', (c: Context) => checkout.handleHono(c));
 
-  return checkout.handleHono(c);
-});
+// Discovery root for API merchants. Mirror of the goods-merchant `/` pattern.
+// Lists endpoints, supported rails, docs, and per-call pricing so agents can
+// discover this merchant from a Bazaar listing or a llms.txt cross-link.
+app.get('/', (c: Context) =>
+  c.json(
+    buildMerchantIndexJson({
+      name: 'Example Search API',
+      description:
+        'Agent-native search API. Per-call billing on Tempo, x402 Base, and Solana. ' +
+        'Trial credit codes (single-use) settle a fixed number of free calls before ' +
+        'the wallet starts paying.',
+      docs: { redemption: `https://${REALM}/redemption.md` },
+      endpoints: standardEndpointDescriptions({ kind: 'api' }),
+      supportedRails: ['tempo', 'x402-base', 'solana-mpp'],
+      extra: {
+        pricing: {
+          per_call_usd: PRICE_USDC.toFixed(2),
+          trial_credit_codes: 'single-use; settle one paid call for free',
+        },
+      },
+    }),
+  ),
+);
+
+// Agent-facing skill.md for trial-credit codes. The pattern is delivery-neutral;
+// whether codes are emailed in a developer onboarding email, surfaced in a
+// dashboard, or distributed via partner promotions, the redemption flow is the
+// same: submit the code in the body next to the regular call shape, the server
+// burns it single-use, and the 402 either skips entirely ($0 settle) or charges
+// the discounted amount.
+app.get('/redemption.md', (c: Context) =>
+  c.text(
+    buildRedemptionSkillMd({
+      merchantName: 'Example Search API',
+      appUrl: `https://${REALM}`,
+      endpointPath: '/search',
+      skuIntro:
+        'The code unlocks one free `POST /search` call. After that, the endpoint ' +
+        'reverts to standard per-call billing.',
+      deliveryIntro:
+        "You're reading this because the developer you're working for received a " +
+        'single-use trial credit code from Example Search API (typically via the ' +
+        'developer onboarding email or dashboard). This page tells you, the agent, ' +
+        'exactly how to turn that code into a successful call.',
+      bodyShape: `{
+     "query": "<search query>",
+     "redemption_code": "<code>"
+   }`,
+      bodyRules: '',
+    }),
+  ),
+);
 
 export default app;

@@ -32,17 +32,14 @@ import {
   Checkout,
   type AgentScoreGatePolicy,
   type PricingResult,
+  type TempoRailSpec,
   UCPVerificationError,
   verifyUCPProfile,
 } from '@agent-score/commerce';
 import {
   bootstrapUcpSigningKey,
-  buildSignedJwksResponse,
-  buildSignedUcpResponse,
   defaultA2aServices,
-  wellKnownPreflightResponse,
 } from '@agent-score/commerce/discovery';
-import { type TempoRailSpec } from '@agent-score/commerce/payment';
 import { Hono, type Context } from 'hono';
 
 const SIGNING_KID = 'merchant-2026-05';
@@ -65,39 +62,23 @@ await bootstrapUcpSigningKey({ defaultKid: SIGNING_KID });
 
 const app = new Hono();
 
-app.get('/.well-known/ucp', async (c: Context) => {
-  const resp = await buildSignedUcpResponse({
-    checkout,
-    name: 'My Agent Service',
-    wellKnownUcpUrl: 'https://agents.example.com/.well-known/ucp',
-    services: defaultA2aServices({
-      agentCardUrl: 'https://agents.example.com/.well-known/agent-card.json',
-    }),
-    requestHeaders: c.req.raw.headers,
-    signingKid: SIGNING_KID,
-    // Optional: declare merchant gate policy as an `sh.agentscore.identity`
-    // capability binding inside the public profile. Static policy declaration
-    // only; per-operator identity attestation flows through the AP2
-    // risk-signal endpoint.
-    agentscoreGate: AGENTSCORE_GATE,
-  });
-  return new Response(resp.body, { status: resp.status, headers: resp.headers });
+// One-call: registers GET /.well-known/ucp + GET /.well-known/jwks.json +
+// OPTIONS preflights. Composes payment_handlers from checkout.rails, signs
+// the profile with the env JWK at SIGNING_KID, and attaches Cache-Control +
+// CORS + X-Request-ID headers per UCP §6.
+checkout.mountUcpRoutesHono(app, {
+  name: 'My Agent Service',
+  wellKnownUcpUrl: 'https://agents.example.com/.well-known/ucp',
+  services: defaultA2aServices({
+    agentCardUrl: 'https://agents.example.com/.well-known/agent-card.json',
+  }),
+  signingKid: SIGNING_KID,
+  // Optional: declare merchant gate policy as an `sh.agentscore.identity`
+  // capability binding inside the public profile. Static policy declaration
+  // only; per-operator identity attestation flows through the AP2
+  // risk-signal endpoint.
+  agentscoreGate: AGENTSCORE_GATE,
 });
-
-app.get('/.well-known/jwks.json', async (c: Context) => {
-  const resp = await buildSignedJwksResponse({
-    requestHeaders: c.req.raw.headers,
-    signingKid: SIGNING_KID,
-  });
-  return new Response(resp.body, { status: resp.status, headers: resp.headers });
-});
-
-app.options('/.well-known/ucp', (c: Context) =>
-  wellKnownPreflightResponse(c.req.raw.headers),
-);
-app.options('/.well-known/jwks.json', (c: Context) =>
-  wellKnownPreflightResponse(c.req.raw.headers),
-);
 
 // Self-smoke: confirm sign + verify round-trip locally.
 app.get('/_selftest/ucp', async (c: Context) => {

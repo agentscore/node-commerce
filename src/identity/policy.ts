@@ -16,7 +16,7 @@
  * This module ships three primitives:
  *
  * 1. {@link PolicyBlock} — the typed shape.
- * 2. {@link buildGateOptionsFromPolicy} — translate a block into the options object the
+ * 2. {@link buildGateFromPolicy} — translate a block into the options object the
  *    per-framework `agentscoreGate(...)` accepts. Returns `null` when the policy
  *    has no enforcement (treat as "no gate; anonymous OK").
  * 3. {@link runGateWithEnforcement} — wrap a per-framework middleware in the
@@ -28,6 +28,7 @@
  * unaffected.
  */
 
+import { CheckoutValidationError } from '../checkout';
 import type { AgentScoreCoreOptions, DenialReason } from '../core.js';
 
 /** Hard = 403 propagates; soft = swallowed + identity_status="unverified". */
@@ -75,7 +76,7 @@ export interface GateResult {
  * when the policy varies per resource (e.g. per product). Each adapter's gate
  * is cheap to instantiate.
  */
-export function buildGateOptionsFromPolicy(
+export function buildGateFromPolicy(
   policy: PolicyBlock | null | undefined,
   base: { apiKey: string; baseUrl?: string },
 ): AgentScoreCoreOptions | null {
@@ -159,4 +160,64 @@ export function shippingStateAllowed(
   if (country.toUpperCase() !== 'US') return true;
   const allowed = new Set(policy.allowedShippingStates.map((s) => s.toUpperCase()));
   return allowed.has(state.toUpperCase());
+}
+
+/**
+ * Throw {@link CheckoutValidationError} when shipping isn't allowed by the policy.
+ *
+ * One-call replacement for the
+ *
+ *     if (!shippingCountryAllowed(...)) throw new CheckoutValidationError(...);
+ *     if (!shippingStateAllowed(...))   throw new CheckoutValidationError(...);
+ *
+ * boilerplate every goods merchant writes in their `preValidate` hook.
+ *
+ * `policy` is a {@link PolicyBlock} (or `null`/`undefined`); NULL policy means
+ * "ship anywhere" and the function is a no-op. The reason a location is
+ * excluded is **merchant-defined**: it might be regulatory (regulated goods
+ * + state allowlist), operational (no fulfillment partner), or commercial
+ * (fragility, fraud-rate-by-region, etc.) — the helper doesn't assume.
+ *
+ * `productName` is the user-facing item name surfaced in the error message
+ * ("Cannot ship 'Wine 2020' to NY ..."). Omit for a generic message.
+ *
+ * `errorCode` and `errorAction` let merchants override the canonical denial
+ * codes if their consumer agents expect different shapes.
+ *
+ * `countryMessage` / `stateMessage` override the default messages verbatim
+ * (use these when the default phrasing isn't right for your consumer agents
+ * — e.g. you want to surface the regulatory reason explicitly, or you want
+ * the message in a different language).
+ */
+export function validateShippingAgainstPolicy(opts: {
+  country: string;
+  state: string;
+  policy: PolicyBlock | null | undefined;
+  productName?: string;
+  errorCode?: string;
+  errorAction?: string;
+  countryMessage?: string;
+  stateMessage?: string;
+}): void {
+  const code = opts.errorCode ?? 'unsupported_jurisdiction';
+  const action = opts.errorAction ?? 'change_shipping_state';
+  const item = opts.productName ? `'${opts.productName}'` : 'this item';
+  if (!shippingCountryAllowed(opts.country, opts.policy)) {
+    throw new CheckoutValidationError({
+      code,
+      message:
+        opts.countryMessage ??
+        `We can't ship ${item} to ${opts.country.toUpperCase() || '<unset>'}.`,
+      action,
+    });
+  }
+  if (!shippingStateAllowed(opts.state, opts.country, opts.policy)) {
+    throw new CheckoutValidationError({
+      code,
+      message:
+        opts.stateMessage ??
+        `We can't ship ${item} to ${opts.state.toUpperCase() || '<unset>'}.`,
+      action,
+    });
+  }
 }
