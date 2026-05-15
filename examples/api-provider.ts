@@ -33,7 +33,12 @@
  */
 
 import { Checkout, type DiscoveryProbeConfig, type SettleOutcome } from '@agent-score/commerce';
-import { noindexNonDiscoveryPaths } from '@agent-score/commerce/discovery';
+import {
+  buildMerchantIndexJson,
+  buildRedemptionSkillMd,
+  noindexNonDiscoveryPaths,
+  standardEndpointDescriptions,
+} from '@agent-score/commerce/discovery';
 import {
   type SolanaMppRailSpec,
   type TempoRailSpec,
@@ -101,5 +106,58 @@ const app = new Hono();
 app.use('*', noindexNonDiscoveryPaths());
 
 app.post('/search', (c: Context) => checkout.handleHono(c));
+
+// Discovery root for API merchants. Mirror of the goods-merchant `/` pattern.
+// Lists endpoints, supported rails, docs, and per-call pricing so agents can
+// discover this merchant from a Bazaar listing or a llms.txt cross-link.
+app.get('/', (c: Context) =>
+  c.json(
+    buildMerchantIndexJson({
+      name: 'Example Search API',
+      description:
+        'Agent-native search API. Per-call billing on Tempo, x402 Base, and Solana. ' +
+        'Trial credit codes (single-use) settle a fixed number of free calls before ' +
+        'the wallet starts paying.',
+      docs: { redemption: `https://${REALM}/redemption.md` },
+      endpoints: standardEndpointDescriptions({ kind: 'api' }),
+      supportedRails: ['tempo', 'x402-base', 'solana-mpp'],
+      extra: {
+        pricing: {
+          per_call_usd: PRICE_USDC.toFixed(2),
+          trial_credit_codes: 'single-use; settle one paid call for free',
+        },
+      },
+    }),
+  ),
+);
+
+// Agent-facing skill.md for trial-credit codes. The pattern is delivery-neutral;
+// whether codes are emailed in a developer onboarding email, surfaced in a
+// dashboard, or distributed via partner promotions, the redemption flow is the
+// same: submit the code in the body next to the regular call shape, the server
+// burns it single-use, and the 402 either skips entirely ($0 settle) or charges
+// the discounted amount.
+app.get('/redemption.md', (c: Context) =>
+  c.text(
+    buildRedemptionSkillMd({
+      merchantName: 'Example Search API',
+      appUrl: `https://${REALM}`,
+      endpointPath: '/search',
+      skuIntro:
+        'The code unlocks one free `POST /search` call. After that, the endpoint ' +
+        'reverts to standard per-call billing.',
+      deliveryIntro:
+        "You're reading this because the developer you're working for received a " +
+        'single-use trial credit code from Example Search API (typically via the ' +
+        'developer onboarding email or dashboard). This page tells you, the agent, ' +
+        'exactly how to turn that code into a successful call.',
+      bodyShape: `{
+     "query": "<search query>",
+     "redemption_code": "<code>"
+   }`,
+      bodyRules: '',
+    }),
+  ),
+);
 
 export default app;
