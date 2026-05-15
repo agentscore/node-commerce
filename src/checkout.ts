@@ -127,10 +127,13 @@ export interface PricingResult {
  * Saves the `{ amountUsd: ..., block: buildPricingBlock({...}) }` dance every
  * US-commerce merchant repeats. When `subtotalCents` is set:
  *
- * - `amountUsd` is derived from `(subtotal + tax + shipping) / 100` unless
- *   explicitly provided.
+ * - `subtotalCents` is the list price (pre-discount). `discountCents` is the
+ *   deduction applied (redemption code / coupon / promo).
+ * - `amountUsd` is derived from `(subtotal + tax + shipping - discount) / 100`
+ *   (floored at 0) unless explicitly provided.
  * - A {@link PricingBlock} is built via {@link buildPricingBlock} and attached
- *   to the result's `block` field.
+ *   to the result's `block` field. `discount` is surfaced as a dollar-string
+ *   when `discountCents` is supplied.
  *
  * When `subtotalCents` is omitted, the function passes through to the raw
  * `PricingResult` shape; `amountUsd` is then required.
@@ -144,11 +147,19 @@ export interface PricingResult {
  *   taxRate: 0.08,
  *   taxState: 'CA',
  * }),
+ *
+ * @example
+ * // Redemption-code applied (free order, agent sees the savings line):
+ * computePricing: async (ctx) => pricingResult({
+ *   subtotalCents: 7500,
+ *   discountCents: 7500,
+ * }),
  */
 export function pricingResult(opts: {
   subtotalCents?: number;
   taxCents?: number;
   shippingCents?: number;
+  discountCents?: number;
   taxRate?: number;
   taxState?: string;
   currency?: string;
@@ -158,12 +169,16 @@ export function pricingResult(opts: {
 }): PricingResult {
   const currency = opts.currency ?? 'USD';
   if (opts.subtotalCents !== undefined) {
-    const totalCents = opts.subtotalCents + (opts.taxCents ?? 0) + (opts.shippingCents ?? 0);
+    const totalCents = Math.max(
+      0,
+      opts.subtotalCents + (opts.taxCents ?? 0) + (opts.shippingCents ?? 0) - (opts.discountCents ?? 0),
+    );
     const derivedAmount = opts.amountUsd ?? totalCents / 100;
     const block = buildPricingBlock({
       subtotalCents: opts.subtotalCents,
       taxCents: opts.taxCents ?? 0,
       ...(opts.shippingCents !== undefined && { shippingCents: opts.shippingCents }),
+      ...(opts.discountCents !== undefined && { discountCents: opts.discountCents }),
       ...(opts.taxRate !== undefined && { taxRate: opts.taxRate }),
       ...(opts.taxState !== undefined && { taxState: opts.taxState }),
       currency,

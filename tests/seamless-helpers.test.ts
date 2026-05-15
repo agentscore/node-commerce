@@ -622,6 +622,30 @@ describe('pricingResult', () => {
     expect(pr.product).toEqual(product);
     expect(pr.bodyExtras).toEqual(extras);
   });
+
+  it('full discount: subtotal stays list, discount equals list, amount is 0', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ subtotalCents: 7500, discountCents: 7500 });
+    expect(pr.amountUsd).toBe(0);
+    expect(pr.block?.subtotal).toBe('75.00');
+    expect(pr.block?.discount).toBe('75.00');
+    expect(pr.block?.total).toBe('0.00');
+  });
+
+  it('partial discount leaves a settle floor (74.99 discount against 75.00 list → 0.01)', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ subtotalCents: 7500, discountCents: 7499 });
+    expect(pr.amountUsd).toBe(0.01);
+    expect(pr.block?.discount).toBe('74.99');
+    expect(pr.block?.total).toBe('0.01');
+  });
+
+  it('floors amountUsd at 0 when discount exceeds gross', async () => {
+    const { pricingResult } = await import('../src/checkout');
+    const pr = pricingResult({ subtotalCents: 1000, discountCents: 5000 });
+    expect(pr.amountUsd).toBe(0);
+    expect(pr.block?.total).toBe('0.00');
+  });
 });
 
 describe('Checkout.acceptedRails + acceptedMethodNames', () => {
