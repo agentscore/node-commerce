@@ -381,9 +381,8 @@ function isTempoSessionRailSpec(s: CheckoutRailSpec): s is TempoSessionRailSpec 
 }
 
 /** Map a `*RailSpec` instance to its canonical `RailKey` slug. Tempo charge
- *  and Tempo session both speak MPP on Tempo, so they fold to `"tempo_mpp"`.
- *  Unknown types return `null`. */
-function specRailKey(spec: CheckoutRailSpec): RailKey | null {
+ *  and Tempo session both speak MPP on Tempo, so they fold to `"tempo_mpp"`. */
+function specRailKey(spec: CheckoutRailSpec): RailKey {
   if (isStripeRailSpec(spec)) return 'stripe';
   if (isTempoSessionRailSpec(spec)) return 'tempo_mpp';
   const network = (spec as { network?: string }).network ?? '';
@@ -393,7 +392,7 @@ function specRailKey(spec: CheckoutRailSpec): RailKey | null {
 }
 
 /** Protocol-shaped method name for the `methods: [...]` discovery array. */
-function specMethodName(spec: CheckoutRailSpec): string | null {
+function specMethodName(spec: CheckoutRailSpec): string {
   if (isStripeRailSpec(spec)) return 'stripe/spt';
   if (isTempoSessionRailSpec(spec)) return 'tempo/charge';
   const network = (spec as { network?: string }).network ?? '';
@@ -667,7 +666,7 @@ export class Checkout {
     const seen = new Set<string>();
     for (const spec of Object.values(this.rails)) {
       const key = specRailKey(spec);
-      if (key === null || seen.has(key)) continue;
+      if (seen.has(key)) continue;
       seen.add(key);
       out.push(key);
     }
@@ -681,7 +680,7 @@ export class Checkout {
     const seen = new Set<string>();
     for (const spec of Object.values(this.rails)) {
       const name = specMethodName(spec);
-      if (name === null || seen.has(name)) continue;
+      if (seen.has(name)) continue;
       seen.add(name);
       out.push(name);
     }

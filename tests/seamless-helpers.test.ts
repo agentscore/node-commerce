@@ -749,6 +749,8 @@ describe('buildSignedUcpResponse', () => {
 describe('bootstrapUcpSigningKey', () => {
   it('throws when UCP_SIGNING_KEY_JWK_PRIVATE env is malformed', async () => {
     const { bootstrapUcpSigningKey } = await import('../src/discovery/well_known');
+    const { _resetUCPSigningKeyCache } = await import('../src/identity/ucp-jwks');
+    _resetUCPSigningKeyCache();
     const prev = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
     process.env.UCP_SIGNING_KEY_JWK_PRIVATE = 'not-json';
     try {
@@ -756,6 +758,172 @@ describe('bootstrapUcpSigningKey', () => {
     } finally {
       if (prev === undefined) delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
       else process.env.UCP_SIGNING_KEY_JWK_PRIVATE = prev;
+      _resetUCPSigningKeyCache();
+    }
+  });
+  it('succeeds with a valid Ed25519 JWK env', async () => {
+    const { bootstrapUcpSigningKey } = await import('../src/discovery/well_known');
+    const { generateUCPSigningKey, _resetUCPSigningKeyCache } = await import('../src/identity/ucp-jwks');
+    const { exportJWK } = await import('jose');
+    _resetUCPSigningKeyCache();
+    const { privateKey } = await generateUCPSigningKey({ kid: 'bootstrap-test' });
+    const privJwk = await exportJWK(privateKey as Parameters<typeof exportJWK>[0]);
+    const prev = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+    process.env.UCP_SIGNING_KEY_JWK_PRIVATE = JSON.stringify({ ...privJwk, kid: 'bootstrap-test' });
+    try {
+      await expect(bootstrapUcpSigningKey()).resolves.toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+      else process.env.UCP_SIGNING_KEY_JWK_PRIVATE = prev;
+      _resetUCPSigningKeyCache();
+    }
+  });
+});
+
+describe('buildSignedJwksResponse', () => {
+  it('returns 200 with application/jwk-set+json and Cache-Control', async () => {
+    const { buildSignedJwksResponse } = await import('../src/discovery/well_known');
+    const { generateUCPSigningKey, _resetUCPSigningKeyCache } = await import('../src/identity/ucp-jwks');
+    const { exportJWK } = await import('jose');
+    _resetUCPSigningKeyCache();
+    const { privateKey } = await generateUCPSigningKey({ kid: 'jwks-test' });
+    const privJwk = await exportJWK(privateKey as Parameters<typeof exportJWK>[0]);
+    const prev = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+    process.env.UCP_SIGNING_KEY_JWK_PRIVATE = JSON.stringify({ ...privJwk, kid: 'jwks-test' });
+    try {
+      const resp = await buildSignedJwksResponse({ requestHeaders: { 'X-Request-Id': 'req-jwks' } });
+      expect(resp.status).toBe(200);
+      expect(resp.mediaType).toBe('application/jwk-set+json');
+      expect(resp.headers['Cache-Control']).toContain('max-age=300');
+      expect(resp.headers['X-Request-ID']).toBe('req-jwks');
+      const body = JSON.parse(resp.body) as { keys: Array<{ kid: string }> };
+      expect(body.keys.length).toBe(1);
+      expect(body.keys[0].kid).toBe('jwks-test');
+    } finally {
+      if (prev === undefined) delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+      else process.env.UCP_SIGNING_KEY_JWK_PRIVATE = prev;
+      _resetUCPSigningKeyCache();
+    }
+  });
+});
+
+describe('buildSignedUcpResponse happy path', () => {
+  it('signs a UCP profile when rails + env signing key are present', async () => {
+    const { buildSignedUcpResponse } = await import('../src/discovery/well_known');
+    const { generateUCPSigningKey, _resetUCPSigningKeyCache } = await import('../src/identity/ucp-jwks');
+    const { exportJWK } = await import('jose');
+    _resetUCPSigningKeyCache();
+    const { privateKey } = await generateUCPSigningKey({ kid: 'ucp-test' });
+    const privJwk = await exportJWK(privateKey as Parameters<typeof exportJWK>[0]);
+    const prev = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+    process.env.UCP_SIGNING_KEY_JWK_PRIVATE = JSON.stringify({ ...privJwk, kid: 'ucp-test' });
+    try {
+      const checkout = new Checkout({
+        merchantName: 'AgentScore Store',
+        rails: {
+          tempo: {
+            recipient: RECIPIENT,
+            network: 'tempo-mainnet',
+          } as TempoRailSpec,
+          base: {
+            recipient: RECIPIENT,
+            network: 'eip155:8453',
+          } as X402BaseRailSpec,
+        },
+      });
+      const resp = await buildSignedUcpResponse({
+        checkout,
+        name: 'AgentScore Store',
+        wellKnownUcpUrl: 'https://x/.well-known/ucp',
+        services: { 'dev.ucp.shopping': [] },
+        requestHeaders: { 'X-Request-Id': 'req-ucp' },
+        signingKid: 'ucp-test',
+      });
+      expect(resp.status).toBe(200);
+      expect(resp.mediaType).toBe('application/json');
+      expect(resp.headers['X-Request-ID']).toBe('req-ucp');
+      expect(resp.headers['Cache-Control']).toContain('max-age=60');
+      const body = JSON.parse(resp.body) as { ucp: { name?: string; payment_handlers: Record<string, unknown> }; signature: string };
+      expect(body.ucp.name).toBe('AgentScore Store');
+      expect(body.signature).toBeDefined();
+      expect(body.ucp.payment_handlers).toBeDefined();
+    } finally {
+      if (prev === undefined) delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+      else process.env.UCP_SIGNING_KEY_JWK_PRIVATE = prev;
+      _resetUCPSigningKeyCache();
+    }
+  });
+  it('routes solana + stripe + tempo-session rails through their respective payment-handler builders', async () => {
+    const { buildSignedUcpResponse } = await import('../src/discovery/well_known');
+    const { generateUCPSigningKey, _resetUCPSigningKeyCache } = await import('../src/identity/ucp-jwks');
+    const { exportJWK } = await import('jose');
+    _resetUCPSigningKeyCache();
+    const { privateKey } = await generateUCPSigningKey({ kid: 'ucp-multi' });
+    const privJwk = await exportJWK(privateKey as Parameters<typeof exportJWK>[0]);
+    const prev = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+    process.env.UCP_SIGNING_KEY_JWK_PRIVATE = JSON.stringify({ ...privJwk, kid: 'ucp-multi' });
+    try {
+      const checkout = new Checkout({
+        merchantName: 'Multi-Rail',
+        rails: {
+          solana: { recipient: 'SoLaNaReCiPiEnT', network: 'solana:5eykt4', rpcUrl: 'https://x' } as never,
+          stripe: { profileId: 'profile_abc' } as never,
+          tempoSession: {
+            recipient: RECIPIENT,
+            escrowContract: '0x' + '11'.repeat(20),
+            store: {} as never,
+          } as never,
+        },
+      });
+      const resp = await buildSignedUcpResponse({
+        checkout,
+        name: 'Multi-Rail',
+        wellKnownUcpUrl: 'https://x/.well-known/ucp',
+        services: {},
+        signingKid: 'ucp-multi',
+      });
+      expect(resp.status).toBe(200);
+      const body = JSON.parse(resp.body) as { ucp: { payment_handlers: Record<string, unknown> } };
+      // Each handler key is reverse-DNS; at least one mpp + one stripe handler should be present.
+      const keys = Object.keys(body.ucp.payment_handlers);
+      expect(keys.some((k) => k.includes('mpp') || k.includes('stripe'))).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+      else process.env.UCP_SIGNING_KEY_JWK_PRIVATE = prev;
+      _resetUCPSigningKeyCache();
+    }
+  });
+  it('drops rails with empty-string sentinel recipients from the published handler when not statically resolvable', async () => {
+    const { buildSignedUcpResponse } = await import('../src/discovery/well_known');
+    const { generateUCPSigningKey, _resetUCPSigningKeyCache } = await import('../src/identity/ucp-jwks');
+    const { exportJWK } = await import('jose');
+    _resetUCPSigningKeyCache();
+    const { privateKey } = await generateUCPSigningKey({ kid: 'ucp-sentinel' });
+    const privJwk = await exportJWK(privateKey as Parameters<typeof exportJWK>[0]);
+    const prev = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+    process.env.UCP_SIGNING_KEY_JWK_PRIVATE = JSON.stringify({ ...privJwk, kid: 'ucp-sentinel' });
+    try {
+      const checkout = new Checkout({
+        merchantName: 'Per-order Recipient',
+        rails: {
+          base: {
+            recipient: '',  // empty-string sentinel: per-order mint
+            network: 'eip155:8453',
+          } as X402BaseRailSpec,
+        },
+      });
+      const resp = await buildSignedUcpResponse({
+        checkout,
+        name: 'X',
+        wellKnownUcpUrl: 'https://x/.well-known/ucp',
+        services: {},
+        signingKid: 'ucp-sentinel',
+      });
+      expect(resp.status).toBe(200);
+    } finally {
+      if (prev === undefined) delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+      else process.env.UCP_SIGNING_KEY_JWK_PRIVATE = prev;
+      _resetUCPSigningKeyCache();
     }
   });
 });
