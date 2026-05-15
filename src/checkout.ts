@@ -1300,7 +1300,7 @@ export class Checkout {
       const outcome: SettleOutcome = {
         rail: 'mpp',
         paymentResponseHeader: composed.paymentResponseHeader ?? null,
-        paymentReceiptHeader: composed.paymentReceiptHeader ?? null,
+        paymentReceiptHeader: composed.paymentReceiptHeader ?? extractMppxReceiptHeaderFromRaw(composed.raw),
         raw: composed.raw,
         txHash: composed.txHash ?? null,
         signerAddress: composed.signerAddress ?? null,
@@ -1570,6 +1570,29 @@ function stripContentType(headers: Record<string, string>): Record<string, strin
     if (k.toLowerCase() !== 'content-type') out[k] = v;
   }
   return out;
+}
+
+/**
+ * Best-effort `Payment-Receipt` extraction from a custom `composeMppx` hook's
+ * `raw`. When the hook returns the mppx compose result directly (the common
+ * case for hand-rolled hooks invoking `composeMppxRequest(mppx, intents, req)`),
+ * the result exposes `withReceipt(response): Response` per the mppx spec. We
+ * pass a throwaway Response, lift the header value, and return it.
+ *
+ * Returns null when the raw doesn't expose `withReceipt`, when calling it throws
+ * (mppx's `isMissingReceiptResponseError` sentinel — fires when there's no
+ * receipt to attach), or when the wrapped response carries no header.
+ */
+function extractMppxReceiptHeaderFromRaw(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'object' || !('withReceipt' in raw)) return null;
+  const fn = (raw as { withReceipt: unknown }).withReceipt;
+  if (typeof fn !== 'function') return null;
+  try {
+    const wrapped = (fn as (r: Response) => Response).call(raw, new Response());
+    return wrapped.headers.get('Payment-Receipt');
+  } catch {
+    return null;
+  }
 }
 
 function headersToRecord(h: Headers | Record<string, string> | undefined): Record<string, string> {

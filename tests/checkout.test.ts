@@ -129,6 +129,77 @@ describe('Checkout — composeMppx hook', () => {
     expect('payment-receipt' in result.headers).toBe(false);
   });
 
+  it('auto-extracts Payment-Receipt from raw.withReceipt when hook omits the field', async () => {
+    const composeMppx = vi.fn(
+      async (): Promise<MppxComposeOutcome> => ({
+        status: 200,
+        raw: {
+          withReceipt(response: Response): Response {
+            const headers = new Headers(response.headers);
+            headers.set('Payment-Receipt', 'auto-extracted-receipt-value');
+            return new Response(response.body, { status: response.status, headers });
+          },
+        },
+      }),
+    );
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: '0xtempo' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 10 }),
+      composeMppx,
+    });
+    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    expect(result.status).toBe(200);
+    expect(result.headers['payment-receipt']).toBe('auto-extracted-receipt-value');
+  });
+
+  it('explicit paymentReceiptHeader wins over raw.withReceipt auto-extract', async () => {
+    const composeMppx = vi.fn(
+      async (): Promise<MppxComposeOutcome> => ({
+        status: 200,
+        paymentReceiptHeader: 'explicit-value',
+        raw: {
+          withReceipt(response: Response): Response {
+            const headers = new Headers(response.headers);
+            headers.set('Payment-Receipt', 'auto-value-IGNORED');
+            return new Response(response.body, { status: response.status, headers });
+          },
+        },
+      }),
+    );
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: '0xtempo' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 10 }),
+      composeMppx,
+    });
+    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    expect(result.status).toBe(200);
+    expect(result.headers['payment-receipt']).toBe('explicit-value');
+  });
+
+  it('raw.withReceipt that throws falls through silently to no header', async () => {
+    const composeMppx = vi.fn(
+      async (): Promise<MppxComposeOutcome> => ({
+        status: 200,
+        raw: {
+          withReceipt(): Response {
+            throw new Error('mppx isMissingReceiptResponseError sentinel');
+          },
+        },
+      }),
+    );
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: '0xtempo' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 10 }),
+      composeMppx,
+    });
+    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    expect(result.status).toBe(200);
+    expect('payment-receipt' in result.headers).toBe(false);
+  });
+
   it('402 from compose on settle leg maps to 400 payment_proof_invalid', async () => {
     const composeMppx = vi.fn(
       async (): Promise<MppxComposeOutcome> => ({
