@@ -56,8 +56,9 @@ export interface Receipt {
   gift_note?: string | null;
   /** Vendor-specific extras merged at the top level (loyalty points, warranty, per-call usage breakdown, etc.). */
   extras?: Record<string, unknown>;
-  /** Next-steps block guiding the agent post-settlement. `order_status_url` works for both: goods → order detail route, API → usage / billing dashboard. `fulfillment_eta` is goods-only. */
+  /** Next-steps block guiding the agent post-settlement. Matches the shape returned by `buildSuccessNextSteps` so vendors can spread that helper's output verbatim. `order_status_url` works for both: goods → order detail route, API → usage / billing dashboard. `fulfillment_eta` is goods-only. */
   next_steps?: {
+    action?: string;
     user_message?: string;
     order_status_url?: string;
     fulfillment_eta?: string;

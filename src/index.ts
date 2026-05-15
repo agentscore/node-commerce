@@ -77,6 +77,7 @@ export {
   runGateWithEnforcement,
   shippingCountryAllowed,
   shippingStateAllowed,
+  validateShippingAgainstPolicy,
 } from './identity/policy';
 export { hashOperatorToken } from './identity/tokens';
 export {
