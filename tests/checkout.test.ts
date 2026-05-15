@@ -93,6 +93,42 @@ describe('Checkout — composeMppx hook', () => {
     expect(onSettled).toHaveBeenCalledOnce();
   });
 
+  it('paymentReceiptHeader from compose surfaces as Payment-Receipt response header', async () => {
+    const receiptHeader = 'eyJzdGF0dXMiOiJzdWNjZXNzIn0';
+    const composeMppx = vi.fn(
+      async (): Promise<MppxComposeOutcome> => ({
+        status: 200,
+        paymentReceiptHeader: receiptHeader,
+      }),
+    );
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: '0xtempo' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 10 }),
+      composeMppx,
+    });
+    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    expect(result.status).toBe(200);
+    expect(result.headers['payment-receipt']).toBe(receiptHeader);
+  });
+
+  it('omitted paymentReceiptHeader does not emit a Payment-Receipt response header', async () => {
+    const composeMppx = vi.fn(
+      async (): Promise<MppxComposeOutcome> => ({
+        status: 200,
+      }),
+    );
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: '0xtempo' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 10 }),
+      composeMppx,
+    });
+    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    expect(result.status).toBe(200);
+    expect('payment-receipt' in result.headers).toBe(false);
+  });
+
   it('402 from compose on settle leg maps to 400 payment_proof_invalid', async () => {
     const composeMppx = vi.fn(
       async (): Promise<MppxComposeOutcome> => ({

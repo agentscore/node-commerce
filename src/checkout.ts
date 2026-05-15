@@ -398,6 +398,9 @@ export interface SettleOutcome {
   rail: 'x402' | 'mpp';
   /** The `PAYMENT-RESPONSE` header to echo (x402 success path). `null` for MPP. */
   paymentResponseHeader: string | null;
+  /** The `Payment-Receipt` header to echo (MPP success path, paymentauth.org §5).
+   *  `null` for x402 and for the MPP zero-settle carve-out (no receipt minted). */
+  paymentReceiptHeader: string | null;
   /** The underlying settle result for merchants that need to inspect tx hash / etc. */
   raw: unknown;
   /** On-chain transaction hash where applicable; `null` for the zero-settle carve-out
@@ -428,6 +431,11 @@ export interface MppxComposeOutcome {
   headers?: Record<string, string>;
   /** For `status: 200`: optional PAYMENT-RESPONSE header echoed to the agent. */
   paymentResponseHeader?: string | null;
+  /** For `status: 200`: serialized `Payment-Receipt` header (base64url-encoded
+   *  receipt struct per mppx's `Receipt.serialize`). Echoed to the agent so
+   *  spec-strict MPP clients (tempo CLI, etc.) can lift tx_hash + source from
+   *  headers without parsing the JSON body. */
+  paymentReceiptHeader?: string | null;
   /** The underlying mppx compose result for `onSettled` introspection. */
   raw?: unknown;
   /** On-chain tx hash from the mppx Receipt (when status=200 and on-chain). */
@@ -599,11 +607,16 @@ export function makeMppxComposeHook(opts: {
         }
       }
     }
+    const { Receipt } = (await import('mppx')) as {
+      Receipt: { serialize: (r: unknown) => string };
+    };
+    const paymentReceiptHeader = Receipt.serialize(receipt);
     return {
       status: 200,
       txHash,
       signerAddress,
       signerNetwork,
+      paymentReceiptHeader,
       raw: { credential, receipt },
     };
   };
@@ -1153,6 +1166,7 @@ export class Checkout {
     const outcome: SettleOutcome = {
       rail: rail === 'x402-base' ? 'x402' : 'mpp',
       paymentResponseHeader: null,
+      paymentReceiptHeader: null,
       raw: zero,
       txHash: null,
       signerAddress: zero.signerAddress,
@@ -1267,6 +1281,7 @@ export class Checkout {
     const outcome: SettleOutcome = {
       rail: 'x402',
       paymentResponseHeader: settle.paymentResponseHeader ?? null,
+      paymentReceiptHeader: null,
       raw: settle,
       txHash: settleRes.transaction ?? null,
       signerAddress,
@@ -1285,6 +1300,7 @@ export class Checkout {
       const outcome: SettleOutcome = {
         rail: 'mpp',
         paymentResponseHeader: composed.paymentResponseHeader ?? null,
+        paymentReceiptHeader: composed.paymentReceiptHeader ?? null,
         raw: composed.raw,
         txHash: composed.txHash ?? null,
         signerAddress: composed.signerAddress ?? null,
@@ -1441,6 +1457,9 @@ export class Checkout {
     const headers: Record<string, string> = {};
     if (outcome.paymentResponseHeader) {
       headers['payment-response'] = outcome.paymentResponseHeader;
+    }
+    if (outcome.paymentReceiptHeader) {
+      headers['payment-receipt'] = outcome.paymentReceiptHeader;
     }
     return {
       status: 200,

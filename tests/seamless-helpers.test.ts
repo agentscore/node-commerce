@@ -246,6 +246,23 @@ describe('makeMppxComposeHook', () => {
     expect(out.signerNetwork).toBe('evm');
   });
 
+  it('serializes the mppx receipt into paymentReceiptHeader on 200', async () => {
+    const credential = { source: 'did:pkh:eip155:8453:0xABCD000000000000000000000000000000000003' };
+    const receipt = { method: 'tempo', status: 'success', reference: '0xreceipttx' };
+    const hook = makeMppxComposeHook({
+      serverGetter: async () => ({ realm: 'r', charge: async () => [credential, receipt] }),
+    });
+    const out = await hook(buildCtx({ authorization: 'Payment somevalidcred' }));
+    expect(out.status).toBe(200);
+    expect(typeof out.paymentReceiptHeader).toBe('string');
+    expect((out.paymentReceiptHeader ?? '').length).toBeGreaterThan(0);
+    expect(out.paymentReceiptHeader).not.toMatch(/[+/=]/);
+    const decoded = JSON.parse(
+      Buffer.from(out.paymentReceiptHeader!, 'base64url').toString('utf-8'),
+    );
+    expect(decoded).toEqual(receipt);
+  });
+
   it('returns 402 when charge throws', async () => {
     const hook = makeMppxComposeHook({
       serverGetter: async () => ({
