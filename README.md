@@ -230,7 +230,7 @@ const responseBody = build402Body({
 });
 ```
 
-`buildPricingBlock` handles cents → dollar-string conversion (with optional shipping). `firstEncounterAgentMemory` returns the canonical hint or `undefined` based on a per-merchant first-seen flag. `Receipt` is a universal TS interface for the post-settlement 200 response shape — goods merchants populate the shipping/fulfillment/tracking slots, API merchants fill only the universal fields (id, created_at, pricing, payment_status, next_steps).
+`buildPricingBlock` handles cents → dollar-string conversion (with optional shipping). Pass `discountCents` for redemption codes / coupons: `subtotal` stays the list price, the block surfaces `discount` as a dollar-string, and `total` becomes `subtotal + tax + shipping - discount` (floored at 0). `pricingResult` accepts the same `discountCents` and propagates it to `block.discount` so agents reading the 402 see the savings line. `firstEncounterAgentMemory` returns the canonical hint or `undefined` based on a per-merchant first-seen flag. `Receipt` is a universal TS interface for the post-settlement 200 response shape — goods merchants populate the shipping/fulfillment/tracking slots, API merchants fill only the universal fields (id, created_at, pricing, payment_status, next_steps).
 
 ### Idempotency-key + multi-rail header bundle
 

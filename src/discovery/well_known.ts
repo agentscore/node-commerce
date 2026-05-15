@@ -343,7 +343,7 @@ export async function bootstrapUcpSigningKey(opts?: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// signedResponse<Framework> wrappers (Tier 2 lift A)
+// signedResponse<Framework> wrappers
 //
 // Convert the framework-neutral SignedDiscoveryResponse / Response (preflight)
 // into a framework-specific response. Saves the 4-line per-framework wrapper

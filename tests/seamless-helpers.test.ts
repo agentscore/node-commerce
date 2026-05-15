@@ -605,7 +605,7 @@ describe('Checkout framework adapters', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Checkout accessors
 // ─────────────────────────────────────────────────────────────────────────────
-// pricingResult factory (Tier 1 lift C)
+// pricingResult factory
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('pricingResult', () => {
@@ -2311,7 +2311,7 @@ describe('Checkout 402 emit attaches identity_metadata for wallet mode', () => {
   });
 });
 
-// Checkout(discoveryProbe=...) auto-routing (Tier 2 lift D)
+// Checkout(discoveryProbe=...) auto-routing
 describe('Checkout discoveryProbe routing', () => {
   it('empty-body POST without payment header returns probe 402', async () => {
     const { Checkout } = await import('../src/checkout');
@@ -2423,7 +2423,7 @@ describe('Checkout zero-settle MPP carve-out', () => {
   });
 });
 
-// Checkout.mountUcpRoutes<Framework> (Tier 2 lift E)
+// Checkout.mountUcpRoutes<Framework>
 /* eslint-disable @typescript-eslint/no-explicit-any */
 describe('Checkout.mountUcpRoutes<Framework>', () => {
   async function mountedCheckout(): Promise<{ checkout: any; restoreEnv: () => void }> {
@@ -2617,7 +2617,7 @@ describe('Checkout.mountUcpRoutes<Framework>', () => {
 });
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-// signedResponse<Framework> wrappers (Tier 2 lift A)
+// signedResponse<Framework> wrappers
 describe('signedResponse<Framework> wrappers', () => {
   const NEUTRAL = {
     body: '{"ok":true}',
