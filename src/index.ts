@@ -88,6 +88,7 @@ export {
   type CheckoutResult,
   CheckoutValidationError,
   type ComposeMppxFn,
+  type DiscoveryProbeConfig,
   type GateDenial,
   type IsCachedAddressFn,
   type MppxComposeOutcome,

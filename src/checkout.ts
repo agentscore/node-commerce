@@ -185,6 +185,32 @@ export function pricingResult(opts: {
   };
 }
 
+/**
+ * Per-route discovery-probe config. When passed to {@link Checkout}, any
+ * empty-body POST without a payment credential short-circuits with a sample
+ * 402 advertising the merchant's payment shape — the canonical pattern x402
+ * crawlers (`awal x402 details`, `x402-proxy`, `x402scan`) rely on.
+ *
+ * Mirrors python's `DiscoveryProbeConfig` dataclass.
+ */
+export interface DiscoveryProbeConfig {
+  realm: string;
+  sampleRail: 'tempo' | 'base' | 'solana' | 'stripe';
+  sampleAmountUsd: number;
+  sampleRecipient: string;
+  intent?: 'charge' | 'authorize' | 'session.open';
+  ttlSeconds?: number;
+  docsUrl?: string;
+  message?: string;
+  x402Sample?: {
+    version?: 1 | 2;
+    networks?: string[];
+    accepts?: unknown[];
+    amountAtomic?: string;
+    resourceUrl?: string;
+  };
+}
+
 /** In-flight state passed to every hook in the Checkout flow. */
 export interface CheckoutContext {
   request: CheckoutRequest;
@@ -614,6 +640,7 @@ export class Checkout {
   readonly zeroSettleCarveOut: boolean;
   readonly gate: CheckoutGateConfig | undefined;
   readonly discoveryExtensions: Record<string, unknown> | undefined;
+  readonly discoveryProbe: DiscoveryProbeConfig | undefined;
   private _x402ServerGetter: (() => Promise<X402Server>) | undefined;
 
   constructor(opts: {
@@ -665,6 +692,10 @@ export class Checkout {
      *  `extensions` field so Bazaar crawlers and other spec-compliant clients
      *  read the route's declared input/output schema. */
     discoveryExtensions?: Record<string, unknown>;
+    /** Optional discovery-probe config: auto-route empty-body POSTs without a
+     *  payment header to a sample 402 advertising the merchant's shape for
+     *  crawlers (`awal x402 details`, x402-proxy, x402scan, ...). */
+    discoveryProbe?: DiscoveryProbeConfig;
   }) {
     const x402Server = opts.x402Server;
     let x402ServerGetter: (() => Promise<X402Server>) | undefined;
@@ -721,6 +752,7 @@ export class Checkout {
     this.zeroSettleCarveOut = opts.zeroSettleCarveOut ?? false;
     this.gate = opts.gate;
     this.discoveryExtensions = opts.discoveryExtensions;
+    this.discoveryProbe = opts.discoveryProbe;
   }
 
   /** Canonical `RailKey` list derived from the configured rails dict. Each
@@ -809,6 +841,38 @@ export class Checkout {
       recipients: {},
       state: {},
     };
+
+    if (this.discoveryProbe !== undefined && request.method === 'POST') {
+      const auth = request.headers['authorization'] ?? request.headers['Authorization'];
+      const isProbe =
+        !(auth?.startsWith('Payment ')) &&
+        !hasX402Header(request.headers) &&
+        !hasMppxHeader(request.headers) &&
+        (request.body === undefined || request.body === null ||
+         (typeof request.body === 'object' && Object.keys(request.body as object).length === 0));
+      if (isProbe) {
+        const { buildDiscoveryProbeResponse } = await import('./discovery/probe.js');
+        const cfg = this.discoveryProbe;
+        const probe = buildDiscoveryProbeResponse({
+          realm: cfg.realm,
+          sampleRail: cfg.sampleRail,
+          sampleAmountUsd: cfg.sampleAmountUsd,
+          sampleRecipient: cfg.sampleRecipient,
+          ...(cfg.intent !== undefined && { intent: cfg.intent }),
+          ...(cfg.ttlSeconds !== undefined && { ttlSeconds: cfg.ttlSeconds }),
+          ...(cfg.docsUrl !== undefined && { docsUrl: cfg.docsUrl }),
+          ...(cfg.message !== undefined && { message: cfg.message }),
+          ...(cfg.x402Sample !== undefined && { x402Sample: cfg.x402Sample }),
+        });
+        return {
+          status: probe.status,
+          body: JSON.parse(probe.body),
+          headers: probe.headers,
+          referenceId: ctx.referenceId,
+          settled: false,
+        };
+      }
+    }
 
     // 1. Pre-validate (merchant-supplied per-request validation).
     if (this.preValidate !== undefined) {

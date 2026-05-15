@@ -2192,6 +2192,89 @@ describe('Checkout zero-settle x402-base carve-out', () => {
   });
 });
 
+// Checkout(discoveryProbe=...) auto-routing (Tier 2 lift D)
+describe('Checkout discoveryProbe routing', () => {
+  it('empty-body POST without payment header returns probe 402', async () => {
+    const { Checkout } = await import('../src/checkout');
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      discoveryProbe: {
+        realm: 'example',
+        sampleRail: 'tempo',
+        sampleAmountUsd: 1.0,
+        sampleRecipient: RECIPIENT,
+        message: 'probe-msg',
+      },
+    });
+    const result = (await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: {},
+      body: {},
+    })) as { status: number; body: Record<string, unknown>; headers: Record<string, string> };
+    expect(result.status).toBe(402);
+    expect(result.body.discovery).toBe(true);
+    expect((result.body.error as { code: string }).code).toBe('payment_required');
+    expect(result.headers['www-authenticate']).toContain('realm="example"');
+  });
+
+  it('POST with Payment authorization bypasses probe routing', async () => {
+    const { Checkout } = await import('../src/checkout');
+    let pricingCalled = false;
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } },
+      url: 'https://api.example/purchase',
+      computePricing: async () => {
+        pricingCalled = true;
+        return { amountUsd: 1.0 };
+      },
+      discoveryProbe: {
+        realm: 'example',
+        sampleRail: 'tempo',
+        sampleAmountUsd: 1.0,
+        sampleRecipient: RECIPIENT,
+      },
+    });
+    // Real Payment auth + a body → bypass probe, run normal flow.
+    // composeMppx is unset, so this falls through to the discovery emit path; pricing still runs.
+    await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: 'Payment <opaque-credential>' },
+      body: { item: 'wine' },
+    });
+    expect(pricingCalled).toBe(true);
+  });
+
+  it('GET request never triggers probe', async () => {
+    const { Checkout } = await import('../src/checkout');
+    let pricingCalled = false;
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } },
+      url: 'https://api.example/purchase',
+      computePricing: async () => {
+        pricingCalled = true;
+        return { amountUsd: 1.0 };
+      },
+      discoveryProbe: {
+        realm: 'example',
+        sampleRail: 'tempo',
+        sampleAmountUsd: 1.0,
+        sampleRecipient: RECIPIENT,
+      },
+    });
+    await checkout.handle({
+      method: 'GET',
+      url: 'https://api.example/purchase',
+      headers: {},
+      body: undefined,
+    });
+    expect(pricingCalled).toBe(true);
+  });
+});
+
 describe('Checkout zero-settle MPP carve-out', () => {
   it('zeroSettleCarveOut=true + $0 + MPP authorization → 200 with tx_hash null', async () => {
     const { Checkout } = await import('../src/checkout');
