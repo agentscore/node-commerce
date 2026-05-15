@@ -1068,6 +1068,149 @@ describe('Checkout gate hooks', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SDK gate path (createAgentScoreCore + core.evaluate)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _mockCore(opts: {
+  outcome?: 'allow' | 'deny';
+  reason?: Record<string, unknown>;
+  signerVerdict?: Record<string, unknown>;
+  captureWalletCalls?: Array<Record<string, unknown>>;
+}) {
+  return {
+    evaluate: async () => (
+      opts.outcome === 'deny'
+        ? { kind: 'deny', reason: opts.reason ?? { code: 'kyc_required' } }
+        : { kind: 'allow' }
+    ),
+    getSignerVerdict: () => opts.signerVerdict,
+    captureWallet: async (o: Record<string, unknown>) => {
+      opts.captureWalletCalls?.push(o);
+    },
+  };
+}
+
+describe('Checkout SDK gate path', () => {
+  it('SDK gate allow → settle proceeds and ctx.captureWallet is wired', async () => {
+    const captureCalls: Array<Record<string, unknown>> = [];
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return {
+        ...real,
+        createAgentScoreCore: () => _mockCore({ outcome: 'allow', captureWalletCalls: captureCalls }),
+      };
+    });
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?sdk-gate-allow');
+
+    const checkout = new ScopedCheckout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      composeMppx: async () => ({
+        status: 200,
+        railKey: 'tempo',
+        txHash: '0xchain_tx',
+        signerAddress: '0xabc',
+        signerNetwork: 'evm',
+      }),
+      onSettled: async (ctx, outcome) => {
+        if (ctx.captureWallet !== undefined && outcome.signerAddress !== null) {
+          await ctx.captureWallet({
+            walletAddress: outcome.signerAddress,
+            network: 'evm',
+            idempotencyKey: outcome.txHash ?? undefined,
+          });
+        }
+        return { order_id: 'o-1' };
+      },
+      gate: { apiKey: 'k', requireKyc: true },
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: 'Payment <cred>', 'x-operator-token': 'opc_test' },
+      body: {},
+    });
+    expect(result.status).toBe(200);
+    expect(captureCalls).toEqual([
+      { operatorToken: 'opc_test', walletAddress: '0xabc', network: 'evm', idempotencyKey: '0xchain_tx' },
+    ]);
+    vi.doUnmock('../src/core');
+  });
+
+  it('SDK gate deny → 403 with denialReasonToBody envelope', async () => {
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return {
+        ...real,
+        createAgentScoreCore: () =>
+          _mockCore({
+            outcome: 'deny',
+            reason: { code: 'kyc_required', agent_instructions: { action: 'deliver_verify_url_and_poll' } },
+          }),
+      };
+    });
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?sdk-gate-deny');
+
+    const checkout = new ScopedCheckout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      composeMppx: async () => ({ status: 402, headers: {} }),
+      onSettled: async () => ({}),
+      gate: { apiKey: 'k', requireKyc: true },
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: 'Payment <cred>' },
+      body: {},
+    });
+    expect([401, 403, 503]).toContain(result.status);
+    expect((result.body as { error?: { code?: string } }).error?.code).toBe('kyc_required');
+    vi.doUnmock('../src/core');
+  });
+
+  it('SDK gate onDenied callback can reshape the canonical denial body', async () => {
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return {
+        ...real,
+        createAgentScoreCore: () =>
+          _mockCore({ outcome: 'deny', reason: { code: 'kyc_required' } }),
+      };
+    });
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?sdk-gate-on-denied');
+
+    const checkout = new ScopedCheckout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      composeMppx: async () => ({ status: 402, headers: {} }),
+      onSettled: async () => ({}),
+      gate: {
+        apiKey: 'k',
+        requireKyc: true,
+        onDenied: async (_ctx, reason) => ({
+          status: 402,
+          body: { error: { code: 'custom_kyc', upstream: (reason as { code: string }).code } },
+          headers: {},
+        }),
+      },
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: 'Payment <cred>' },
+      body: {},
+    });
+    expect(result.status).toBe(402);
+    expect((result.body as { error: { code: string; upstream: string } }).error.code).toBe('custom_kyc');
+    vi.doUnmock('../src/core');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Zero-settle MPP carve-out
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1098,6 +1241,15 @@ function _x402PaymentHeader(payerAddress: string): string {
     x402Version: 2,
     scheme: 'exact',
     network: 'eip155:84532',
+    accepted: {
+      scheme: 'exact',
+      network: 'eip155:84532',
+      payTo: RECIPIENT,
+      maxAmountRequired: '100000',
+      maxTimeoutSeconds: 300,
+      asset: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+      extra: { name: 'USDC', version: '2' },
+    },
     payload: {
       signature: '0x' + 'ee'.repeat(65),
       authorization: {
@@ -1114,6 +1266,33 @@ function _x402PaymentHeader(payerAddress: string): string {
 }
 
 describe('Checkout handleX402 happy path', () => {
+  it('settles x402 via the mocked server and emits 200 with txHash', async () => {
+    const onSettledArgs: Array<{ txHash?: string | null; signerAddress?: string | null }> = [];
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: _mockX402Server() as never,
+      isCachedAddress: () => true,
+      onSettled: async (_ctx, outcome) => {
+        onSettledArgs.push({ txHash: outcome.txHash, signerAddress: outcome.signerAddress });
+        return { order_id: 'o-1', tx_hash: outcome.txHash, signer: outcome.signerAddress };
+      },
+    });
+    const header = _x402PaymentHeader('0xAbC0000000000000000000000000000000000099');
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': header },
+      body: { item: 'wine' },
+    });
+    expect(result.status).toBe(200);
+    expect(result.settled).toBe(true);
+    expect(onSettledArgs.length).toBe(1);
+    expect(onSettledArgs[0].txHash).toBe('0xchain_tx');
+    expect(onSettledArgs[0].signerAddress).toBe('0xabc0000000000000000000000000000000000099');
+  });
+
   it('returns verify_failed envelope on verify reject', async () => {
     const server = _mockX402Server({
       verifyPayment: vi.fn().mockResolvedValue({ success: false, reason: 'invalid_credential' }),
@@ -1123,6 +1302,7 @@ describe('Checkout handleX402 happy path', () => {
       url: 'https://api.example/purchase',
       computePricing: async () => ({ amountUsd: 1.0 }),
       x402Server: server as never,
+      isCachedAddress: () => true,
       onSettled: async () => ({}),
     });
     const header = _x402PaymentHeader('0xAbC0000000000000000000000000000000000099');
@@ -1145,6 +1325,7 @@ describe('Checkout handleX402 happy path', () => {
       url: 'https://api.example/purchase',
       computePricing: async () => ({ amountUsd: 1.0 }),
       x402Server: server as never,
+      isCachedAddress: () => true,
       onSettled: async () => ({}),
     });
     const header = _x402PaymentHeader('0xAbC0000000000000000000000000000000000099');
