@@ -32,6 +32,7 @@ import {
   Checkout,
   type AgentScoreGatePolicy,
   type PricingResult,
+  type TempoRailSpec,
   UCPVerificationError,
   verifyUCPProfile,
 } from '@agent-score/commerce';
@@ -39,7 +40,6 @@ import {
   bootstrapUcpSigningKey,
   defaultA2aServices,
 } from '@agent-score/commerce/discovery';
-import { type TempoRailSpec } from '@agent-score/commerce/payment';
 import { Hono, type Context } from 'hono';
 
 const SIGNING_KID = 'merchant-2026-05';

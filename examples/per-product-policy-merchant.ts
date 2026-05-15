@@ -35,9 +35,9 @@ import {
   type PolicyBlock,
   type PricingResult,
   type SettleOutcome,
+  type TempoRailSpec,
+  validateShippingAgainstPolicy,
 } from '@agent-score/commerce';
-import { validateShippingAgainstPolicy } from '@agent-score/commerce/identity/policy';
-import { type TempoRailSpec } from '@agent-score/commerce/payment';
 import { Hono, type Context } from 'hono';
 
 const API_KEY = process.env.AGENTSCORE_API_KEY ?? 'ask_test_dummy';

@@ -32,19 +32,21 @@
  * Run: bun run examples/api-provider.ts
  */
 
-import { Checkout, type DiscoveryProbeConfig, type SettleOutcome } from '@agent-score/commerce';
+import {
+  Checkout,
+  type DiscoveryProbeConfig,
+  type SettleOutcome,
+  type SolanaMppRailSpec,
+  type TempoRailSpec,
+  type X402BaseRailSpec,
+} from '@agent-score/commerce';
 import {
   buildMerchantIndexJson,
   buildRedemptionSkillMd,
   noindexNonDiscoveryPaths,
   standardEndpointDescriptions,
 } from '@agent-score/commerce/discovery';
-import {
-  type SolanaMppRailSpec,
-  type TempoRailSpec,
-  type X402BaseRailSpec,
-  networks,
-} from '@agent-score/commerce/payment';
+import { networks } from '@agent-score/commerce/payment';
 import { Hono, type Context } from 'hono';
 
 const PRICE_USDC = 0.01; // per-call price in USD

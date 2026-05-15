@@ -37,18 +37,16 @@ import {
   Checkout,
   type CheckoutContext,
   type CheckoutGateConfig,
+  type DenialReason,
   type PricingResult,
   type SettleOutcome,
-} from '@agent-score/commerce';
-import {
-  type DenialReason,
+  type TempoRailSpec,
   buildContactSupportNextSteps,
   denialReasonStatus,
   denialReasonToBody,
   isFixableDenial,
   verificationAgentInstructions,
-} from '@agent-score/commerce/identity/hono';
-import { type TempoRailSpec } from '@agent-score/commerce/payment';
+} from '@agent-score/commerce';
 import { Hono, type Context } from 'hono';
 
 const AGENTSCORE_API_KEY = process.env.AGENTSCORE_API_KEY!;
