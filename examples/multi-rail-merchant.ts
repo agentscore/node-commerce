@@ -45,8 +45,10 @@ import {
   pricingResult,
   type CheckoutContext,
   type PricingResult,
+  type Receipt,
   type SettleOutcome,
 } from '@agent-score/commerce';
+import { buildSuccessNextSteps } from '@agent-score/commerce/discovery';
 import {
   type SolanaMppRailSpec,
   type StripeRailSpec,
@@ -129,12 +131,24 @@ async function _onSettled(ctx: CheckoutContext, outcome: SettleOutcome): Promise
       stripeSecretKey: STRIPE_SECRET_KEY,
     });
   }
-  return {
-    ok: true,
-    reference_id: ctx.referenceId,
-    tx_hash: outcome.txHash,
-    identity_status: ctx.identityStatus,
+  // Compose the canonical Receipt shape returned on 200. Goods merchants
+  // populate the goods-only slots (shipping, fulfillment_status, tracking)
+  // at fulfillment time; this example wires the universal fields.
+  const receipt: Receipt = {
+    id: ctx.referenceId,
+    created_at: new Date().toISOString(),
+    ...(ctx.pricing?.block !== undefined ? { pricing: ctx.pricing.block } : {}),
+    product: { name: 'Regulated Goods Cart' },
+    payment_status: 'completed',
+    next_steps: buildSuccessNextSteps({
+      orderStatusUrl: `${APP_URL}/orders/${ctx.referenceId}`,
+    }),
+    extras: {
+      tx_hash: outcome.txHash,
+      identity_status: ctx.identityStatus,
+    },
   };
+  return receipt as unknown as Record<string, unknown>;
 }
 
 const checkout = new Checkout({
