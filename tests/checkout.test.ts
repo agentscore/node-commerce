@@ -333,3 +333,199 @@ describe('Checkout — Solana rail compatibility', () => {
     expect(acceptedStr).toContain('solana');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// railsKeyForMppxMethod — maps mppx credential method → merchant rails-dict key
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Checkout — railsKeyForMppxMethod', () => {
+  const buildCheckout = (rails: Record<string, unknown>) =>
+    new Checkout({
+      rails: rails as Parameters<typeof Checkout>[0]['rails'],
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 10 }),
+    });
+
+  // Cast away `private` so tests can exercise the helper directly. This keeps
+  // the helper internal to consumers while still allowing focused coverage.
+  const railsKeyFor = (c: Checkout, method: string): string | undefined =>
+    (c as unknown as { railsKeyForMppxMethod: (m: string) => string | undefined })
+      .railsKeyForMppxMethod(method);
+
+  it('matches stripe to the merchant\'s StripeRailSpec key', () => {
+    const c = buildCheckout({
+      tempo_charge: { recipient: '0xtempo' } as TempoRailSpec,
+      stripe_spt: { profileId: 'profile_x' } as StripeRailSpec,
+    });
+    expect(railsKeyFor(c, 'stripe')).toBe('stripe_spt');
+  });
+
+  it('matches solana to a SolanaMppRailSpec via solana: network prefix', () => {
+    const c = buildCheckout({
+      tempo: { recipient: '0xtempo' } as TempoRailSpec,
+      sol_rail: {
+        recipient: 'solanaaddr',
+        network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
+      } as SolanaMppRailSpec,
+      stripe: { profileId: 'profile_x' } as StripeRailSpec,
+    });
+    expect(railsKeyFor(c, 'solana')).toBe('sol_rail');
+  });
+
+  it('matches solana via rpcUrl marker even without solana: network', () => {
+    const c = buildCheckout({
+      sol_rpc: { recipient: 'solanaaddr', rpcUrl: 'https://api.devnet.solana.com' },
+      stripe: { profileId: 'profile_x' } as StripeRailSpec,
+    });
+    expect(railsKeyFor(c, 'solana')).toBe('sol_rpc');
+  });
+
+  it('matches solana via tokenProgram marker', () => {
+    const c = buildCheckout({
+      sol_token: { recipient: 'solanaaddr', tokenProgram: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' },
+    });
+    expect(railsKeyFor(c, 'solana')).toBe('sol_token');
+  });
+
+  it('matches tempo to the first TempoRailSpec key, skipping x402 base + solana + stripe', () => {
+    const c = buildCheckout({
+      x402_base: { recipient: '0xbase', network: 'eip155:8453' } as X402BaseRailSpec,
+      sol_rail: { recipient: 'solanaaddr', network: 'solana:abc' } as SolanaMppRailSpec,
+      tempo_charge: { recipient: '0xtempo' } as TempoRailSpec,
+      stripe: { profileId: 'profile_x' } as StripeRailSpec,
+    });
+    expect(railsKeyFor(c, 'tempo')).toBe('tempo_charge');
+  });
+
+  it('returns undefined when no rail matches the credential method', () => {
+    const c = buildCheckout({
+      tempo_charge: { recipient: '0xtempo' } as TempoRailSpec,
+    });
+    expect(railsKeyFor(c, 'solana')).toBeUndefined();
+    expect(railsKeyFor(c, 'stripe')).toBeUndefined();
+  });
+
+  it('returns undefined for unknown methods', () => {
+    const c = buildCheckout({
+      tempo_charge: { recipient: '0xtempo' } as TempoRailSpec,
+      stripe: { profileId: 'profile_x' } as StripeRailSpec,
+    });
+    expect(railsKeyFor(c, 'unknown-method')).toBeUndefined();
+    expect(railsKeyFor(c, '')).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// handleMppx — railKey is derived from receipt method when available
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Checkout — MPP railKey end-to-end derivation', () => {
+  const buildCheckout = (
+    composeMppx: (ctx: CheckoutContext) => Promise<MppxComposeOutcome>,
+    onSettled: (ctx: CheckoutContext, outcome: { railKey?: string }) => Promise<Record<string, unknown>>,
+  ) =>
+    new Checkout({
+      rails: {
+        tempo_charge: { recipient: '0xtempo' } as TempoRailSpec,
+        sol_rail: { recipient: 'solanaaddr', network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp' } as SolanaMppRailSpec,
+        stripe_spt: { profileId: 'profile_x' } as StripeRailSpec,
+      },
+      url: 'https://api.example/purchase',
+      computePricing: (): PricingResult => ({ amountUsd: 10 }),
+      composeMppx,
+      onSettled: onSettled as Parameters<typeof Checkout>[0]['onSettled'],
+    });
+
+  it('uses receipt.method (solana) to set railKey to sol_rail, not mppRailKey()', async () => {
+    let observedRailKey: string | undefined;
+    const checkout = buildCheckout(
+      async () => ({
+        status: 200,
+        raw: { receipt: { method: 'solana' } },
+      }),
+      async (_ctx, outcome) => {
+        observedRailKey = outcome.railKey;
+        return { ok: true };
+      },
+    );
+    const result = await checkout.handle(req({ headers: { authorization: 'Payment xyz' } }));
+    expect(result.status).toBe(200);
+    expect(observedRailKey).toBe('sol_rail');
+  });
+
+  it('uses receipt.method (tempo) to pick tempo_charge', async () => {
+    let observedRailKey: string | undefined;
+    const checkout = buildCheckout(
+      async () => ({
+        status: 200,
+        raw: { receipt: { method: 'tempo' } },
+      }),
+      async (_ctx, outcome) => {
+        observedRailKey = outcome.railKey;
+        return { ok: true };
+      },
+    );
+    await checkout.handle(req({ headers: { authorization: 'Payment xyz' } }));
+    expect(observedRailKey).toBe('tempo_charge');
+  });
+
+  it('uses receipt.method (stripe) to pick stripe_spt', async () => {
+    let observedRailKey: string | undefined;
+    const checkout = buildCheckout(
+      async () => ({
+        status: 200,
+        raw: { receipt: { method: 'stripe' } },
+      }),
+      async (_ctx, outcome) => {
+        observedRailKey = outcome.railKey;
+        return { ok: true };
+      },
+    );
+    await checkout.handle(req({ headers: { authorization: 'Payment xyz' } }));
+    expect(observedRailKey).toBe('stripe_spt');
+  });
+
+  it('falls back to mppRailKey when receipt has no method and hook does not set railKey', async () => {
+    let observedRailKey: string | undefined;
+    const checkout = buildCheckout(
+      async () => ({ status: 200, raw: {} }),
+      async (_ctx, outcome) => {
+        observedRailKey = outcome.railKey;
+        return { ok: true };
+      },
+    );
+    await checkout.handle(req({ headers: { authorization: 'Payment xyz' } }));
+    // mppRailKey() returns the first non-stripe, non-EVM rail key.
+    expect(observedRailKey).toBe('tempo_charge');
+  });
+
+  it('honors explicit composed.railKey when no receipt method is available', async () => {
+    let observedRailKey: string | undefined;
+    const checkout = buildCheckout(
+      async () => ({ status: 200, raw: {}, railKey: 'explicit_override' }),
+      async (_ctx, outcome) => {
+        observedRailKey = outcome.railKey;
+        return { ok: true };
+      },
+    );
+    await checkout.handle(req({ headers: { authorization: 'Payment xyz' } }));
+    expect(observedRailKey).toBe('explicit_override');
+  });
+
+  it('receipt-derived key wins over composed.railKey when both are present', async () => {
+    let observedRailKey: string | undefined;
+    const checkout = buildCheckout(
+      async () => ({
+        status: 200,
+        raw: { receipt: { method: 'solana' } },
+        railKey: 'stripe_spt',
+      }),
+      async (_ctx, outcome) => {
+        observedRailKey = outcome.railKey;
+        return { ok: true };
+      },
+    );
+    await checkout.handle(req({ headers: { authorization: 'Payment xyz' } }));
+    expect(observedRailKey).toBe('sol_rail');
+  });
+});
