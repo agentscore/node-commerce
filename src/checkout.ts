@@ -872,6 +872,39 @@ export class Checkout {
     return 'tempo';
   }
 
+  /** Map an mppx credential `method` (`tempo` | `solana` | `stripe`) to the
+   *  merchant's rails-dict key. Used in handleMppx so onSettled outcomes
+   *  distinguish Solana from Tempo (both settle under `rail: 'mpp'`) and from
+   *  Stripe SPT. Returns the first matching key or `undefined` when no rail in
+   *  the merchant's config corresponds to that method. */
+  private railsKeyForMppxMethod(method: string): string | undefined {
+    if (method === 'stripe') {
+      for (const [k, v] of Object.entries(this.rails)) {
+        if (isStripeRailSpec(v)) return k;
+      }
+      return undefined;
+    }
+    if (method === 'solana') {
+      for (const [k, v] of Object.entries(this.rails)) {
+        if (isStripeRailSpec(v) || isTempoSessionRailSpec(v)) continue;
+        const network = (v as { network?: string }).network ?? '';
+        if (network.startsWith('solana:') || 'rpcUrl' in v || 'tokenProgram' in v) return k;
+      }
+      return undefined;
+    }
+    if (method === 'tempo') {
+      for (const [k, v] of Object.entries(this.rails)) {
+        if (isStripeRailSpec(v)) continue;
+        const network = (v as { network?: string }).network ?? '';
+        if (network.startsWith('solana:') || 'rpcUrl' in v || 'tokenProgram' in v) continue;
+        if (network.startsWith('eip155:')) continue;
+        return k;
+      }
+      return undefined;
+    }
+    return undefined;
+  }
+
   /** CAIP-2 read from `rails['x402_base'].network` (or its default).
    *  Defined only when an `X402BaseRailSpec` is present in rails AND a server
    *  is configured (explicit or auto-derived); otherwise `null`. */
@@ -1297,15 +1330,27 @@ export class Checkout {
     }
     const composed = await this.composeMppx(ctx);
     if (composed.status === 200) {
+      const paymentReceiptHeader =
+        composed.paymentReceiptHeader ?? extractMppxReceiptHeaderFromRaw(composed.raw);
+      const directMethod = (composed.raw as { receipt?: { method?: string } } | undefined)
+        ?.receipt?.method;
+      const headerMethod = paymentReceiptHeader
+        ? await extractMppxReceiptMethod(paymentReceiptHeader)
+        : undefined;
+      const receiptMethod = directMethod ?? headerMethod;
+      const derivedKey =
+        typeof receiptMethod === 'string'
+          ? this.railsKeyForMppxMethod(receiptMethod)
+          : undefined;
       const outcome: SettleOutcome = {
         rail: 'mpp',
         paymentResponseHeader: composed.paymentResponseHeader ?? null,
-        paymentReceiptHeader: composed.paymentReceiptHeader ?? extractMppxReceiptHeaderFromRaw(composed.raw),
+        paymentReceiptHeader,
         raw: composed.raw,
         txHash: composed.txHash ?? null,
         signerAddress: composed.signerAddress ?? null,
         signerNetwork: composed.signerNetwork ?? null,
-        railKey: composed.railKey ?? this.mppRailKey(),
+        railKey: derivedKey ?? composed.railKey ?? this.mppRailKey(),
       };
       return await this.buildSuccess(ctx, outcome);
     }
@@ -1592,6 +1637,17 @@ function extractMppxReceiptHeaderFromRaw(raw: unknown): string | null {
     return wrapped.headers.get('Payment-Receipt');
   } catch {
     return null;
+  }
+}
+
+async function extractMppxReceiptMethod(header: string): Promise<string | undefined> {
+  try {
+    const { Receipt } = (await import('mppx')) as {
+      Receipt: { deserialize: (s: string) => { method?: string } };
+    };
+    return Receipt.deserialize(header).method;
+  } catch {
+    return undefined;
   }
 }
 
