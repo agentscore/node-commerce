@@ -36,9 +36,6 @@ import {
   Checkout,
   type DiscoveryProbeConfig,
   type SettleOutcome,
-  type SolanaMppRailSpec,
-  type TempoRailSpec,
-  type X402BaseRailSpec,
 } from '@agent-score/commerce';
 import {
   buildMerchantIndexJson,
@@ -46,7 +43,8 @@ import {
   noindexNonDiscoveryPaths,
   standardEndpointDescriptions,
 } from '@agent-score/commerce/discovery';
-import { networks } from '@agent-score/commerce/payment';
+import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
+import { buildDefaultCheckoutRails, networks } from '@agent-score/commerce/payment';
 import { Hono, type Context } from 'hono';
 
 const PRICE_USDC = 0.01; // per-call price in USD
@@ -66,16 +64,16 @@ async function runYourSearch(_query: string): Promise<unknown[]> {
 }
 
 const checkout = new Checkout({
-  rails: {
-    // Static treasury recipients; relies on env-set values. Empty recipients
-    // would be advertised in 402s as broken rails.
+  // Static treasury recipients; relies on env-set values. Empty recipients
+  // would be advertised in 402s as broken rails.
+  rails: buildDefaultCheckoutRails({
     tempo: {
       recipient: TEMPO_RECIPIENT,
       network: X402_BASE_NETWORK === networks.base.sepolia.caip2 ? 'tempo-testnet' : 'tempo-mainnet',
-    } as TempoRailSpec,
-    x402_base: { recipient: X402_BASE_RECIPIENT, network: X402_BASE_NETWORK } as X402BaseRailSpec,
-    solana: { recipient: SOLANA_RECIPIENT, network: SOLANA_NETWORK_CAIP2 } as SolanaMppRailSpec,
-  },
+    },
+    x402Base: { recipient: X402_BASE_RECIPIENT, network: X402_BASE_NETWORK },
+    solanaMpp: { recipient: SOLANA_RECIPIENT, network: SOLANA_NETWORK_CAIP2 },
+  }),
   url: `https://${REALM}/search`,
   computePricing: async () => ({ amountUsd: PRICE_USDC }),
   onSettled: async (ctx, _outcome: SettleOutcome) => {
@@ -105,6 +103,7 @@ const checkout = new Checkout({
 const app = new Hono();
 
 // noindex non-discovery paths so /search doesn't end up in human-shaped SERPs.
+app.use('*', rateLimitHono());
 app.use('*', noindexNonDiscoveryPaths());
 
 app.post('/search', (c: Context) => checkout.handleHono(c));

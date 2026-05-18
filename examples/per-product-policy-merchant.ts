@@ -38,6 +38,7 @@ import {
   type TempoRailSpec,
   validateShippingAgainstPolicy,
 } from '@agent-score/commerce';
+import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
 import { Hono, type Context } from 'hono';
 
 const API_KEY = process.env.AGENTSCORE_API_KEY ?? 'ask_test_dummy';
@@ -137,6 +138,7 @@ const checkout = new Checkout({
 });
 
 const app = new Hono();
+app.use('*', rateLimitHono());
 
 app.post('/purchase', (c: Context) => checkout.handleHono(c));
 

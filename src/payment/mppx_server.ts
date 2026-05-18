@@ -59,8 +59,14 @@ function isSolanaMppRailSpec(s: MppxRailSpec): s is SolanaMppRailSpec {
   return (s as { network?: string }).network?.startsWith('solana:') ?? false;
 }
 
+/** Resolve a Solana network identifier to the `@solana/mpp` form. Accepts both
+ *  CAIP-2 (`'solana:5eykt4UsFv8…'` / `'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1'`)
+ *  AND the raw `@solana/mpp` strings (`'mainnet-beta'` / `'devnet'` / `'localnet'`)
+ *  so merchants can pass either form. Falls back to `'mainnet-beta'` for unknown
+ *  values to preserve the prior default. */
 function solanaNetworkFromCAIP2(caip2: string | undefined): SolanaMppNetwork {
-  if (caip2 === networks.solana.devnet.caip2) return 'devnet';
+  if (caip2 === 'devnet' || caip2 === networks.solana.devnet.caip2) return 'devnet';
+  if (caip2 === 'localnet') return 'localnet';
   return 'mainnet-beta';
 }
 

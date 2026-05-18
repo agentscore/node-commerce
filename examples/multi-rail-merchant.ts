@@ -17,8 +17,8 @@
  * 4. x402-base header → Checkout dispatches to `processX402Settle` internally.
  * 5. `Authorization: Payment` header → Checkout dispatches to the auto-derived
  *    `composeMppx` hook (built from `mppxSecretKey`).
- * 6. `onSettled` persists the order + fires `simulateDepositIfTestMode` for
- *    Stripe testnet round-trip on base settles.
+ * 6. `onSettled` persists the order + fires `simulateDepositForOutcome` for
+ *    Stripe testnet round-trip on any chain (rail dispatched automatically).
  *
  * Peer deps:
  *   bun add @agent-score/commerce hono mppx stripe \
@@ -47,17 +47,14 @@ import {
   type PricingResult,
   type Receipt,
   type SettleOutcome,
-  type SolanaMppRailSpec,
-  type StripeRailSpec,
-  type TempoRailSpec,
-  type X402BaseRailSpec,
 } from '@agent-score/commerce';
 import { buildSuccessNextSteps } from '@agent-score/commerce/discovery';
-import { networks, validateX402NetworkConfig } from '@agent-score/commerce/payment';
+import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
+import { buildDefaultCheckoutRails, networks, validateX402NetworkConfig } from '@agent-score/commerce/payment';
 import {
-  createMultichainPaymentIntent,
+  createPayToAddressFromStripePI,
   createPiCache,
-  simulateDepositIfTestMode,
+  simulateDepositForOutcome,
 } from '@agent-score/commerce/stripe-multichain';
 import { Hono, type Context } from 'hono';
 // @ts-expect-error stripe is an optional peer dep installed by the example user
@@ -99,32 +96,37 @@ async function _computePricing(ctx: CheckoutContext): Promise<PricingResult> {
 
 async function _mintRecipients(ctx: CheckoutContext): Promise<Record<string, string>> {
   const totalCents = Math.round((ctx.pricing?.amountUsd ?? 0) * 100);
-  const { paymentIntentId, depositAddresses } = await createMultichainPaymentIntent({
+  // Reuse the buyer's signed-against payTo when the settle leg carries an MPP
+  // credential; otherwise mint a fresh multichain PI + cache all addresses.
+  const tempo = await createPayToAddressFromStripePI({
+    request: ctx.request.raw as Request,
+    amountCents: totalCents,
     stripe: stripeClient as never,
-    amount: totalCents,
+    piCache,
     networks: ['tempo', 'base', 'solana'],
   });
-  for (const addr of Object.values(depositAddresses)) {
-    await piCache.cacheAddress(addr);
-    piCache.cachePaymentIntent(addr, paymentIntentId);
+  const paymentIntentId = piCache.getPaymentIntentId(tempo);
+  const out: Record<string, string> = { tempo };
+  if (paymentIntentId) {
+    const base = piCache.getNetworkDepositAddress(paymentIntentId, 'base');
+    if (base) out.x402_base = base;
+    const solana = piCache.getNetworkDepositAddress(paymentIntentId, 'solana');
+    if (solana) out.solana_mpp = solana;
   }
-  piCache.cacheNetworkAddresses(paymentIntentId, depositAddresses);
-  return {
-    tempo: depositAddresses.tempo,
-    x402_base: depositAddresses.base,
-    solana_mpp: depositAddresses.solana,
-  };
+  return out;
 }
 
 async function _onSettled(ctx: CheckoutContext, outcome: SettleOutcome): Promise<Record<string, unknown>> {
-  // Fire Stripe testnet deposit simulation on real on-chain base settles
-  // (no-op on live keys). Gate on `txHash` so $0 zero-settle carve-outs
-  // (which have signerAddress but no txHash) don't trigger a PI sim.
-  if (outcome.rail === 'x402' && outcome.txHash !== null) {
-    await simulateDepositIfTestMode({
+  // Stripe testnet deposit simulation (no-op on live keys). The dispatcher
+  // picks the right network arg from the outcome's rail / railKey, no-ops on
+  // Stripe SPT (no on-chain deposit), and gates on `txHash` so $0 zero-settle
+  // carve-outs don't trigger a PI sim.
+  const depositAddress = ctx.recipients.tempo ?? ctx.recipients.x402_base ?? ctx.recipients.solana_mpp;
+  if (depositAddress && outcome.txHash !== null) {
+    await simulateDepositForOutcome({
+      outcome,
+      depositAddress,
       getPaymentIntentId: piCache.getPaymentIntentId,
-      depositAddress: ctx.recipients.x402_base ?? '',
-      network: 'base',
       stripeSecretKey: STRIPE_SECRET_KEY,
     });
   }
@@ -149,14 +151,14 @@ async function _onSettled(ctx: CheckoutContext, outcome: SettleOutcome): Promise
 }
 
 const checkout = new Checkout({
-  rails: {
-    // Per-order-mint pattern: empty `recipient` declares the rail in
-    // discovery; `mintRecipients` resolves the real per-PI address.
-    tempo: { recipient: '', network: 'tempo-mainnet' } as TempoRailSpec,
-    x402_base: { recipient: '', network: X402_BASE_NETWORK } as X402BaseRailSpec,
-    solana_mpp: { recipient: '', network: SOLANA_NETWORK_CAIP2 } as SolanaMppRailSpec,
-    stripe: { profileId: STRIPE_PROFILE_ID } as StripeRailSpec,
-  },
+  // Per-order-mint pattern: defaults supply network/chainId/token + a `recipient: ''`
+  // sentinel; `mintRecipients` resolves the real per-PI address at request time.
+  rails: buildDefaultCheckoutRails({
+    tempo: { network: 'tempo-mainnet' },
+    x402Base: { network: X402_BASE_NETWORK },
+    solanaMpp: { network: SOLANA_NETWORK_CAIP2 },
+    stripe: { profileId: STRIPE_PROFILE_ID },
+  }),
   url: `${APP_URL}/purchase`,
   preValidate: _validatePurchase,
   computePricing: _computePricing,
@@ -177,6 +179,7 @@ const checkout = new Checkout({
 });
 
 const app = new Hono();
+app.use('*', rateLimitHono());
 
 app.post('/purchase', (c: Context) => checkout.handleHono(c));
 

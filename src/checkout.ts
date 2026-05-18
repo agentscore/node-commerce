@@ -33,6 +33,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { normalizeHeadersToLowercase } from './_headers';
+import { extractMppxReceiptHeaderFromRaw, extractMppxReceiptMethod } from './_mppx_receipt';
 import { denialReasonToBody } from './_response';
 import { buildAcceptedMethods } from './challenge/accepted_methods';
 import { type RailKey, buildAgentInstructions } from './challenge/agent_instructions';
@@ -53,6 +55,8 @@ import {
 } from './core';
 import { lazyMppxServer, lazyX402Server } from './payment/lazy';
 import { type MppxRailSpec } from './payment/mppx_server';
+import { isEvmNetwork, isSolanaNetwork } from './payment/network_kind';
+import { hasMppxHeader, hasX402Header } from './payment/payment_header';
 import {
   resolveRecipient,
   type RecipientLike,
@@ -110,6 +114,11 @@ export interface PricingResult {
   /** Optional pre-built `PricingBlock`. When omitted, Checkout builds a minimal
    *  block from `amountUsd` so the 402 body always carries pricing metadata. */
   block?: PricingBlock;
+  /** Dollar-precision used to format `amountUsd` and the derived `PricingBlock`
+   *  fields. Default `2` (canonical USD cents). Raise for sub-cent unit pricing
+   *  (per-token LLM, per-byte storage, etc.) so the 402 body advertises the
+   *  real amount instead of rounding to two decimals. */
+  decimals?: number;
   /** Optional product block surfaced in the 402 body's `product` field. Goods
    *  merchants populate `{id, name, slug, list_price_usd, ...}`; API sellers leave
    *  this absent since per-call billing has no product concept. */
@@ -164,6 +173,9 @@ export function pricingResult(opts: {
   taxState?: string;
   currency?: string;
   amountUsd?: number;
+  /** Dollar-precision for `amountUsd` derivation and the embedded `PricingBlock`.
+   *  Default `2` (canonical USD cents). Raise for sub-cent pricing. */
+  decimals?: number;
   product?: Record<string, string>;
   bodyExtras?: Record<string, unknown>;
 }): PricingResult {
@@ -182,11 +194,13 @@ export function pricingResult(opts: {
       ...(opts.taxRate !== undefined && { taxRate: opts.taxRate }),
       ...(opts.taxState !== undefined && { taxState: opts.taxState }),
       currency,
+      ...(opts.decimals !== undefined && { decimals: opts.decimals }),
     });
     return {
       amountUsd: derivedAmount,
       currency,
       block,
+      ...(opts.decimals !== undefined && { decimals: opts.decimals }),
       ...(opts.product !== undefined && { product: opts.product }),
       ...(opts.bodyExtras !== undefined && { bodyExtras: opts.bodyExtras }),
     };
@@ -197,6 +211,7 @@ export function pricingResult(opts: {
   return {
     amountUsd: opts.amountUsd,
     currency,
+    ...(opts.decimals !== undefined && { decimals: opts.decimals }),
     ...(opts.product !== undefined && { product: opts.product }),
     ...(opts.bodyExtras !== undefined && { bodyExtras: opts.bodyExtras }),
   };
@@ -212,7 +227,7 @@ export function pricingResult(opts: {
  */
 export interface DiscoveryProbeConfig {
   realm: string;
-  sampleRail: 'tempo' | 'base' | 'solana' | 'stripe';
+  sampleRail: string;
   sampleAmountUsd: number;
   sampleRecipient: string;
   intent?: 'charge' | 'authorize' | 'session.open';
@@ -473,26 +488,11 @@ export type OnSettledFn = (
 export type ComposeMppxFn = (ctx: CheckoutContext) => MppxComposeOutcome | Promise<MppxComposeOutcome>;
 export type IsCachedAddressFn = (address: string) => boolean | Promise<boolean>;
 
-function lowerHeaders(headers: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(headers)) out[k.toLowerCase()] = v;
-  return out;
-}
-
-function hasX402Header(headers: Record<string, string>): boolean {
-  const h = lowerHeaders(headers);
-  return Boolean(h['payment-signature'] ?? h['x-payment']);
-}
-
-function hasMppxHeader(headers: Record<string, string>): boolean {
-  const h = lowerHeaders(headers);
-  return (h['authorization'] ?? '').startsWith('Payment ');
-}
 
 function resolveIdentityMetadata(
   ctx: CheckoutContext,
 ): IdentityMetadataBlock | undefined {
-  const h = lowerHeaders(ctx.request.headers);
+  const h = normalizeHeadersToLowercase(ctx.request.headers);
   const wallet = h['x-wallet-address'];
   if (!wallet) return undefined;
   let linkedWallets: string[] | undefined;
@@ -526,9 +526,8 @@ function isTempoSessionRailSpec(s: CheckoutRailSpec): s is TempoSessionRailSpec 
 function specRailKey(spec: CheckoutRailSpec): RailKey {
   if (isStripeRailSpec(spec)) return 'stripe';
   if (isTempoSessionRailSpec(spec)) return 'tempo_mpp';
-  const network = (spec as { network?: string }).network ?? '';
-  if (network.startsWith('eip155:')) return 'x402_base';
-  if (network.startsWith('solana:') || 'rpcUrl' in spec) return 'solana_mpp';
+  if (isEvmNetwork(spec)) return 'x402_base';
+  if (isSolanaNetwork(spec) || 'rpcUrl' in spec) return 'solana_mpp';
   return 'tempo_mpp';
 }
 
@@ -536,9 +535,8 @@ function specRailKey(spec: CheckoutRailSpec): RailKey {
 function specMethodName(spec: CheckoutRailSpec): string {
   if (isStripeRailSpec(spec)) return 'stripe/spt';
   if (isTempoSessionRailSpec(spec)) return 'tempo/charge';
-  const network = (spec as { network?: string }).network ?? '';
-  if (network.startsWith('eip155:')) return 'x402/exact (base)';
-  if (network.startsWith('solana:') || 'rpcUrl' in spec) return 'solana/charge';
+  if (isEvmNetwork(spec)) return 'x402/exact (base)';
+  if (isSolanaNetwork(spec) || 'rpcUrl' in spec) return 'solana/charge';
   return 'tempo/charge';
 }
 
@@ -567,9 +565,9 @@ export function makeMppxComposeHook(opts: {
       realm?: string;
       charge: (args: { authorization?: string; amount: string }) => Promise<unknown>;
     };
-    const lower = lowerHeaders(ctx.request.headers);
+    const lower = normalizeHeadersToLowercase(ctx.request.headers);
     const authorization = lower['authorization'];
-    const amountStr = ctx.pricing.amountUsd.toFixed(2);
+    const amountStr = ctx.pricing.amountUsd.toFixed(ctx.pricing.decimals ?? 2);
     let result: unknown;
     try {
       result = await mpp.charge({ authorization, amount: amountStr });
@@ -757,7 +755,7 @@ export class Checkout {
       const baseSpec = Object.values(opts.rails).find(
         (s): s is X402BaseRailSpec =>
           !isTempoSessionRailSpec(s) && !isStripeRailSpec(s) && 'recipient' in s &&
-          ((s as { network?: string }).network ?? '').startsWith('eip155:'),
+          isEvmNetwork(s),
       );
       if (baseSpec !== undefined) {
         x402ServerGetter = lazyX402Server({
@@ -855,8 +853,7 @@ export class Checkout {
    *  `"x402_base"` when no match found. */
   private x402RailKey(): string {
     for (const [k, v] of Object.entries(this.rails)) {
-      if (!isStripeRailSpec(v) && !isTempoSessionRailSpec(v) &&
-          ((v as { network?: string }).network ?? '').startsWith('eip155:')) {
+      if (!isStripeRailSpec(v) && !isTempoSessionRailSpec(v) && isEvmNetwork(v)) {
         return k;
       }
     }
@@ -866,8 +863,7 @@ export class Checkout {
   /** Return the rails-dict key for the primary MPP rail. */
   private mppRailKey(): string {
     for (const [k, v] of Object.entries(this.rails)) {
-      const network = (v as { network?: string }).network ?? '';
-      if (!isStripeRailSpec(v) && !network.startsWith('eip155:')) return k;
+      if (!isStripeRailSpec(v) && !isEvmNetwork(v)) return k;
     }
     return 'tempo';
   }
@@ -887,17 +883,15 @@ export class Checkout {
     if (method === 'solana') {
       for (const [k, v] of Object.entries(this.rails)) {
         if (isStripeRailSpec(v) || isTempoSessionRailSpec(v)) continue;
-        const network = (v as { network?: string }).network ?? '';
-        if (network.startsWith('solana:') || 'rpcUrl' in v || 'tokenProgram' in v) return k;
+        if (isSolanaNetwork(v) || 'rpcUrl' in v || 'tokenProgram' in v) return k;
       }
       return undefined;
     }
     if (method === 'tempo') {
       for (const [k, v] of Object.entries(this.rails)) {
         if (isStripeRailSpec(v)) continue;
-        const network = (v as { network?: string }).network ?? '';
-        if (network.startsWith('solana:') || 'rpcUrl' in v || 'tokenProgram' in v) continue;
-        if (network.startsWith('eip155:')) continue;
+        if (isSolanaNetwork(v) || 'rpcUrl' in v || 'tokenProgram' in v) continue;
+        if (isEvmNetwork(v)) continue;
         return k;
       }
       return undefined;
@@ -911,8 +905,7 @@ export class Checkout {
   get x402BaseNetwork(): string | null {
     if (!this.x402ServerAvailable()) return null;
     for (const spec of Object.values(this.rails)) {
-      if (!isStripeRailSpec(spec) && !isTempoSessionRailSpec(spec) &&
-          ((spec as { network?: string }).network ?? '').startsWith('eip155:')) {
+      if (!isStripeRailSpec(spec) && !isTempoSessionRailSpec(spec) && isEvmNetwork(spec)) {
         return (spec as { network?: string }).network ?? 'eip155:8453';
       }
     }
@@ -1094,7 +1087,7 @@ export class Checkout {
     };
 
     const core = createAgentScoreCore(coreOpts);
-    const headers = lowerHeaders(ctx.request.headers);
+    const headers = normalizeHeadersToLowercase(ctx.request.headers);
     const walletAddress = headers['x-wallet-address'];
     const operatorToken = headers['x-operator-token'];
     const identity: AgentIdentity | undefined =
@@ -1179,7 +1172,7 @@ export class Checkout {
     if (!this.zeroSettleCarveOut || ctx.pricing === null) return null;
     const cents = Math.round(ctx.pricing.amountUsd * 100);
     if (cents !== 0) return null;
-    const headers = lowerHeaders(ctx.request.headers);
+    const headers = normalizeHeadersToLowercase(ctx.request.headers);
     let zero;
     if (rail === 'x402-base') {
       const x402Header = headers['payment-signature'] ?? headers['x-payment'];
@@ -1258,7 +1251,7 @@ export class Checkout {
       resourceConfig: {
         scheme: 'exact',
         network: verified.signedNetwork,
-        price: `$${ctx.pricing.amountUsd.toFixed(2)}`,
+        price: `$${ctx.pricing.amountUsd.toFixed(ctx.pricing.decimals ?? 2)}`,
         payTo: verified.signedPayTo,
         maxTimeoutSeconds: 300,
       },
@@ -1402,17 +1395,20 @@ export class Checkout {
           | StripeRailSpec;
       }
     }
+    const pricingDecimals = ctx.pricing.decimals ?? 2;
     const howToPay = buildHowToPay({
       url: this.url,
       retryBodyJson: JSON.stringify(ctx.request.body),
-      totalUsd: ctx.pricing.amountUsd.toFixed(2),
+      totalUsd: ctx.pricing.amountUsd.toFixed(pricingDecimals),
       rails: howToPayRails,
+      ...(ctx.pricing.decimals !== undefined && { decimals: ctx.pricing.decimals }),
     });
     const pricingBlock =
       ctx.pricing.block ??
       buildPricingBlock({
-        subtotalCents: Math.round(ctx.pricing.amountUsd * 100),
+        subtotalCents: ctx.pricing.amountUsd * 100,
         currency: ctx.pricing.currency ?? 'USD',
+        ...(ctx.pricing.decimals !== undefined && { decimals: ctx.pricing.decimals }),
       });
     // Build x402 accepts BEFORE the body so they appear both in the rich body
     // (agents read JSON) AND in the PAYMENT-REQUIRED header (x402-spec clients).
@@ -1427,7 +1423,7 @@ export class Checkout {
         try {
           x402Accepts = await buildX402AcceptsFor402(x402Server, {
             network: baseNetwork,
-            price: `$${ctx.pricing.amountUsd.toFixed(2)}`,
+            price: `$${ctx.pricing.amountUsd.toFixed(pricingDecimals)}`,
             payTo: recipient,
             maxTimeoutSeconds: 300,
           });
@@ -1450,7 +1446,7 @@ export class Checkout {
       agentInstructions: buildAgentInstructions({ howToPay }),
       ...(identityMetadata !== undefined ? { identityMetadata } : {}),
       pricing: pricingBlock,
-      amountUsd: ctx.pricing.amountUsd.toFixed(2),
+      amountUsd: ctx.pricing.amountUsd.toFixed(pricingDecimals),
       retryBody: ctx.request.body,
       agentMemory: firstEncounterAgentMemory({ firstEncounter: true }),
       ...(ctx.pricing.product ? { product: ctx.pricing.product as { id: string; name: string } } : {}),
@@ -1617,39 +1613,6 @@ function stripContentType(headers: Record<string, string>): Record<string, strin
   return out;
 }
 
-/**
- * Best-effort `Payment-Receipt` extraction from a custom `composeMppx` hook's
- * `raw`. When the hook returns the mppx compose result directly (the common
- * case for hand-rolled hooks invoking `composeMppxRequest(mppx, intents, req)`),
- * the result exposes `withReceipt(response): Response` per the mppx spec. We
- * pass a throwaway Response, lift the header value, and return it.
- *
- * Returns null when the raw doesn't expose `withReceipt`, when calling it throws
- * (mppx's `isMissingReceiptResponseError` sentinel — fires when there's no
- * receipt to attach), or when the wrapped response carries no header.
- */
-function extractMppxReceiptHeaderFromRaw(raw: unknown): string | null {
-  if (!raw || typeof raw !== 'object' || !('withReceipt' in raw)) return null;
-  const fn = (raw as { withReceipt: unknown }).withReceipt;
-  if (typeof fn !== 'function') return null;
-  try {
-    const wrapped = (fn as (r: Response) => Response).call(raw, new Response());
-    return wrapped.headers.get('Payment-Receipt');
-  } catch {
-    return null;
-  }
-}
-
-async function extractMppxReceiptMethod(header: string): Promise<string | undefined> {
-  try {
-    const { Receipt } = (await import('mppx')) as {
-      Receipt: { deserialize: (s: string) => { method?: string } };
-    };
-    return Receipt.deserialize(header).method;
-  } catch {
-    return undefined;
-  }
-}
 
 function headersToRecord(h: Headers | Record<string, string> | undefined): Record<string, string> {
   if (h === undefined) return {};

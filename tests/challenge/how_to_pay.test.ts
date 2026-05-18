@@ -13,6 +13,18 @@ describe('buildHowToPay', () => {
     expect(buildHowToPay(baseInput)).toEqual({});
   });
 
+  it('honors `decimals` for sub-dollar max-spend on sub-cent unit pricing', () => {
+    // $0.0005 total → default 2-decimal precision would round to "0.00";
+    // with decimals=4 the agent sees the real cap.
+    const block = buildHowToPay({
+      ...baseInput,
+      totalUsd: 0.0005,
+      decimals: 4,
+      rails: { x402_base: { recipient: '0xb' } },
+    });
+    expect(block.x402_base!.command).toContain('--max-spend 0.0005');
+  });
+
   it('builds tempo entry with both tempo + agentscore-pay commands by default', () => {
     const block = buildHowToPay({ ...baseInput, rails: { tempo: { recipient: '0xabc' } } });
     expect(block.tempo).toBeDefined();

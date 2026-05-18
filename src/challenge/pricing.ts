@@ -65,6 +65,7 @@ export function buildPricingBlock({
   taxRate,
   taxState,
   currency,
+  decimals,
 }: {
   subtotalCents: number;
   taxCents?: number;
@@ -74,26 +75,29 @@ export function buildPricingBlock({
   taxRate?: number;
   taxState?: string;
   currency?: string;
+  /** Dollar-precision for every emitted money field (default `2`). Raise for
+   *  sub-cent unit pricing so `subtotal` / `total` show the real amount
+   *  instead of rounding to two decimals. Subtotal/tax/total inputs become
+   *  fractional cents under this mode. */
+  decimals?: number;
 }): PricingBlock {
   const shipping = shippingCents ?? 0;
   const discount = discountCents ?? 0;
   const total = totalCents ?? Math.max(0, subtotalCents + taxCents + shipping - discount);
+  const d = decimals ?? 2;
+  const fmt = (cents: number): string => (cents / 100).toFixed(d);
 
   const block: PricingBlock = {
-    subtotal: formatCents(subtotalCents),
-    tax: formatCents(taxCents),
-    total: formatCents(total),
+    subtotal: fmt(subtotalCents),
+    tax: fmt(taxCents),
+    total: fmt(total),
   };
 
-  if (shippingCents !== undefined) block.shipping = formatCents(shipping);
-  if (discountCents !== undefined) block.discount = formatCents(discount);
+  if (shippingCents !== undefined) block.shipping = fmt(shipping);
+  if (discountCents !== undefined) block.discount = fmt(discount);
   if (taxRate !== undefined) block.tax_rate = taxRate;
   if (taxState !== undefined) block.tax_state = taxState;
   if (currency !== undefined) block.currency = currency;
 
   return block;
-}
-
-function formatCents(cents: number): string {
-  return (cents / 100).toFixed(2);
 }

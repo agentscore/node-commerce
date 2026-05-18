@@ -18,6 +18,7 @@
  *
  * Run: bun run examples/stripe-multichain-merchant.ts
  */
+import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
 import {
   STRIPE_TEST_TX_HASH_SUCCESS,
   createMultichainPaymentIntent,
@@ -30,6 +31,7 @@ import Stripe from 'stripe';
 const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-11-20.acacia' as never });
 
 const app = new Hono();
+app.use('*', rateLimitHono());
 
 app.post('/checkout', async (c) => {
   const body = await c.req.json();

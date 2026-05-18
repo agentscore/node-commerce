@@ -34,6 +34,8 @@ export { denialReasonToBody } from './_response';
 export {
   buildA2AAgentCard,
   ucpA2AExtension,
+  A2A_DEFAULT_TRANSPORT,
+  A2A_PROTOCOL_VERSION,
   UCP_A2A_EXTENSION_URI,
   type A2AAgentCard,
   type A2AAgentCardCapabilities,
@@ -79,7 +81,7 @@ export {
   shippingStateAllowed,
   validateShippingAgainstPolicy,
 } from './identity/policy';
-export { hashOperatorToken } from './identity/tokens';
+export { extractOwnerScope, hashOperatorToken, type OwnerScope } from './identity/tokens';
 export {
   Checkout,
   type CheckoutContext,
@@ -115,6 +117,8 @@ export {
 // RailSpec types + payment helpers re-exported at top-level for cross-language
 // parity with python-commerce. Power users can still import from `./payment`.
 export {
+  buildDefaultCheckoutRails,
+  buildMppxComposeRails,
   formatUsdCents,
   loadSolanaFeePayer,
   type SolanaMppRailSpec,
@@ -123,3 +127,17 @@ export {
   type TempoSessionRailSpec,
   type X402BaseRailSpec,
 } from './payment';
+export {
+  computeFirstCheckout,
+  type ComputeFirstHandler,
+  type ComputeFirstMintContext,
+  type ComputeFirstOptions,
+  type ComputeFirstRails,
+  type ComputeFirstWorkContext,
+  type MintedRecipients,
+  type SuccessBodyArgs,
+  type WorkOutcome,
+} from './checkout_compute_first';
+export { createQuoteCache, type CachedQuote, type QuoteCache, type QuoteCacheOptions } from './quote_cache';
+export { createDefaultOnDenied, defaultReadOnlyOnDenied, type CreateDefaultOnDeniedOptions, type DefaultOnDeniedResult } from './identity/default_denied';
+export { hasMppxHeader, hasPaymentHeader, hasX402Header } from './payment/payment_header';

@@ -1,13 +1,7 @@
-import {
-  FIXABLE_DENIAL_REASONS,
-  buildContactSupportNextSteps,
-  buildSignerMismatchBody,
-  denialReasonStatus,
-  isFixableDenial,
-  verificationAgentInstructions,
-} from '../_denial';
+import { denialReasonStatus } from '../_denial';
 import { denialReasonToBody } from '../_response';
 import { createAgentScoreCore } from '../core';
+import { hasPaymentHeader } from '../payment/payment_header';
 import { extractPaymentSigner, readX402PaymentHeader } from '../signer';
 import type {
   AgentIdentity,
@@ -197,15 +191,22 @@ export function getSignerVerdict(c: Context): SignerVerdict | undefined {
 }
 
 
-// Re-export the denial helpers so vendors can compose custom onDenied handlers
-// without reaching into the internal _denial module.
-export {
-  FIXABLE_DENIAL_REASONS,
-  buildContactSupportNextSteps,
-  buildSignerMismatchBody,
-  denialReasonStatus,
-  isFixableDenial,
-  verificationAgentInstructions,
-};
-export { denialReasonToBody };
-export { readX402PaymentHeader };
+/** Wrap `agentscoreGate(...)` so it only fires when a payment credential is
+ *  attached to the request. Discovery legs (no payment header) flow through
+ *  unauthenticated and the handler emits a 402 with all rails; settle legs
+ *  trigger the full gate.
+ *
+ *  Replaces the hand-rolled `if (!hasPaymentHeader(...)) { await next(); return; }`
+ *  wrap pattern in consumer codebases.
+ */
+export function conditionalAgentscoreGate(options: AgentScoreGateOptions): MiddlewareHandler {
+  const gate = agentscoreGate(options);
+  return async (c, next) => {
+    if (!hasPaymentHeader(c.req.raw)) {
+      await next();
+      return;
+    }
+    return gate(c, next);
+  };
+}
+

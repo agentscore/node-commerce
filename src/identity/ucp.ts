@@ -42,6 +42,7 @@
 // + handler `version` are owned by these constants; bumping a handler spec
 // version is a one-line change here, not 20 lines across consumers.
 
+import { isSolanaNetwork } from '../payment/network_kind';
 import {
   type RecipientLike,
   type SolanaMppRailSpec,
@@ -491,7 +492,7 @@ function isTempoSessionRailSpec(s: MppRailSpec): s is TempoSessionRailSpec {
 
 function mppRailToNetworkEntry(spec: MppRailSpec): Record<string, unknown> {
   if (isTempoSessionRailSpec(spec)) return tempoSessionToNetworkEntry(spec);
-  if ('rpcUrl' in spec || 'tokenProgram' in spec || (spec.network?.startsWith('solana:') ?? false)) {
+  if ('rpcUrl' in spec || 'tokenProgram' in spec || isSolanaNetwork(spec)) {
     return solanaMppToNetworkEntry(spec as SolanaMppRailSpec);
   }
   if (isTempoRailSpec(spec)) return tempoToNetworkEntry(spec);

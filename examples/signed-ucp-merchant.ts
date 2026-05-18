@@ -40,6 +40,7 @@ import {
   bootstrapUcpSigningKey,
   defaultA2aServices,
 } from '@agent-score/commerce/discovery';
+import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
 import { Hono, type Context } from 'hono';
 
 const SIGNING_KID = 'merchant-2026-05';
@@ -61,6 +62,7 @@ const AGENTSCORE_GATE: AgentScoreGatePolicy = {
 await bootstrapUcpSigningKey({ defaultKid: SIGNING_KID });
 
 const app = new Hono();
+app.use('*', rateLimitHono());
 
 // One-call: registers GET /.well-known/ucp + GET /.well-known/jwks.json +
 // OPTIONS preflights. Composes payment_handlers from checkout.rails, signs

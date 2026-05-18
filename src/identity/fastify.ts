@@ -1,14 +1,8 @@
-import {
-  FIXABLE_DENIAL_REASONS,
-  buildContactSupportNextSteps,
-  buildSignerMismatchBody,
-  denialReasonStatus,
-  isFixableDenial,
-  verificationAgentInstructions,
-} from '../_denial';
+import { denialReasonStatus } from '../_denial';
 import { denialReasonToBody } from '../_response';
 import { createAgentScoreCore } from '../core';
-import { extractPaymentSignerFromAuth, readX402PaymentHeader } from '../signer';
+import { hasPaymentHeader } from '../payment/payment_header';
+import { extractPaymentSignerFromAuth } from '../signer';
 import type {
   AgentIdentity,
   AgentScoreCore,
@@ -184,17 +178,6 @@ export function getSignerVerdict(request: FastifyRequest): SignerVerdict | undef
   return state.core.getSignerVerdict(state.walletAddress);
 }
 
-export { readX402PaymentHeader };
-export {
-  FIXABLE_DENIAL_REASONS,
-  buildContactSupportNextSteps,
-  buildSignerMismatchBody,
-  denialReasonStatus,
-  isFixableDenial,
-  verificationAgentInstructions,
-};
-export { denialReasonToBody };
-
 // Escape Fastify's plugin encapsulation so the preHandler hook applies to routes
 // registered at the parent scope (the common case: `app.register(agentscoreGate, ...)`
 // followed by `app.get(...)` at the root). Equivalent to fastify-plugin without the
@@ -203,3 +186,44 @@ export { denialReasonToBody };
 
 export const agentscoreGate = agentscoreGatePlugin;
 export default agentscoreGatePlugin;
+
+/** Plugin variant of `agentscoreGate` that only runs the preHandler when a
+ *  payment credential is attached. Discovery legs (no payment header) flow
+ *  through to the handler unauthenticated; settle legs trigger the full gate
+ *  evaluation. Replaces the hand-rolled
+ *  `addHook('preHandler', (req, reply) => hasPaymentHeader(req.headers) ? gate(...) : undefined)`
+ *  wrap pattern. */
+const conditionalAgentscoreGatePlugin: FastifyPluginAsync<AgentScoreGateOptions> = async (fastify, options) => {
+  const { extractIdentity = defaultExtractIdentity, onDenied = defaultOnDenied, ...coreOptions } = options as AgentScoreGateOptions & AgentScoreCoreOptions;
+  const core = createAgentScoreCore(coreOptions as AgentScoreCoreOptions);
+
+  fastify.addHook('preHandler', async (request, reply) => {
+    if (!hasPaymentHeader(request.headers as Record<string, string | string[] | undefined>)) return;
+    const identity = extractIdentity(request);
+    (request as unknown as Record<string, unknown>)[GATE_STATE_KEY] = {
+      core,
+      operatorToken: identity?.operatorToken,
+      walletAddress: identity?.address,
+    } satisfies GateState;
+    const authHeader = (request.headers.authorization as string | undefined) ?? null;
+    const x402Header =
+      (request.headers['payment-signature'] as string | undefined) ??
+      (request.headers['x-payment'] as string | undefined);
+    const signer = await extractPaymentSignerFromAuth(authHeader, x402Header);
+    const outcome = await core.evaluate(identity, request, signer);
+    if (outcome.kind === 'allow') {
+      const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+      if (state) {
+        if (outcome.degraded) {
+          state.degraded = true;
+          state.infraReason = outcome.infraReason;
+        }
+        if (outcome.quota) state.quota = outcome.quota;
+      }
+      return;
+    }
+    return onDenied(request, reply, outcome.reason);
+  });
+};
+(conditionalAgentscoreGatePlugin as unknown as Record<symbol, boolean>)[Symbol.for('skip-override')] = true;
+export const conditionalAgentscoreGate = conditionalAgentscoreGatePlugin;

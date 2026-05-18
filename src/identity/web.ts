@@ -1,13 +1,7 @@
-import {
-  FIXABLE_DENIAL_REASONS,
-  buildContactSupportNextSteps,
-  buildSignerMismatchBody,
-  denialReasonStatus,
-  isFixableDenial,
-  verificationAgentInstructions,
-} from '../_denial';
+import { denialReasonStatus } from '../_denial';
 import { denialReasonToBody } from '../_response';
 import { createAgentScoreCore } from '../core';
+import { hasPaymentHeader } from '../payment/payment_header';
 import { extractPaymentSigner, readX402PaymentHeader } from '../signer';
 import type {
   AgentIdentity,
@@ -189,13 +183,26 @@ export function withAgentScoreGate<TCtx = unknown>(
   };
 }
 
-export { readX402PaymentHeader };
-export {
-  FIXABLE_DENIAL_REASONS,
-  buildContactSupportNextSteps,
-  buildSignerMismatchBody,
-  denialReasonStatus,
-  isFixableDenial,
-  verificationAgentInstructions,
-};
-export { denialReasonToBody };
+/** Wrap `createAgentScoreGate(...)` so it only fires when a payment credential
+ *  is attached. Discovery legs flow through allowed (with `data: undefined`)
+ *  and the handler emits a 402 with all rails; settle legs run the full gate. */
+export function createConditionalAgentScoreGate(options: AgentScoreGateOptions): (req: Request) => Promise<GuardResult> {
+  const guard = createAgentScoreGate(options);
+  return async (req: Request): Promise<GuardResult> => {
+    if (!hasPaymentHeader(req)) return { allowed: true };
+    return guard(req);
+  };
+}
+
+/** Wrapper variant matching `withAgentScoreGate(opts, handler)` that only
+ *  invokes the gate when a payment credential is attached. */
+export function withConditionalAgentScoreGate<TCtx = unknown>(
+  options: AgentScoreGateOptions,
+  handler: Parameters<typeof withAgentScoreGate<TCtx>>[1],
+): (req: Request, ctx: TCtx) => Promise<Response> {
+  const wrapped = withAgentScoreGate<TCtx>(options, handler);
+  return async (req: Request, ctx: TCtx): Promise<Response> => {
+    if (!hasPaymentHeader(req)) return handler(req, {}, ctx);
+    return wrapped(req, ctx);
+  };
+}

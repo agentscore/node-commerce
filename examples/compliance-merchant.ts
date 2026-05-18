@@ -47,6 +47,7 @@ import {
   isFixableDenial,
   verificationAgentInstructions,
 } from '@agent-score/commerce';
+import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
 import { Hono, type Context } from 'hono';
 
 const AGENTSCORE_API_KEY = process.env.AGENTSCORE_API_KEY!;
@@ -163,6 +164,7 @@ const checkout = new Checkout({
 });
 
 const app = new Hono();
+app.use('*', rateLimitHono());
 
 app.post('/buy', (c: Context) => checkout.handleHono(c));
 
