@@ -28,6 +28,7 @@
  * ```
  */
 
+import { normalizeHeadersToLowercase } from '../_headers';
 import { paymentRequiredHeader } from '../payment/wwwauthenticate';
 
 /** Framework-neutral 402 response shape — body + headers + status. */
@@ -52,10 +53,7 @@ export function respond402({
    *  Omit for merchants that don't accept x402 (Base/Solana) — mppx-only setups. */
   x402?: Parameters<typeof paymentRequiredHeader>[0];
 }): Respond402Result {
-  const headers: Record<string, string> = {};
-  for (const [k, v] of Object.entries(mppxChallengeHeaders)) {
-    headers[k.toLowerCase()] = v;
-  }
+  const headers = normalizeHeadersToLowercase(mppxChallengeHeaders);
   headers['content-type'] = 'application/json';
   if (x402) {
     headers['payment-required'] = paymentRequiredHeader(x402);

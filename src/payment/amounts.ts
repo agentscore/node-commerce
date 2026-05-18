@@ -87,7 +87,14 @@ export function usdToAtomic(usd: string | number, opts: { decimals: number }): b
  * leading minus. Use everywhere a merchant emits `(cents / 100).toFixed(2)`;
  * consistent formatting across catalog rows, order responses, and 402 bodies
  * prevents agent-side string-comparison flakiness.
+ *
+ * `decimals` controls the dollar-precision of the output and defaults to `2`
+ * (canonical USD cents). Raise it for sub-cent unit pricing — e.g.
+ * `formatUsdCents(0.05, 4)` returns `"0.0005"` for a half-of-one-millicent
+ * amount. The `cents` input is allowed to be fractional so per-token /
+ * per-byte pricing models can compute `priceCents = unitPriceCents × n`
+ * without rounding before reaching the formatter.
  */
-export function formatUsdCents(cents: number): string {
-  return (cents / 100).toFixed(2);
+export function formatUsdCents(cents: number, decimals = 2): string {
+  return (cents / 100).toFixed(decimals);
 }

@@ -1,14 +1,8 @@
-import {
-  FIXABLE_DENIAL_REASONS,
-  buildContactSupportNextSteps,
-  buildSignerMismatchBody,
-  denialReasonStatus,
-  isFixableDenial,
-  verificationAgentInstructions,
-} from '../_denial';
+import { denialReasonStatus } from '../_denial';
 import { denialReasonToBody } from '../_response';
 import { createAgentScoreCore } from '../core';
-import { extractPaymentSignerFromAuth, readX402PaymentHeader } from '../signer';
+import { hasPaymentHeader } from '../payment/payment_header';
+import { extractPaymentSignerFromAuth } from '../signer';
 import type {
   AgentIdentity,
   AgentScoreCore,
@@ -176,15 +170,17 @@ export function getSignerVerdict(req: Request): SignerVerdict | undefined {
   return state.core.getSignerVerdict(state.walletAddress);
 }
 
-// Re-export shared signer helpers so Express consumers can extract from Fetch-style Requests
-// if they have one on hand (e.g. edge proxies forwarding the raw Request).
-export { readX402PaymentHeader };
-export {
-  FIXABLE_DENIAL_REASONS,
-  buildContactSupportNextSteps,
-  buildSignerMismatchBody,
-  denialReasonStatus,
-  isFixableDenial,
-  verificationAgentInstructions,
-};
-export { denialReasonToBody };
+/** Wrap `agentscoreGate(...)` so it only fires when a payment credential is
+ *  attached to the request. Discovery legs (no payment header) flow through
+ *  unauthenticated and the handler emits a 402 with all rails; settle legs
+ *  trigger the full gate. */
+export function conditionalAgentscoreGate(options: AgentScoreGateOptions) {
+  const gate = agentscoreGate(options);
+  return async function conditionalGateMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
+    if (!hasPaymentHeader(req.headers as Record<string, string | string[] | undefined>)) {
+      next();
+      return;
+    }
+    return gate(req, res, next);
+  };
+}

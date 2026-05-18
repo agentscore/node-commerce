@@ -16,6 +16,8 @@
  * fallback. Both dynamic-imported; merchants who don't accept that rail don't need them.
  */
 
+import { normalizeHeadersToLowercase } from './_headers';
+
 export type SignerNetwork = 'evm' | 'solana';
 
 const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
@@ -190,12 +192,6 @@ export function readX402PaymentHeader(request: Request): string | undefined {
   );
 }
 
-function lowerHeaders(headers: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(headers)) out[k.toLowerCase()] = v;
-  return out;
-}
-
 /**
  * One-call signer extraction across both supported credential formats.
  *
@@ -216,7 +212,7 @@ function lowerHeaders(headers: Record<string, string>): Record<string, string> {
 export async function extractSignerForPrecheck(
   headers: Record<string, string>,
 ): Promise<PaymentSigner | null> {
-  const lower = lowerHeaders(headers);
+  const lower = normalizeHeadersToLowercase(headers);
   const x402 = lower['payment-signature'] ?? lower['x-payment'];
   if (x402) {
     const signer = await extractPaymentSignerFromAuth(undefined, x402);

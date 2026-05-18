@@ -60,6 +60,15 @@ describe('formatUsdCents', () => {
   it('formats negatives with a leading minus', () => {
     expect(formatUsdCents(-50)).toBe('-0.50');
   });
+  it('honors `decimals` for sub-cent precision (per-token / per-byte unit pricing)', () => {
+    // 0.05 cents = $0.0005 at 4-decimal precision; default 2-decimal rounds to "0.00".
+    expect(formatUsdCents(0.05)).toBe('0.00');
+    expect(formatUsdCents(0.05, 4)).toBe('0.0005');
+    // Integer cents with raised precision pad with zeros.
+    expect(formatUsdCents(5, 4)).toBe('0.0500');
+    // Per-token pricing: $0.000002/token × 1234 tokens = $0.002468.
+    expect(formatUsdCents(0.2468, 6)).toBe('0.002468');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

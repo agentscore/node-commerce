@@ -23,14 +23,15 @@
  * whichever instance settles it.
  */
 
+import { memoizedRedis, type MinimalRedis } from '../_redis';
+
 // ioredis is an optional peer dep — typed structurally to avoid pulling its types into
 // the build for merchants that run in-process without Redis. The structural type covers
-// only the methods we call (set with EX/get/on); merchants using Redis install ioredis
+// only the methods we call (set with EX/get); merchants using Redis install ioredis
 // themselves.
-interface RedisLike {
+interface RedisLike extends MinimalRedis {
   set: (key: string, value: string, mode: 'EX', ttl: number) => Promise<unknown>;
   get: (key: string) => Promise<string | null>;
-  on: (event: 'error', cb: (err: Error) => void) => unknown;
 }
 
 
@@ -67,7 +68,7 @@ export function createPiCache({
   keyPrefix?: string;
 } = {}): PiCache {
 
-  let redis: RedisLike | null = null;
+  const getRedis = memoizedRedis<RedisLike>({ url: redisUrl, label: 'pi-cache', connectTimeout: 5000 });
   const addrMemCache = new Map<string, number>();
   const piCache = new Map<string, Entry<string>>();
   const networkAddressCache = new Map<string, Entry<Record<string, string>>>();
@@ -80,27 +81,6 @@ export function createPiCache({
   }, 60_000);
   // Don't keep the event loop alive on test shutdown / one-shot scripts.
   if (typeof evict.unref === 'function') evict.unref();
-
-  async function getRedis(): Promise<RedisLike | null> {
-    if (!redisUrl) return null;
-    if (redis) return redis;
-    // Dynamic import keeps ioredis as an optional peer dep — merchants without
-    // Redis don't pay the install cost.
-    const mod = await import('ioredis' as string).catch(() => null) as
-      | { default: new (url: string, opts: unknown) => RedisLike }
-      | null;
-    if (!mod) {
-      console.error('[pi-cache] redisUrl set but `ioredis` is not installed. Run `npm install ioredis` or unset redisUrl.');
-      return null;
-    }
-    redis = new mod.default(redisUrl, {
-      connectTimeout: 5000,
-      maxRetriesPerRequest: 1,
-      tls: redisUrl.startsWith('rediss://') ? {} : undefined,
-    });
-    redis.on('error', (err: Error) => console.error('[pi-cache] Redis error:', err.message));
-    return redis;
-  }
 
   return {
     async cacheAddress(address) {

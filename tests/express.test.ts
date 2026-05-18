@@ -953,7 +953,7 @@ describe('agentscoreGate middleware — verify_url and operator_verification in 
 });
 
 // ---------------------------------------------------------------------------
-// Identity model: extractIdentity, operator token, backwards compat
+// Identity model: extractIdentity, operator token, header aliases
 // ---------------------------------------------------------------------------
 
 describe('agentscoreGate — identity model', () => {

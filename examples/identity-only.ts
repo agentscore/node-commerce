@@ -23,9 +23,11 @@ import {
   captureWallet,
   getAgentScoreData,
 } from '@agent-score/commerce/identity/hono';
+import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
 import { Hono } from 'hono';
 
 const app = new Hono();
+app.use('*', rateLimitHono());
 
 // ── Apply identity gate to specific routes ──────────────────────────────────
 app.use(

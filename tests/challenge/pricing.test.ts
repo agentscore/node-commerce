@@ -9,6 +9,14 @@ describe('buildPricingBlock', () => {
     expect(result.total).toBe('250.00');
   });
 
+  it('honors `decimals` for sub-cent unit pricing', () => {
+    // $0.0005 unit × 5 results = $0.0025 total. With default 2-decimal precision the
+    // total rounds to "0.00"; with decimals=4 the real amount is preserved.
+    const result = buildPricingBlock({ subtotalCents: 0.25, decimals: 4 });
+    expect(result.subtotal).toBe('0.0025');
+    expect(result.total).toBe('0.0025');
+  });
+
   it('computes total from subtotal + tax + shipping when totalCents not given', () => {
     const result = buildPricingBlock({
       subtotalCents: 25000,

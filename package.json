@@ -1,6 +1,6 @@
 {
   "name": "@agent-score/commerce",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "description": "Agent commerce SDK — identity middleware (Hono, Express, Fastify, Next.js, Web Fetch) + payment helpers + 402 builders + discovery + Stripe multichain. The full merchant-side toolkit for AgentScore-powered agent commerce.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -70,6 +70,31 @@
       "types": "./dist/api/index.d.ts",
       "import": "./dist/api/index.mjs",
       "require": "./dist/api/index.js"
+    },
+    "./middleware/hono": {
+      "types": "./dist/middleware/hono.d.ts",
+      "import": "./dist/middleware/hono.mjs",
+      "require": "./dist/middleware/hono.js"
+    },
+    "./middleware/express": {
+      "types": "./dist/middleware/express.d.ts",
+      "import": "./dist/middleware/express.mjs",
+      "require": "./dist/middleware/express.js"
+    },
+    "./middleware/fastify": {
+      "types": "./dist/middleware/fastify.d.ts",
+      "import": "./dist/middleware/fastify.mjs",
+      "require": "./dist/middleware/fastify.js"
+    },
+    "./middleware/nextjs": {
+      "types": "./dist/middleware/nextjs.d.ts",
+      "import": "./dist/middleware/nextjs.mjs",
+      "require": "./dist/middleware/nextjs.js"
+    },
+    "./middleware/web": {
+      "types": "./dist/middleware/web.d.ts",
+      "import": "./dist/middleware/web.mjs",
+      "require": "./dist/middleware/web.js"
     }
   },
   "files": [
@@ -134,6 +159,7 @@
     "express": ">=4.0.0",
     "fastify": ">=4.0.0",
     "hono": ">=4.0.0",
+    "ioredis": ">=5.0.0",
     "jose": ">=6.0.0",
     "stripe": ">=17.0.0"
   },
@@ -151,6 +177,9 @@
       "optional": true
     },
     "hono": {
+      "optional": true
+    },
+    "ioredis": {
       "optional": true
     },
     "jose": {
@@ -178,6 +207,7 @@
     "express": "^5.2.1",
     "fastify": "^5.8.5",
     "hono": "^4.12.19",
+    "ioredis": "^5.10.1",
     "jose": "^6.2.3",
     "knip": "^6.14.1",
     "lefthook": "^2.1.6",

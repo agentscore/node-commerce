@@ -18,7 +18,7 @@ import type { DenialCode, DenialReason } from './core.js';
  * `agent_instructions` so every denial carries a machine-readable next step.
  *
  * Codes covered:
- *  - `wallet_not_trusted` — gate never stamps instructions today (the original gap)
+ *  - `wallet_not_trusted` — gate never stamps instructions, fallback ensures coverage
  *  - `payment_required` — gate never stamps; merchant tier misconfig, contact-merchant action
  *  - `identity_verification_required` — fallback when API didn't return next_steps
  *  - `token_expired` — fallback when API didn't return next_steps

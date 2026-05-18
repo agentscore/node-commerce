@@ -70,6 +70,7 @@ export function buildHowToPay({
   rails,
   opTokenPlaceholder,
   maxSpend,
+  decimals,
 }: {
   /** The merchant's full URL (e.g., 'https://agents.merchant.example/api/buy'). */
   url: string;
@@ -81,11 +82,18 @@ export function buildHowToPay({
   rails: HowToPayRails;
   /** Placeholder text for the operator token in commands. Defaults to '<your_opc_token>'. */
   opTokenPlaceholder?: string;
-  /** Override max-spend value used in commands. Default: ceil(totalUsd) + 1. */
+  /** Override max-spend value used in commands. Default: `ceil(totalUsd) + 1`
+   *  (for prices ≥ $1) or `totalUsd.toFixed(decimals)` (for sub-dollar prices,
+   *  so the command flags reflect the real amount instead of `1.00`). */
   maxSpend?: string | number;
+  /** Fractional digits when formatting the auto-derived `maxSpend` for
+   *  sub-dollar / sub-cent prices. Default `2`. */
+  decimals?: number;
 }): HowToPayBlock {
   const totalNum = typeof totalUsd === 'string' ? Number(totalUsd) : totalUsd;
-  const maxSpendStr = String(maxSpend ?? (Math.ceil(totalNum) + 1).toFixed(2));
+  const d = decimals ?? 2;
+  const defaultMaxSpend = totalNum >= 1 ? (Math.ceil(totalNum) + 1).toFixed(d) : totalNum.toFixed(d);
+  const maxSpendStr = String(maxSpend ?? defaultMaxSpend);
   const opToken = opTokenPlaceholder ?? '<your_opc_token>';
   const block: HowToPayBlock = {};
 
