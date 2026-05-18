@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  A2A_DEFAULT_TRANSPORT,
+  A2A_PROTOCOL_VERSION,
   UCP_A2A_EXTENSION_URI,
   buildA2AAgentCard,
   ucpA2AExtension,
@@ -16,7 +18,7 @@ const DEFAULT_SKILL: A2AAgentSkill = {
   tags: ['commerce', 'payment'],
 };
 
-describe('buildA2AAgentCard (A2A v1.0 spec compliance)', () => {
+describe('buildA2AAgentCard (A2A v1.0 wire format)', () => {
   it('emits the minimum required spec fields', () => {
     const card = buildA2AAgentCard({
       name: 'Example Merchant',
@@ -24,19 +26,33 @@ describe('buildA2AAgentCard (A2A v1.0 spec compliance)', () => {
       url: 'https://agents.example.com',
       skills: [DEFAULT_SKILL],
     });
-    // Per spec §4.4.1 (proto): name, description, supported_interfaces, version,
-    // capabilities, default_input_modes, default_output_modes, skills are REQUIRED.
     expect(card.name).toBe('Example Merchant');
     expect(card.description).toBe('Buy regulated goods via agent payments.');
-    expect(card.supported_interfaces).toHaveLength(1);
-    expect(card.supported_interfaces[0]?.url).toBe('https://agents.example.com');
-    expect(card.supported_interfaces[0]?.protocol_binding).toBe('HTTP+JSON');
-    expect(card.supported_interfaces[0]?.protocol_version).toBe('1.0');
+    expect(card.url).toBe('https://agents.example.com');
+    expect(card.preferredTransport).toBe('HTTP+JSON');
+    expect(card.protocolVersion).toBe('1.0');
     expect(card.version).toBe('1.0.0');
     expect(card.capabilities).toEqual({});
-    expect(card.default_input_modes).toEqual(['application/json']);
-    expect(card.default_output_modes).toEqual(['application/json']);
+    expect(card.defaultInputModes).toEqual(['application/json']);
+    expect(card.defaultOutputModes).toEqual(['application/json']);
     expect(card.skills).toHaveLength(1);
+    expect(card.additionalInterfaces).toBeUndefined();
+  });
+
+  it('does NOT emit any snake_case keys (canonical wire format is camelCase)', () => {
+    const card = buildA2AAgentCard({
+      name: 'X',
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      pushNotifications: true,
+      stateTransitionHistory: false,
+      documentationUrl: 'https://docs.example',
+      iconUrl: 'https://x.example/icon.png',
+      supportsAuthenticatedExtendedCard: true,
+    });
+    const serialized = JSON.stringify(card);
+    expect(serialized).not.toMatch(/supported_interfaces|protocol_binding|protocol_version|default_input_modes|default_output_modes|documentation_url|icon_url|push_notifications|state_transition_history|extended_agent_card|security_schemes|security_requirements|input_modes|output_modes/);
   });
 
   it('skills required non-empty (per spec §4.4.1 proto field 12 [field_behavior=REQUIRED])', () => {
@@ -45,16 +61,16 @@ describe('buildA2AAgentCard (A2A v1.0 spec compliance)', () => {
     ).toThrow(/MUST be a non-empty list/);
   });
 
-  it('does NOT emit invented fields (protocol_version, card_version, endpoints, identity, top-level extensions)', () => {
+  it('does NOT emit invented fields (supported_interfaces, endpoints, top-level extensions, identity)', () => {
     const card = buildA2AAgentCard({
       name: 'X', description: 'y', url: 'https://x.example', skills: [DEFAULT_SKILL],
     });
     const c = card as unknown as Record<string, unknown>;
-    expect(c.protocol_version).toBeUndefined();
-    expect(c.card_version).toBeUndefined();
+    expect(c.supported_interfaces).toBeUndefined();
     expect(c.endpoints).toBeUndefined();
     expect(c.identity).toBeUndefined();
     expect(c.extensions).toBeUndefined();
+    expect(c.card_version).toBeUndefined();
   });
 
   it('skills serialize as top-level objects (not strings inside capabilities)', () => {
@@ -92,12 +108,12 @@ describe('buildA2AAgentCard (A2A v1.0 spec compliance)', () => {
       url: 'https://x.example',
       skills: [DEFAULT_SKILL],
       streaming: true,
-      push_notifications: false,
-      extended_agent_card: true,
+      pushNotifications: false,
+      stateTransitionHistory: true,
     });
     expect(card.capabilities.streaming).toBe(true);
-    expect(card.capabilities.push_notifications).toBe(false);
-    expect(card.capabilities.extended_agent_card).toBe(true);
+    expect(card.capabilities.pushNotifications).toBe(false);
+    expect(card.capabilities.stateTransitionHistory).toBe(true);
   });
 
   it('capability flags omitted when unset', () => {
@@ -105,8 +121,20 @@ describe('buildA2AAgentCard (A2A v1.0 spec compliance)', () => {
       name: 'X', description: 'y', url: 'https://x.example', skills: [DEFAULT_SKILL],
     });
     expect(card.capabilities.streaming).toBeUndefined();
-    expect(card.capabilities.push_notifications).toBeUndefined();
-    expect(card.capabilities.extended_agent_card).toBeUndefined();
+    expect(card.capabilities.pushNotifications).toBeUndefined();
+    expect(card.capabilities.stateTransitionHistory).toBeUndefined();
+  });
+
+  it('supportsAuthenticatedExtendedCard lives at AgentCard top level, NOT inside capabilities', () => {
+    const card = buildA2AAgentCard({
+      name: 'X',
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      supportsAuthenticatedExtendedCard: true,
+    });
+    expect(card.supportsAuthenticatedExtendedCard).toBe(true);
+    expect((card.capabilities as Record<string, unknown>).supportsAuthenticatedExtendedCard).toBeUndefined();
   });
 
   it('provider emitted when set', () => {
@@ -115,34 +143,34 @@ describe('buildA2AAgentCard (A2A v1.0 spec compliance)', () => {
       description: 'y',
       url: 'https://x.example',
       skills: [DEFAULT_SKILL],
-      provider: { url: 'https://acme.example', organization: 'Acme' },
+      provider: { organization: 'Acme', url: 'https://acme.example' },
     });
-    expect(card.provider).toEqual({ url: 'https://acme.example', organization: 'Acme' });
+    expect(card.provider).toEqual({ organization: 'Acme', url: 'https://acme.example' });
   });
 
-  it('documentation_url emitted when set', () => {
+  it('documentationUrl emitted when set', () => {
     const card = buildA2AAgentCard({
       name: 'X',
       description: 'y',
       url: 'https://x.example',
       skills: [DEFAULT_SKILL],
-      documentation_url: 'https://docs.example',
+      documentationUrl: 'https://docs.example',
     });
-    expect(card.documentation_url).toBe('https://docs.example');
+    expect(card.documentationUrl).toBe('https://docs.example');
   });
 
-  it('icon_url emitted when set (per spec §4.4.1 proto field 14)', () => {
+  it('iconUrl emitted when set', () => {
     const card = buildA2AAgentCard({
       name: 'X',
       description: 'y',
       url: 'https://x.example',
       skills: [DEFAULT_SKILL],
-      icon_url: 'https://x.example/icon.png',
+      iconUrl: 'https://x.example/icon.png',
     });
-    expect(card.icon_url).toBe('https://x.example/icon.png');
+    expect(card.iconUrl).toBe('https://x.example/icon.png');
   });
 
-  it('signatures emitted when set (per spec §4.4.7)', () => {
+  it('signatures emitted when set', () => {
     const sig: A2AAgentCardSignature = { protected: 'eyJhbGciOiJFZERTQSJ9', signature: 'abc' };
     const card = buildA2AAgentCard({
       name: 'X',
@@ -171,23 +199,68 @@ describe('buildA2AAgentCard (A2A v1.0 spec compliance)', () => {
       description: 'y',
       url: 'https://x.example',
       skills: [DEFAULT_SKILL],
-      default_input_modes: ['text/plain', 'application/json'],
-      default_output_modes: ['text/plain'],
+      defaultInputModes: ['text/plain', 'application/json'],
+      defaultOutputModes: ['text/plain'],
     });
-    expect(card.default_input_modes).toEqual(['text/plain', 'application/json']);
-    expect(card.default_output_modes).toEqual(['text/plain']);
+    expect(card.defaultInputModes).toEqual(['text/plain', 'application/json']);
+    expect(card.defaultOutputModes).toEqual(['text/plain']);
   });
 
-  it('protocol_binding overridable on the auto-built primary interface', () => {
+  it('preferredTransport overridable on the AgentCard top level', () => {
     const card = buildA2AAgentCard({
       name: 'X',
       description: 'y',
       url: 'https://x.example',
       skills: [DEFAULT_SKILL],
-      protocol_binding: 'GRPC',
-      a2a_protocol_version: '1.0',
+      preferredTransport: 'GRPC',
+      protocolVersion: '1.0',
     });
-    expect(card.supported_interfaces[0]?.protocol_binding).toBe('GRPC');
+    expect(card.preferredTransport).toBe('GRPC');
+  });
+
+  it('additionalInterfaces emitted when set (multi-binding agents)', () => {
+    const ifaces: A2AAgentInterface[] = [
+      { transport: 'GRPC', url: 'https://x.example/grpc' },
+      { transport: 'JSONRPC', url: 'https://x.example/jsonrpc' },
+    ];
+    const card = buildA2AAgentCard({
+      name: 'X',
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      additionalInterfaces: ifaces,
+    });
+    expect(card.additionalInterfaces).toEqual(ifaces);
+  });
+
+  it('additionalInterfaces omitted when empty', () => {
+    const card = buildA2AAgentCard({
+      name: 'X',
+      description: 'y',
+      url: 'https://x.example',
+      skills: [DEFAULT_SKILL],
+      additionalInterfaces: [],
+    });
+    expect(card.additionalInterfaces).toBeUndefined();
+  });
+
+  it('skills carry optional inputModes / outputModes / examples / security', () => {
+    const skill: A2AAgentSkill = {
+      id: 'p',
+      name: 'Purchase',
+      description: 'd',
+      tags: ['c'],
+      examples: ['buy a wine'],
+      inputModes: ['application/json'],
+      outputModes: ['text/plain'],
+      security: [{ bearer: [] }],
+    };
+    const card = buildA2AAgentCard({
+      name: 'X', description: 'y', url: 'https://x.example', skills: [skill],
+    });
+    expect(card.skills[0]?.inputModes).toEqual(['application/json']);
+    expect(card.skills[0]?.outputModes).toEqual(['text/plain']);
+    expect(card.skills[0]?.security).toEqual([{ bearer: [] }]);
   });
 
   it('extras merge at top level', () => {
@@ -196,33 +269,33 @@ describe('buildA2AAgentCard (A2A v1.0 spec compliance)', () => {
       description: 'y',
       url: 'https://x.example',
       skills: [DEFAULT_SKILL],
-      extras: { vendor_field: 42 },
+      extras: { vendorField: 42 },
     });
-    expect((card as Record<string, unknown>).vendor_field).toBe(42);
+    expect((card as Record<string, unknown>).vendorField).toBe(42);
   });
 
-  it('security_schemes emitted when set', () => {
+  it('security + securitySchemes emitted when set', () => {
     const card = buildA2AAgentCard({
       name: 'X',
       description: 'y',
       url: 'https://x.example',
       skills: [DEFAULT_SKILL],
-      security_schemes: { bearer: { type: 'http', scheme: 'bearer' } },
+      security: [{ bearer: [] }],
+      securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } },
     });
-    expect(card.security_schemes).toEqual({ bearer: { type: 'http', scheme: 'bearer' } });
-  });
-
-  it('multiple supported_interfaces (build via direct construction for non-default cases)', () => {
-    const ifaces: A2AAgentInterface[] = [
-      { url: 'https://x.example/jsonrpc', protocol_binding: 'JSONRPC', protocol_version: '1.0' },
-      { url: 'https://x.example/grpc', protocol_binding: 'GRPC', protocol_version: '1.0' },
-    ];
-    expect(ifaces).toHaveLength(2);
-    expect(ifaces[0]?.protocol_binding).toBe('JSONRPC');
+    expect(card.security).toEqual([{ bearer: [] }]);
+    expect(card.securitySchemes).toEqual({ bearer: { type: 'http', scheme: 'bearer' } });
   });
 });
 
-describe('A2AAgentCardExtension shape (spec §4.4.4)', () => {
+describe('A2AAgentInterface canonical shape', () => {
+  it('interface has only transport + url (no protocol_version, no tenant)', () => {
+    const iface: A2AAgentInterface = { transport: 'JSONRPC', url: 'https://x.example' };
+    expect(Object.keys(iface).sort()).toEqual(['transport', 'url']);
+  });
+});
+
+describe('A2AAgentCardExtension shape', () => {
   it('extension carries required uri + description + required fields', () => {
     const ext: A2AAgentCardExtension = {
       uri: 'https://example/ext',
@@ -235,7 +308,7 @@ describe('A2AAgentCardExtension shape (spec §4.4.4)', () => {
   });
 });
 
-describe('A2AAgentCardSignature shape (spec §4.4.7)', () => {
+describe('A2AAgentCardSignature shape', () => {
   it('signature carries required protected + signature fields', () => {
     const sig: A2AAgentCardSignature = { protected: 'eyJ...', signature: 'abc' };
     expect(sig.protected).toBe('eyJ...');
@@ -251,6 +324,11 @@ describe('A2AAgentCardSignature shape (spec §4.4.7)', () => {
 describe('UCP A2A extension helper', () => {
   it('exports the canonical UCP A2A extension URI pinned to 2026-04-08', () => {
     expect(UCP_A2A_EXTENSION_URI).toBe('https://ucp.dev/2026-04-08/specification/reference');
+  });
+
+  it('exports A2A protocol version + default transport', () => {
+    expect(A2A_PROTOCOL_VERSION).toBe('1.0');
+    expect(A2A_DEFAULT_TRANSPORT).toBe('JSONRPC');
   });
 
   it('ucpA2AExtension() with no args emits required fields + empty capabilities', () => {

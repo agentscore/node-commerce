@@ -34,6 +34,8 @@ export { denialReasonToBody } from './_response';
 export {
   buildA2AAgentCard,
   ucpA2AExtension,
+  A2A_DEFAULT_TRANSPORT,
+  A2A_PROTOCOL_VERSION,
   UCP_A2A_EXTENSION_URI,
   type A2AAgentCard,
   type A2AAgentCardCapabilities,
