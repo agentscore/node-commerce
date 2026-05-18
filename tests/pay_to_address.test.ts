@@ -145,4 +145,66 @@ describe('createPayToAddressFromStripePI', () => {
     expect(result).toBe('0xFRESH');
     expect(stripe.paymentIntents.create).toHaveBeenCalled();
   });
+
+  it('reuses solana credential payTo when cached (parity with tempo path)', async () => {
+    const { cache } = makeFakeCache({ hasAddress: true });
+    const request = new Request('https://x.example', {
+      method: 'POST',
+      headers: { authorization: 'Payment solana:SOLCACHED' },
+    });
+    const result = await createPayToAddressFromStripePI({
+      request,
+      amountCents: 100,
+      stripe: makeFakeStripe({}),
+      piCache: cache,
+    });
+    expect(result).toBe('SOLCACHED');
+  });
+
+  it('ignores a non-Payment Authorization header and mints fresh', async () => {
+    const { cache } = makeFakeCache();
+    const stripe = makeFakeStripe({ tempo: '0xMINTED' });
+    const result = await createPayToAddressFromStripePI({
+      request: new Request('https://x.example', {
+        method: 'POST',
+        headers: { authorization: 'Bearer abc123' },
+      }),
+      amountCents: 100,
+      stripe,
+      piCache: cache,
+    });
+    expect(result).toBe('0xMINTED');
+    expect(stripe.paymentIntents.create).toHaveBeenCalled();
+  });
+
+  it('passes metadata through to the Stripe PaymentIntent create call', async () => {
+    const { cache } = makeFakeCache();
+    const stripe = makeFakeStripe({ tempo: '0xWITHMETA' });
+    await createPayToAddressFromStripePI({
+      request: new Request('https://x.example', { method: 'POST' }),
+      amountCents: 500,
+      stripe,
+      piCache: cache,
+      metadata: { order_id: 'ord_42', source: 'agent' },
+    });
+    expect(stripe.paymentIntents.create).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: { order_id: 'ord_42', source: 'agent' } }),
+      undefined,
+    );
+  });
+
+  it('throws when preferred + base + tempo are all missing from the minted PI', async () => {
+    // Stripe returns only `solana` while preferredNetwork defaults to `tempo`.
+    // Both fallback keys (`base`, `tempo`) are also missing, so the final null guard fires.
+    const { cache } = makeFakeCache();
+    const stripe = makeFakeStripe({ solana: 'SOLONLY' });
+    await expect(
+      createPayToAddressFromStripePI({
+        request: new Request('https://x.example', { method: 'POST' }),
+        amountCents: 100,
+        stripe,
+        piCache: cache,
+      }),
+    ).rejects.toThrow(/Failed to resolve pay_to address/);
+  });
 });

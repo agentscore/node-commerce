@@ -595,8 +595,11 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
       let outcome: WorkOutcome;
       try {
         outcome = await opts.runWork(body, { request: req });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+      } catch {
+        // Suppress the upstream exception detail in the wire response — merchant
+        // errors may carry stack traces or internal state. The merchant's own
+        // logger surface (passed via opts.onError if present) is the right
+        // channel for the full exception.
         return new Response(
           JSON.stringify({
             id: referenceId,
@@ -608,7 +611,6 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
             error: {
               code: 'upstream_failed',
               message: 'The wrapped endpoint failed; no charge was applied.',
-              detail: message,
             },
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
