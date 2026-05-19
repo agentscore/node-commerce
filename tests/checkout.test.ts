@@ -529,3 +529,64 @@ describe('Checkout — MPP railKey end-to-end derivation', () => {
     expect(observedRailKey).toBe('sol_rail');
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// resolveRecipients error handling — mintRecipients throwing
+// CheckoutValidationError lands as a 4xx envelope; other errors rethrow
+// (covers the cross-bundle name-based catch added in 2.1.1).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Checkout — mintRecipients error handling', () => {
+  it('converts CheckoutValidationError from mintRecipients into a 4xx envelope', async () => {
+    const { CheckoutValidationError } = await import('../src/errors');
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: '0xT' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 1 }),
+      mintRecipients: () => {
+        throw new CheckoutValidationError({
+          code: 'invalid_credential',
+          message: 'cred busted',
+          action: 'retry_without_credential',
+          status: 401,
+        });
+      },
+    });
+    const result = await checkout.handle(req());
+    expect(result.status).toBe(401);
+    expect((result.body.error as { code: string }).code).toBe('invalid_credential');
+  });
+
+  it('catches a cross-bundle CheckoutValidationError by err.name (not instanceof)', async () => {
+    // Simulate an error thrown from a sibling-bundle CheckoutValidationError
+    // (subpath entries produce separate class identities under splitting:false).
+    class CrossBundleError extends Error {
+      readonly code = 'invalid_credential';
+      readonly status = 401;
+      readonly action = 'retry_without_credential';
+      constructor() {
+        super('different bundle');
+        this.name = 'CheckoutValidationError';
+      }
+    }
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: '0xT' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 1 }),
+      mintRecipients: () => { throw new CrossBundleError(); },
+    });
+    const result = await checkout.handle(req());
+    expect(result.status).toBe(401);
+    expect((result.body.error as { code: string }).code).toBe('invalid_credential');
+  });
+
+  it('rethrows non-CheckoutValidationError errors from mintRecipients', async () => {
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: '0xT' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 1 }),
+      mintRecipients: () => { throw new Error('upstream boom'); },
+    });
+    await expect(checkout.handle(req())).rejects.toThrow(/upstream boom/);
+  });
+});

@@ -105,7 +105,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "knip": "knip",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "prepare": "lefthook install",
     "prepublishOnly": "bun run build"
