@@ -56,7 +56,8 @@ import {
 import { CheckoutValidationError } from './errors';
 import { STRIPE_MIN_CHARGE_USD } from './payment/constants';
 import { lazyMppxServer, lazyX402Server } from './payment/lazy';
-import { type MppxRailSpec } from './payment/mppx_server';
+import { classifyMppxFailure } from './payment/mppx_failures';
+import { runWithMppxFailureCapture, type MppxRailSpec } from './payment/mppx_server';
 import { isEvmNetwork, isSolanaNetwork } from './payment/network_kind';
 import { hasMppxHeader, hasX402Header } from './payment/payment_header';
 import {
@@ -1317,7 +1318,12 @@ export class Checkout {
     if (this.composeMppx === undefined) {
       throw new Error('Checkout.handleMppx: composeMppx hook not configured');
     }
-    const composed = await this.composeMppx(ctx);
+    // Wrap the compose call so we capture any inner verification error mppx
+    // swallows on the 402 path (e.g., Tempo's `KeyNotFound` keychain rejection).
+    // See `runWithMppxFailureCapture` for the why.
+    const { result: composed, failureReason } = await runWithMppxFailureCapture(async () =>
+      this.composeMppx!(ctx),
+    );
     if (composed.status === 200) {
       const paymentReceiptHeader =
         composed.paymentReceiptHeader ?? extractMppxReceiptHeaderFromRaw(composed.raw);
@@ -1344,10 +1350,26 @@ export class Checkout {
       return await this.buildSuccess(ctx, outcome);
     }
     // handleMppx is only invoked when an `Authorization: Payment` header was
-    // present, so a 402 here means mppx REJECTED the credential. Surface as
-    // 400 payment_proof_invalid (the canonical "regenerate" denial), echoing
-    // mppx's fresh WWW-Authenticate so the agent's retry signs against the new
-    // directive id.
+    // present, so a 402 here means mppx REJECTED the credential. Try to
+    // classify the swallowed inner error (e.g. Tempo `KeyNotFound`) into a
+    // typed envelope agents can route on; fall back to the generic
+    // `payment_proof_invalid` regenerate hint otherwise.
+    const classified = classifyMppxFailure(failureReason);
+    if (classified !== null) {
+      return {
+        status: classified.status,
+        body: buildValidationError({
+          code: classified.code,
+          message: classified.message,
+          nextSteps: classified.nextSteps,
+          ...(classified.extra && { extra: classified.extra }),
+        }),
+        headers: { ...(composed.headers ?? {}) },
+        referenceId: ctx.referenceId,
+        settled: false,
+        settlePhase: 'verify_failed',
+      };
+    }
     return {
       status: 400,
       body: buildValidationError({

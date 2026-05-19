@@ -220,6 +220,35 @@ describe('Checkout — composeMppx hook', () => {
     expect(result.settlePhase).toBe('verify_failed');
   });
 
+  it('settle-leg compose 402 with captured Tempo KeyNotFound surfaces tempo_key_not_registered', async () => {
+    // Simulate mppx's `console.error('mppx: internal verification error', e)`
+    // firing inside the merchant's composeMppx hook. The capture wrapper around
+    // handleMppx's call to composeMppx routes this into the failureReason that
+    // the classifier picks up.
+    const composeMppx = vi.fn(
+      async (): Promise<MppxComposeOutcome> => {
+        console.error('mppx: internal verification error', {
+          shortMessage: 'RPC Request failed.',
+          details: 'keychain validation failed: AccountKeychainError(KeyNotFound(KeyNotFound))',
+        });
+        return {
+          status: 402,
+          headers: { 'www-authenticate': 'Payment id="ord_x"' },
+        };
+      },
+    );
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: '0xtempo' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 10 }),
+      composeMppx,
+    });
+    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    expect(result.status).toBe(401);
+    expect((result.body.error as Record<string, unknown>).code).toBe('tempo_key_not_registered');
+    expect(result.settlePhase).toBe('verify_failed');
+  });
+
   it('discovery-leg compose_mppx layers fresh WWW-Auth into the 402', async () => {
     const composeMppx = vi.fn(
       async (): Promise<MppxComposeOutcome> => ({
