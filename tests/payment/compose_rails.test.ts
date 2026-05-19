@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildMppxComposeRails } from '../../src/payment/compose_rails';
 
 describe('buildMppxComposeRails', () => {
@@ -41,6 +41,20 @@ describe('buildMppxComposeRails', () => {
         solanaRecipient: 'SolAddr',
       }),
     ).toThrow();
+  });
+
+  it('auto-drops stripe when amountUsd is below the $0.50 Stripe minimum (default include path)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const out = buildMppxComposeRails({ amountUsd: '0.01', tempoRecipient: '0xabc' });
+    expect(out).toHaveLength(1);
+    expect((out[0] as [string, unknown])[0]).toBe('tempo/charge');
+    warn.mockRestore();
+  });
+
+  it('keeps stripe when amountUsd equals the $0.50 minimum (boundary)', () => {
+    const out = buildMppxComposeRails({ amountUsd: '0.50', tempoRecipient: '0xabc' });
+    const railNames = (out as unknown[][]).map((r) => (r as [string, unknown])[0]);
+    expect(railNames).toContain('stripe/charge');
   });
 
   it('caller-provided solanaNetwork wins over the default mainnet CAIP-2', () => {

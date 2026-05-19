@@ -27,9 +27,22 @@ export interface BuildMppxComposeRailsOptions {
   solanaTokenMint?: string;
   /** Solana CAIP-2 network. Defaults to mainnet-beta. */
   solanaNetwork?: string;
-  /** Include the `stripe/charge` intent (Stripe SPT rail). Default `true`. */
+  /** Include the `stripe/charge` intent (Stripe SPT rail). Default `true`.
+   *
+   *  Stripe's documented USD minimum is $0.50 because the fixed processing
+   *  fee (~$0.30) exceeds revenue below that — sub-50-cent charges that DO
+   *  go through still cost the merchant money (a $0.11 PI nets -$0.19 after
+   *  fees). Some Stripe accounts also reject PI creation under the floor
+   *  with `amount_too_small`. The helper auto-drops the rail (with a
+   *  console.warn on the first occurrence per process) when `amountUsd <
+   *  0.50` so sub-50-cent APIs don't ship an unprofitable rail. Pass
+   *  `includeStripe: false` explicitly to suppress the warning.
+   */
   includeStripe?: boolean;
 }
+
+const STRIPE_MIN_CHARGE_USD = 0.5;
+let warnedStripeBelowMinimum = false;
 
 /** Build the `compose(...intents)` argument array. Order matches mppx's
  *  preferred ordering: tempo first (cheapest), then solana, then stripe.
@@ -59,7 +72,19 @@ export function buildMppxComposeRails(opts: BuildMppxComposeRailsOptions): unkno
     }]);
   }
   if (opts.includeStripe !== false) {
-    rails.push(['stripe/charge', { amount: opts.amountUsd, currency: 'usd', decimals: 2 }]);
+    const amountUsdNumeric = Number(opts.amountUsd);
+    if (Number.isFinite(amountUsdNumeric) && amountUsdNumeric < STRIPE_MIN_CHARGE_USD) {
+      if (!warnedStripeBelowMinimum) {
+        warnedStripeBelowMinimum = true;
+        console.warn(
+          `[buildMppxComposeRails] Dropping stripe/charge rail: amountUsd=${opts.amountUsd} is below Stripe's $${STRIPE_MIN_CHARGE_USD.toFixed(2)} USD minimum. ` +
+            'Stripe\'s fixed ~$0.30 fee makes sub-50-cent charges unprofitable (and many accounts reject PI creation with amount_too_small below this floor). ' +
+            'Pass includeStripe: false to suppress this warning.',
+        );
+      }
+    } else {
+      rails.push(['stripe/charge', { amount: opts.amountUsd, currency: 'usd', decimals: 2 }]);
+    }
   }
   return rails;
 }
