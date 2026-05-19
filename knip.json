@@ -1,7 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": ["examples/**/*.ts", "scripts/**/*.ts"],
-  "ignoreDependencies": ["@coinbase/x402", "@solana/kit", "@solana/mpp", "@x402/core", "@x402/evm", "@x402/extensions"],
+  "ignoreDependencies": ["@coinbase/x402", "@x402/core", "@x402/evm", "@x402/extensions"],
   "rules": {
     "duplicates": "off",
     "optionalPeerDependencies": "off"

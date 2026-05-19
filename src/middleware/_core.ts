@@ -9,7 +9,7 @@ export interface RateLimitCoreOptions {
   keyPrefix?: string;
 }
 
-export interface RateLimitDecision {
+interface RateLimitDecision {
   allowed: boolean;
   remaining: number;
   limit: number;
