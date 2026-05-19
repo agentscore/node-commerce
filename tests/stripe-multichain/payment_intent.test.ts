@@ -46,10 +46,12 @@ describe('createMultichainPaymentIntent', () => {
     expect(opts).toEqual({ idempotencyKey: 'order-123' });
   });
 
-  it('throws when Stripe returns no deposit addresses', async () => {
+  it('throws CheckoutValidationError(503, payment_provider_unavailable) when Stripe returns no deposit addresses', async () => {
     const stripe = fakeStripe({ id: 'pi_y', next_action: null });
-    await expect(createMultichainPaymentIntent({ stripe, amount: 100 })).rejects.toThrow(
-      'No deposit addresses',
-    );
+    await expect(createMultichainPaymentIntent({ stripe, amount: 100 })).rejects.toMatchObject({
+      name: 'CheckoutValidationError',
+      code: 'payment_provider_unavailable',
+      status: 503,
+    });
   });
 });

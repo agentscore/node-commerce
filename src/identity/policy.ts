@@ -28,7 +28,7 @@
  * unaffected.
  */
 
-import { CheckoutValidationError } from '../checkout';
+import { CheckoutValidationError } from '../errors';
 import type { AgentScoreCoreOptions, DenialReason } from '../core.js';
 
 /** Hard = 403 propagates; soft = swallowed + identity_status="unverified". */

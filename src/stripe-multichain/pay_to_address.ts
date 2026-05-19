@@ -19,6 +19,7 @@
  * env-driven config (network list, default network, metadata) at the call site.
  */
 
+import { CheckoutValidationError } from '../errors';
 import { createMultichainPaymentIntent, type StripeClientLike } from './payment_intent';
 import type { PiCache } from './pi-cache';
 
@@ -57,12 +58,35 @@ export async function createPayToAddressFromStripePI(
   if (authHeader) {
     const { Credential } = await import('mppx');
     if (Credential.extractPaymentScheme(authHeader)) {
-      const credential = Credential.fromRequest(opts.request);
+      let credential;
+      try {
+        credential = Credential.fromRequest(opts.request);
+      } catch {
+        throw new CheckoutValidationError({
+          code: 'invalid_credential',
+          message: 'The Authorization: Payment header is not a valid MPP credential.',
+          action: 'retry_without_credential',
+          status: 401,
+        });
+      }
       const method = credential.challenge.method;
       if (method === 'tempo' || method === 'solana') {
-        const toAddress = credential.challenge.request.recipient as string;
+        const toAddress = credential.challenge.request.recipient as unknown;
+        if (typeof toAddress !== 'string' || !toAddress) {
+          throw new CheckoutValidationError({
+            code: 'invalid_credential',
+            message: 'The MPP credential is missing its recipient field.',
+            action: 'retry_without_credential',
+            status: 401,
+          });
+        }
         if (!(await opts.piCache.hasAddress(toAddress))) {
-          throw new Error('Invalid payTo address: not found in cache or expired');
+          throw new CheckoutValidationError({
+            code: 'invalid_credential',
+            message: 'The signed-against payTo recipient is not in this merchant\'s cache (unknown or expired). Retry without the Authorization: Payment header to receive a fresh 402 challenge.',
+            action: 'retry_without_credential',
+            status: 401,
+          });
         }
         return toAddress;
       }
@@ -87,7 +111,13 @@ export async function createPayToAddressFromStripePI(
   const preferred = opts.preferredNetwork ?? 'tempo';
   const payTo = depositAddresses[preferred] ?? depositAddresses.base ?? depositAddresses.tempo;
   if (!payTo) {
-    throw new Error('Failed to resolve pay_to address from Stripe PaymentIntent');
+    throw new CheckoutValidationError({
+      code: 'payment_provider_unavailable',
+      message:
+        'Stripe returned deposit addresses but none matched the requested network (tempo / base / solana). The account may have only a subset of multichain networks enabled.',
+      action: 'retry_later',
+      status: 503,
+    });
   }
   return payTo;
 }

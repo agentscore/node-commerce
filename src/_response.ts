@@ -144,6 +144,58 @@ const RESERVED_FIELDS = new Set([
   'linked_wallets',
 ]);
 
+/**
+ * Build the canonical 4xx body shape for `identity_verification_required`.
+ *
+ * Every merchant maps the gate's auto-minted session fields (verify_url,
+ * session_id, poll_secret, poll_url, agent_instructions) into their own
+ * envelope with a merchant-specific message + error code. This collapses that
+ * mapping into one call:
+ *
+ * ```ts
+ * if (reason.code === 'identity_verification_required') {
+ *   return {
+ *     status: 403,
+ *     body: buildVerificationRequiredBody(reason, {
+ *       message: 'Identity verification is required to call this endpoint.',
+ *       agentInstructions: VERIFICATION_AGENT_INSTRUCTIONS,
+ *     }),
+ *   };
+ * }
+ * ```
+ *
+ * Goods merchants that surface an `order_id` (or similar) from
+ * `createSessionOnMissing.onBeforeSession` get it for free via
+ * `denialReasonToBody(reason)`'s `reason.extra` passthrough — but can also
+ * pass `opts.extra` for fallbacks (e.g. when invoked outside the auto-mint
+ * path and order_id needs to come from the validated context).
+ */
+export function buildVerificationRequiredBody(
+  reason: DenialReason,
+  opts: {
+    /** Override the `error.message`. Defaults to the canonical copy. */
+    message?: string;
+    /** Replace `agent_instructions` with merchant-specific copy. When omitted,
+     *  the gate-supplied or default instructions ride through. */
+    agentInstructions?: string;
+    /** Additional fields spread into the body (e.g. fallback `order_id`). */
+    extra?: Record<string, unknown>;
+  } = {},
+): Record<string, unknown> {
+  const body = denialReasonToBody(reason);
+  body.error = {
+    code: 'operator_verification_required',
+    message: opts.message ?? 'Identity verification is required.',
+  };
+  if (opts.agentInstructions !== undefined) {
+    body.agent_instructions = opts.agentInstructions;
+  }
+  if (opts.extra) {
+    for (const [k, v] of Object.entries(opts.extra)) body[k] = v;
+  }
+  return body;
+}
+
 export function denialReasonToBody(reason: DenialReason): Record<string, unknown> {
   const message = reason.message ?? DEFAULT_MESSAGES[reason.code];
   const body: Record<string, unknown> = { error: { code: reason.code, message } };

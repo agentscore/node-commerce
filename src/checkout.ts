@@ -53,6 +53,7 @@ import {
   type EvaluateOutcome,
   createAgentScoreCore,
 } from './core';
+import { CheckoutValidationError } from './errors';
 import { lazyMppxServer, lazyX402Server } from './payment/lazy';
 import { type MppxRailSpec } from './payment/mppx_server';
 import { isEvmNetwork, isSolanaNetwork } from './payment/network_kind';
@@ -72,6 +73,7 @@ import { verifyX402Request } from './payment/x402_validation';
 import { zeroAmountCarveOut, type ZeroSettleRail } from './payment/zero-settle';
 import { extractPaymentSignerFromAuth } from './signer';
 import type { SignedDiscoveryResponse } from './discovery/well_known';
+
 
 export type CheckoutRailSpec =
   | TempoRailSpec
@@ -283,35 +285,6 @@ export function getIdentityStatus(
   const decision = (assess as { decision?: string }).decision;
   if (decision === 'allow') return 'verified';
   return 'unverified';
-}
-
-/**
- * Raised from a `preValidate` hook to short-circuit Checkout with a canonical
- * 4xx envelope.
- *
- * Checkout catches this and emits the canonical `{ error, next_steps }` envelope
- * via `buildValidationError` so merchants don't construct response bodies
- * themselves in the pre-validate path.
- */
-export class CheckoutValidationError extends Error {
-  readonly code: string;
-  readonly action: string;
-  readonly status: number;
-  readonly extra: Record<string, unknown> | undefined;
-  constructor(opts: {
-    code: string;
-    message: string;
-    action?: string;
-    status?: number;
-    extra?: Record<string, unknown>;
-  }) {
-    super(opts.message);
-    this.name = 'CheckoutValidationError';
-    this.code = opts.code;
-    this.action = opts.action ?? 'fix_request';
-    this.status = opts.status ?? 400;
-    this.extra = opts.extra;
-  }
 }
 
 /**
@@ -991,7 +964,19 @@ export class Checkout {
     // Recipients are read by every downstream dispatch (x402 verify+settle,
     // mppx compose, 402 emit). Resolve once here so hooks see ctx.recipients
     // populated. The resolver is idempotent — subsequent calls no-op.
-    await this.resolveRecipientsForCtx(ctx);
+    //
+    // mintRecipients can throw CheckoutValidationError from cross-bundle
+    // helpers like createPayToAddressFromStripePI (e.g. malformed
+    // Authorization: Payment). Match by error name since tsup's per-entry
+    // bundles produce separate class identities under `splitting: false`.
+    try {
+      await this.resolveRecipientsForCtx(ctx);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'CheckoutValidationError') {
+        return this.validationErrorResult(ctx, err as CheckoutValidationError);
+      }
+      throw err;
+    }
 
     const x402ServerOk = this.x402ServerAvailable() && this.x402BaseNetwork !== null;
     if (hasX402Header(request.headers) && x402ServerOk) {
@@ -1010,7 +995,9 @@ export class Checkout {
     // hook sees ctx.recipients populated. composeMppx mints a fresh
     // WWW-Authenticate challenge that the agent needs to sign on the retry;
     // the hook returns status=402 with mppx-issued headers, which we
-    // propagate into the rich 402 emit.
+    // propagate into the rich 402 emit. (Resolver is idempotent — the
+    // earlier resolve in this flow already succeeded; this call is a no-op
+    // unless we got here without going through it.)
     await this.resolveRecipientsForCtx(ctx);
     let mppxHeaders: Record<string, string> = {};
     if (this.composeMppx !== undefined) {
@@ -1080,9 +1067,17 @@ export class Checkout {
       ...(gate.failOpen !== undefined && { failOpen: gate.failOpen }),
       ...(gate.cacheSeconds !== undefined && { cacheSeconds: gate.cacheSeconds }),
       ...(gate.chain !== undefined && { chain: gate.chain }),
-      ...(gate.createSessionOnMissing !== undefined && {
-        createSessionOnMissing: gate.createSessionOnMissing as unknown as CreateSessionOnMissing,
-      }),
+      // Auto-default `createSessionOnMissing` from gate config when the merchant
+      // didn't supply one. Matches python-commerce's behavior — every gated route
+      // gets the bootstrap session-mint UX out of the box. Merchants who need
+      // custom session context or onBeforeSession side effects (goods merchants
+      // pre-minting an order_id) supply their own config instead.
+      createSessionOnMissing: (gate.createSessionOnMissing as unknown as CreateSessionOnMissing | undefined) ?? {
+        apiKey: gate.apiKey,
+        ...(gate.baseUrl !== undefined && { baseUrl: gate.baseUrl }),
+        ...(gate.context !== undefined && { context: gate.context }),
+        ...(gate.merchantName !== undefined && { productName: gate.merchantName }),
+      },
       ...(policyOverride ?? {}),
     };
 

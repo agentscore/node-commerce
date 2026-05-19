@@ -1,3 +1,5 @@
+import { CheckoutValidationError } from '../errors';
+
 /**
  * Minimal Stripe client surface — only the methods we use. Vendors pass their actual
  * `Stripe` instance (peer dep on the `stripe` package); this interface keeps the SDK
@@ -85,7 +87,13 @@ export async function createMultichainPaymentIntent({
   }
 
   if (Object.keys(depositAddresses).length === 0) {
-    throw new Error('No deposit addresses returned from Stripe PaymentIntent');
+    throw new CheckoutValidationError({
+      code: 'payment_provider_unavailable',
+      message:
+        'Stripe returned no crypto deposit addresses for this PaymentIntent. The account may not be enrolled in the Stablecoins and Crypto preview, or the feature was revoked.',
+      action: 'retry_later',
+      status: 503,
+    });
   }
 
   return { paymentIntentId: pi.id, depositAddresses };

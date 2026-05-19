@@ -30,7 +30,7 @@ export {
   isFixableDenial,
   verificationAgentInstructions,
 } from './_denial';
-export { denialReasonToBody } from './_response';
+export { buildVerificationRequiredBody, denialReasonToBody } from './_response';
 export {
   buildA2AAgentCard,
   ucpA2AExtension,
@@ -82,6 +82,7 @@ export {
   validateShippingAgainstPolicy,
 } from './identity/policy';
 export { extractOwnerScope, hashOperatorToken, type OwnerScope } from './identity/tokens';
+export { CheckoutValidationError } from './errors';
 export {
   Checkout,
   type CheckoutContext,
@@ -89,7 +90,6 @@ export {
   type CheckoutRailSpec,
   type CheckoutRequest,
   type CheckoutResult,
-  CheckoutValidationError,
   type ComposeMppxFn,
   type DiscoveryProbeConfig,
   type GateDenial,

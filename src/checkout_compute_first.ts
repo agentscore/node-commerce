@@ -37,8 +37,8 @@ import {
   buildPricingBlock,
   firstEncounterAgentMemory,
 } from './challenge';
-import { CheckoutValidationError } from './checkout';
 import { buildSuccessNextSteps } from './discovery';
+import { CheckoutValidationError } from './errors';
 import {
   buildX402AcceptsFor402,
   paymentRequiredHeader,
