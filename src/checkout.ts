@@ -54,6 +54,7 @@ import {
   createAgentScoreCore,
 } from './core';
 import { CheckoutValidationError } from './errors';
+import { STRIPE_MIN_CHARGE_USD } from './payment/constants';
 import { lazyMppxServer, lazyX402Server } from './payment/lazy';
 import { type MppxRailSpec } from './payment/mppx_server';
 import { isEvmNetwork, isSolanaNetwork } from './payment/network_kind';
@@ -1369,7 +1370,19 @@ export class Checkout {
       throw new Error('Checkout.emit402: pricing not computed');
     }
     await this.resolveRecipientsForCtx(ctx);
-    const emitRails = applyRecipientOverrides(this.rails, ctx.recipients);
+    let emitRails = applyRecipientOverrides(this.rails, ctx.recipients);
+
+    // Auto-drop stripe when priced below Stripe's $0.50 USD minimum so the
+    // emitted accepted_methods + how_to_pay stay consistent with what mppx's
+    // compose layer will actually accept (see buildMppxComposeRails). Without
+    // this, the 402 body advertises a stripe rail that has no matching
+    // WWW-Authenticate challenge — agents see it offered but any SPT pay
+    // attempt fails. The compose-time auto-drop emits the user-facing warn;
+    // here we just strip the slot from the discovery body.
+    if (ctx.pricing.amountUsd < STRIPE_MIN_CHARGE_USD && emitRails.stripe !== undefined) {
+      const { stripe: _stripe, ...rest } = emitRails;
+      emitRails = rest;
+    }
 
     const accepted = await buildAcceptedMethods({
       tempo: pickRail<TempoRailSpec>(emitRails, 'tempo'),

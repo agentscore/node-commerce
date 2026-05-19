@@ -8,6 +8,7 @@
  */
 
 import { usdToAtomic } from './amounts';
+import { STRIPE_MIN_CHARGE_USD } from './constants';
 import { USDC } from './usdc';
 
 export interface BuildMppxComposeRailsOptions {
@@ -41,7 +42,6 @@ export interface BuildMppxComposeRailsOptions {
   includeStripe?: boolean;
 }
 
-const STRIPE_MIN_CHARGE_USD = 0.5;
 let warnedStripeBelowMinimum = false;
 
 /** Build the `compose(...intents)` argument array. Order matches mppx's

@@ -293,6 +293,42 @@ describe('Checkout — custom hooks', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Stripe SPT $0.50 minimum auto-drop on emit_402
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Checkout — stripe rail auto-drop on emit_402', () => {
+  it('drops stripe from accepted_methods when amountUsd < $0.50', async () => {
+    const checkout = new Checkout({
+      rails: {
+        tempo: { recipient: '0xT' } as TempoRailSpec,
+        stripe: { profileId: 'profile_test_abc' } as never,
+      },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 0.01 }),
+    });
+    const result = await checkout.handle(req());
+    expect(result.status).toBe(402);
+    const acceptedStr = JSON.stringify(result.body.accepted_methods);
+    expect(acceptedStr).not.toContain('stripe');
+  });
+
+  it('keeps stripe in accepted_methods when amountUsd >= $0.50', async () => {
+    const checkout = new Checkout({
+      rails: {
+        tempo: { recipient: '0xT' } as TempoRailSpec,
+        stripe: { profileId: 'profile_test_abc' } as never,
+      },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 0.5 }),
+    });
+    const result = await checkout.handle(req());
+    expect(result.status).toBe(402);
+    const acceptedStr = JSON.stringify(result.body.accepted_methods);
+    expect(acceptedStr).toContain('stripe');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Init guards
 // ─────────────────────────────────────────────────────────────────────────────
 
