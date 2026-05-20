@@ -42,6 +42,7 @@ import {
   type SettleOutcome,
   type TempoRailSpec,
   buildContactSupportNextSteps,
+  buildVerificationRequiredBody,
   denialReasonStatus,
   denialReasonToBody,
   isFixableDenial,
@@ -82,15 +83,15 @@ async function _onDenied(
     };
   }
 
-  // identity_verification_required → gate auto-minted a session. Overlay
-  // vendor-specific agent_instructions on top of the commerce body.
+  // identity_verification_required → gate auto-minted a session. Use the
+  // canonical body builder + overlay vendor-specific agent_instructions.
   if (reason.code === 'identity_verification_required') {
     return {
       status: 403,
-      body: {
-        ...denialReasonToBody(reason),
-        agent_instructions: VERIFICATION_INSTRUCTIONS,
-      },
+      body: buildVerificationRequiredBody(reason, {
+        message: 'Identity verification is required for this purchase.',
+        agentInstructions: VERIFICATION_INSTRUCTIONS,
+      }),
     };
   }
 

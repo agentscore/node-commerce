@@ -1,3 +1,5 @@
+import { CheckoutValidationError } from '../errors';
+
 /**
  * Detect which payment-protocol family the inbound request carries.
  *
@@ -74,15 +76,30 @@ export async function dispatchSettlementByNetwork<
   const network = payload.accepted.network;
   if (network.startsWith('eip155:')) {
     if (!handlers.evm) {
-      throw new Error(`No EVM settlement handler registered (network: ${network})`);
+      throw new CheckoutValidationError({
+        code: 'payment_provider_unavailable',
+        message: `No EVM settlement handler registered (network: ${network})`,
+        action: 'retry_later',
+        status: 503,
+      });
     }
     return handlers.evm(payload);
   }
   if (network.startsWith('solana:')) {
     if (!handlers.svm) {
-      throw new Error(`No Solana settlement handler registered (network: ${network})`);
+      throw new CheckoutValidationError({
+        code: 'payment_provider_unavailable',
+        message: `No Solana settlement handler registered (network: ${network})`,
+        action: 'retry_later',
+        status: 503,
+      });
     }
     return handlers.svm(payload);
   }
-  throw new Error(`Unrecognized network in settlement payload: ${network}`);
+  throw new CheckoutValidationError({
+    code: 'payment_provider_unavailable',
+    message: `Unrecognized network in settlement payload: ${network}`,
+    action: 'retry_later',
+    status: 503,
+  });
 }

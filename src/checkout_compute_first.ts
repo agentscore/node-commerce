@@ -37,8 +37,8 @@ import {
   buildPricingBlock,
   firstEncounterAgentMemory,
 } from './challenge';
-import { CheckoutValidationError } from './checkout';
 import { buildSuccessNextSteps } from './discovery';
+import { CheckoutValidationError } from './errors';
 import {
   buildX402AcceptsFor402,
   paymentRequiredHeader,
@@ -46,6 +46,7 @@ import {
   verifyX402Request,
 } from './payment';
 import { formatUsdCents } from './payment/amounts';
+import { STRIPE_MIN_CHARGE_USD } from './payment/constants';
 import { hasMppxHeader, hasX402Header } from './payment/payment_header';
 import {
   resolveRecipient,
@@ -262,10 +263,16 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
     const x402BaseRecipient = recipients.x402_base;
     const solanaRecipient = recipients.solana_mpp;
 
+    // Auto-drop stripe when the computed price is below Stripe's $0.50 USD
+    // minimum so accepted_methods stays consistent with what buildMppxComposeRails
+    // actually composes (see src/payment/constants.ts).
+    const includeStripeInDiscovery =
+      opts.rails.stripe !== undefined && Number(totalUsd) >= STRIPE_MIN_CHARGE_USD;
+
     const accepted = await buildAcceptedMethods({
       ...(tempoRecipient && opts.rails.tempo && { tempo: { ...opts.rails.tempo, recipient: tempoRecipient } }),
       ...(solanaRecipient && opts.rails.solana_mpp && { solana_mpp: { ...opts.rails.solana_mpp, recipient: solanaRecipient } }),
-      ...(opts.rails.stripe && { stripe: opts.rails.stripe }),
+      ...(includeStripeInDiscovery && { stripe: opts.rails.stripe }),
     });
 
     // x402 entry is built via buildX402AcceptsFor402 so the registered scheme

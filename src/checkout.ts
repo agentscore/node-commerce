@@ -53,8 +53,11 @@ import {
   type EvaluateOutcome,
   createAgentScoreCore,
 } from './core';
+import { CheckoutValidationError } from './errors';
+import { STRIPE_MIN_CHARGE_USD } from './payment/constants';
 import { lazyMppxServer, lazyX402Server } from './payment/lazy';
-import { type MppxRailSpec } from './payment/mppx_server';
+import { classifyMppxFailure } from './payment/mppx_failures';
+import { runWithMppxFailureCapture, type MppxRailSpec } from './payment/mppx_server';
 import { isEvmNetwork, isSolanaNetwork } from './payment/network_kind';
 import { hasMppxHeader, hasX402Header } from './payment/payment_header';
 import {
@@ -72,6 +75,7 @@ import { verifyX402Request } from './payment/x402_validation';
 import { zeroAmountCarveOut, type ZeroSettleRail } from './payment/zero-settle';
 import { extractPaymentSignerFromAuth } from './signer';
 import type { SignedDiscoveryResponse } from './discovery/well_known';
+
 
 export type CheckoutRailSpec =
   | TempoRailSpec
@@ -283,35 +287,6 @@ export function getIdentityStatus(
   const decision = (assess as { decision?: string }).decision;
   if (decision === 'allow') return 'verified';
   return 'unverified';
-}
-
-/**
- * Raised from a `preValidate` hook to short-circuit Checkout with a canonical
- * 4xx envelope.
- *
- * Checkout catches this and emits the canonical `{ error, next_steps }` envelope
- * via `buildValidationError` so merchants don't construct response bodies
- * themselves in the pre-validate path.
- */
-export class CheckoutValidationError extends Error {
-  readonly code: string;
-  readonly action: string;
-  readonly status: number;
-  readonly extra: Record<string, unknown> | undefined;
-  constructor(opts: {
-    code: string;
-    message: string;
-    action?: string;
-    status?: number;
-    extra?: Record<string, unknown>;
-  }) {
-    super(opts.message);
-    this.name = 'CheckoutValidationError';
-    this.code = opts.code;
-    this.action = opts.action ?? 'fix_request';
-    this.status = opts.status ?? 400;
-    this.extra = opts.extra;
-  }
 }
 
 /**
@@ -991,7 +966,19 @@ export class Checkout {
     // Recipients are read by every downstream dispatch (x402 verify+settle,
     // mppx compose, 402 emit). Resolve once here so hooks see ctx.recipients
     // populated. The resolver is idempotent — subsequent calls no-op.
-    await this.resolveRecipientsForCtx(ctx);
+    //
+    // mintRecipients can throw CheckoutValidationError from cross-bundle
+    // helpers like createPayToAddressFromStripePI (e.g. malformed
+    // Authorization: Payment). Match by error name since tsup's per-entry
+    // bundles produce separate class identities under `splitting: false`.
+    try {
+      await this.resolveRecipientsForCtx(ctx);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'CheckoutValidationError') {
+        return this.validationErrorResult(ctx, err as CheckoutValidationError);
+      }
+      throw err;
+    }
 
     const x402ServerOk = this.x402ServerAvailable() && this.x402BaseNetwork !== null;
     if (hasX402Header(request.headers) && x402ServerOk) {
@@ -1010,7 +997,9 @@ export class Checkout {
     // hook sees ctx.recipients populated. composeMppx mints a fresh
     // WWW-Authenticate challenge that the agent needs to sign on the retry;
     // the hook returns status=402 with mppx-issued headers, which we
-    // propagate into the rich 402 emit.
+    // propagate into the rich 402 emit. (Resolver is idempotent — the
+    // earlier resolve in this flow already succeeded; this call is a no-op
+    // unless we got here without going through it.)
     await this.resolveRecipientsForCtx(ctx);
     let mppxHeaders: Record<string, string> = {};
     if (this.composeMppx !== undefined) {
@@ -1080,9 +1069,17 @@ export class Checkout {
       ...(gate.failOpen !== undefined && { failOpen: gate.failOpen }),
       ...(gate.cacheSeconds !== undefined && { cacheSeconds: gate.cacheSeconds }),
       ...(gate.chain !== undefined && { chain: gate.chain }),
-      ...(gate.createSessionOnMissing !== undefined && {
-        createSessionOnMissing: gate.createSessionOnMissing as unknown as CreateSessionOnMissing,
-      }),
+      // Auto-default `createSessionOnMissing` from gate config when the merchant
+      // didn't supply one. Matches python-commerce's behavior — every gated route
+      // gets the bootstrap session-mint UX out of the box. Merchants who need
+      // custom session context or onBeforeSession side effects (goods merchants
+      // pre-minting an order_id) supply their own config instead.
+      createSessionOnMissing: (gate.createSessionOnMissing as unknown as CreateSessionOnMissing | undefined) ?? {
+        apiKey: gate.apiKey,
+        ...(gate.baseUrl !== undefined && { baseUrl: gate.baseUrl }),
+        ...(gate.context !== undefined && { context: gate.context }),
+        ...(gate.merchantName !== undefined && { productName: gate.merchantName }),
+      },
       ...(policyOverride ?? {}),
     };
 
@@ -1321,7 +1318,12 @@ export class Checkout {
     if (this.composeMppx === undefined) {
       throw new Error('Checkout.handleMppx: composeMppx hook not configured');
     }
-    const composed = await this.composeMppx(ctx);
+    // Wrap the compose call so we capture any inner verification error mppx
+    // swallows on the 402 path (e.g., Tempo's `KeyNotFound` keychain rejection).
+    // See `runWithMppxFailureCapture` for the why.
+    const { result: composed, failureReason } = await runWithMppxFailureCapture(async () =>
+      this.composeMppx!(ctx),
+    );
     if (composed.status === 200) {
       const paymentReceiptHeader =
         composed.paymentReceiptHeader ?? extractMppxReceiptHeaderFromRaw(composed.raw);
@@ -1348,10 +1350,26 @@ export class Checkout {
       return await this.buildSuccess(ctx, outcome);
     }
     // handleMppx is only invoked when an `Authorization: Payment` header was
-    // present, so a 402 here means mppx REJECTED the credential. Surface as
-    // 400 payment_proof_invalid (the canonical "regenerate" denial), echoing
-    // mppx's fresh WWW-Authenticate so the agent's retry signs against the new
-    // directive id.
+    // present, so a 402 here means mppx REJECTED the credential. Try to
+    // classify the swallowed inner error (e.g. Tempo `KeyNotFound`) into a
+    // typed envelope agents can route on; fall back to the generic
+    // `payment_proof_invalid` regenerate hint otherwise.
+    const classified = classifyMppxFailure(failureReason);
+    if (classified !== null) {
+      return {
+        status: classified.status,
+        body: buildValidationError({
+          code: classified.code,
+          message: classified.message,
+          nextSteps: classified.nextSteps,
+          ...(classified.extra && { extra: classified.extra }),
+        }),
+        headers: { ...(composed.headers ?? {}) },
+        referenceId: ctx.referenceId,
+        settled: false,
+        settlePhase: 'verify_failed',
+      };
+    }
     return {
       status: 400,
       body: buildValidationError({
@@ -1374,7 +1392,19 @@ export class Checkout {
       throw new Error('Checkout.emit402: pricing not computed');
     }
     await this.resolveRecipientsForCtx(ctx);
-    const emitRails = applyRecipientOverrides(this.rails, ctx.recipients);
+    let emitRails = applyRecipientOverrides(this.rails, ctx.recipients);
+
+    // Auto-drop stripe when priced below Stripe's $0.50 USD minimum so the
+    // emitted accepted_methods + how_to_pay stay consistent with what mppx's
+    // compose layer will actually accept (see buildMppxComposeRails). Without
+    // this, the 402 body advertises a stripe rail that has no matching
+    // WWW-Authenticate challenge — agents see it offered but any SPT pay
+    // attempt fails. The compose-time auto-drop emits the user-facing warn;
+    // here we just strip the slot from the discovery body.
+    if (ctx.pricing.amountUsd < STRIPE_MIN_CHARGE_USD && emitRails.stripe !== undefined) {
+      const { stripe: _stripe, ...rest } = emitRails;
+      emitRails = rest;
+    }
 
     const accepted = await buildAcceptedMethods({
       tempo: pickRail<TempoRailSpec>(emitRails, 'tempo'),

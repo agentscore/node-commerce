@@ -203,7 +203,7 @@ describe('computeFirstCheckout', () => {
   });
 
   it('validateInput throws CheckoutValidationError → 4xx envelope', async () => {
-    const { CheckoutValidationError } = await import('../src/checkout');
+    const { CheckoutValidationError } = await import('../src/errors');
     const handler = computeFirstCheckout({
       ...baseRails,
       name: 'validation_check',
@@ -225,7 +225,7 @@ describe('computeFirstCheckout', () => {
   });
 
   it('CheckoutValidationError with action + extra surfaces next_steps + extra', async () => {
-    const { CheckoutValidationError } = await import('../src/checkout');
+    const { CheckoutValidationError } = await import('../src/errors');
     const handler = computeFirstCheckout({
       ...baseRails,
       name: 'validation_action',

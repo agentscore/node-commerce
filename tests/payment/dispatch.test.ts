@@ -26,18 +26,33 @@ describe('dispatchSettlementByNetwork', () => {
     expect(evm).not.toHaveBeenCalled();
   });
 
-  it('throws when matching handler is missing', async () => {
+  it('throws CheckoutValidationError(503, payment_provider_unavailable) when matching handler is missing', async () => {
     await expect(
       dispatchSettlementByNetwork({ accepted: { network: 'eip155:1' } }, { svm: vi.fn() }),
-    ).rejects.toThrow('No EVM settlement handler');
+    ).rejects.toMatchObject({
+      name: 'CheckoutValidationError',
+      code: 'payment_provider_unavailable',
+      status: 503,
+      message: expect.stringContaining('No EVM settlement handler'),
+    });
     await expect(
       dispatchSettlementByNetwork({ accepted: { network: 'solana:foo' } }, { evm: vi.fn() }),
-    ).rejects.toThrow('No Solana settlement handler');
+    ).rejects.toMatchObject({
+      name: 'CheckoutValidationError',
+      code: 'payment_provider_unavailable',
+      status: 503,
+      message: expect.stringContaining('No Solana settlement handler'),
+    });
   });
 
-  it('throws on unrecognized network family', async () => {
+  it('throws CheckoutValidationError(503, payment_provider_unavailable) on unrecognized network family', async () => {
     await expect(
       dispatchSettlementByNetwork({ accepted: { network: 'cosmos:foo' } }, {}),
-    ).rejects.toThrow('Unrecognized network');
+    ).rejects.toMatchObject({
+      name: 'CheckoutValidationError',
+      code: 'payment_provider_unavailable',
+      status: 503,
+      message: expect.stringContaining('Unrecognized network'),
+    });
   });
 });

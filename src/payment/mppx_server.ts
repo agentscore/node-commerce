@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createMppxStripe } from '../stripe-multichain/mppx_stripe';
 import { networks } from './networks';
 import {
@@ -314,6 +315,67 @@ export type MppxComposeResult =
  * return { status: 200, raw: result };
  * ```
  */
+/** Capture the inner verification error that mppx swallows on failed verify().
+ *
+ *  mppx's outer catch (`Mppx.js`) replaces non-`PaymentError` exceptions
+ *  (e.g., raw viem `RpcRequestError` from a Tempo `eth_sendRawTransactionSync`
+ *  rejection) with a bare `new VerificationFailedError()` before emitting
+ *  `payment.failed`, so the original message never reaches the response or
+ *  the event payload. The only place it survives is `console.error('mppx:
+ *  internal verification error', e)` which mppx calls BEFORE the wrap.
+ *
+ *  We hook `console.error` once at module load, route captured messages
+ *  into the current async context, and let `runWithMppxFailureCapture()`
+ *  create the context. Concurrent requests get their own contexts via
+ *  AsyncLocalStorage so they don't cross-pollute. The hook is a no-op
+ *  outside an active context, so it doesn't affect other callers of
+ *  `console.error`.
+ */
+interface MppxCaptureCtx {
+  reason: string | null;
+}
+const mppxCapture = new AsyncLocalStorage<MppxCaptureCtx>();
+let consoleErrorPatched = false;
+function ensureConsoleErrorPatch() {
+  if (consoleErrorPatched) return;
+  consoleErrorPatched = true;
+  const original = console.error.bind(console);
+  console.error = function captureMppxInternal(...args: unknown[]) {
+    if (args[0] === 'mppx: internal verification error' && args[1] !== undefined) {
+      const ctx = mppxCapture.getStore();
+      if (ctx) {
+        const e = args[1] as { shortMessage?: unknown; message?: unknown; details?: unknown };
+        const reason =
+          typeof e?.shortMessage === 'string'
+            ? e.shortMessage
+            : typeof e?.message === 'string'
+              ? e.message
+              : String(args[1]);
+        const details = e?.details;
+        ctx.reason =
+          typeof details === 'string' && details.length > 0 ? `${reason} (${details})` : reason;
+      }
+    }
+    return original(...args);
+  };
+}
+
+/** Run `fn` inside an async context that captures the inner mppx
+ *  verification error (when one fires). Returns the function's result
+ *  plus the captured `failureReason` string (null if no error fired or
+ *  no console.error hit during this scope). Used by `Checkout.handleMppx`
+ *  to surface typed error codes (`tempo_key_not_registered`, etc.) on
+ *  the 402 path without changing the per-merchant `composeMppx` API.
+ */
+export async function runWithMppxFailureCapture<T>(
+  fn: () => Promise<T>,
+): Promise<{ result: T; failureReason: string | null }> {
+  ensureConsoleErrorPatch();
+  const ctx: MppxCaptureCtx = { reason: null };
+  const result = await mppxCapture.run(ctx, fn);
+  return { result, failureReason: ctx.reason };
+}
+
 export async function composeMppxRequest(
   mppx: unknown,
   intents: readonly unknown[],
@@ -326,7 +388,10 @@ export async function composeMppxRequest(
   if (typeof compose !== 'function') {
     throw new Error('composeMppxRequest: mppx.compose is not a function');
   }
-  const typedCompose = compose as (...intents: readonly unknown[]) => (req: Request) => Promise<MppxComposeResult>;
+  ensureConsoleErrorPatch();
+  const typedCompose = compose as (
+    ...intents: readonly unknown[]
+  ) => (req: Request) => Promise<MppxComposeResult>;
   const handler = typedCompose.apply(mppx, [...intents]);
   return handler(request);
 }

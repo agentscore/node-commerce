@@ -1861,7 +1861,7 @@ describe('Checkout preValidate', () => {
   });
 
   it('returns canonical validation envelope on CheckoutValidationError', async () => {
-    const { CheckoutValidationError } = await import('../src/checkout');
+    const { CheckoutValidationError } = await import('../src/errors');
     const checkout = new Checkout({
       rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
       url: 'https://api.example/purchase',
@@ -1886,7 +1886,7 @@ describe('Checkout preValidate', () => {
   });
 
   it('CheckoutValidationError defaults to status 400 + action fix_request when unset', async () => {
-    const { CheckoutValidationError } = await import('../src/checkout');
+    const { CheckoutValidationError } = await import('../src/errors');
     const err = new CheckoutValidationError({
       code: 'bad_thing',
       message: 'nope',

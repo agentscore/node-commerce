@@ -220,6 +220,35 @@ describe('Checkout — composeMppx hook', () => {
     expect(result.settlePhase).toBe('verify_failed');
   });
 
+  it('settle-leg compose 402 with captured Tempo KeyNotFound surfaces tempo_key_not_registered', async () => {
+    // Simulate mppx's `console.error('mppx: internal verification error', e)`
+    // firing inside the merchant's composeMppx hook. The capture wrapper around
+    // handleMppx's call to composeMppx routes this into the failureReason that
+    // the classifier picks up.
+    const composeMppx = vi.fn(
+      async (): Promise<MppxComposeOutcome> => {
+        console.error('mppx: internal verification error', {
+          shortMessage: 'RPC Request failed.',
+          details: 'keychain validation failed: AccountKeychainError(KeyNotFound(KeyNotFound))',
+        });
+        return {
+          status: 402,
+          headers: { 'www-authenticate': 'Payment id="ord_x"' },
+        };
+      },
+    );
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: '0xtempo' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 10 }),
+      composeMppx,
+    });
+    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    expect(result.status).toBe(401);
+    expect((result.body.error as Record<string, unknown>).code).toBe('tempo_key_not_registered');
+    expect(result.settlePhase).toBe('verify_failed');
+  });
+
   it('discovery-leg compose_mppx layers fresh WWW-Auth into the 402', async () => {
     const composeMppx = vi.fn(
       async (): Promise<MppxComposeOutcome> => ({
@@ -289,6 +318,42 @@ describe('Checkout — custom hooks', () => {
     });
     const result = await checkout.handle(req());
     expect(result.referenceId).toBe('ord_abc123');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stripe SPT $0.50 minimum auto-drop on emit_402
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Checkout — stripe rail auto-drop on emit_402', () => {
+  it('drops stripe from accepted_methods when amountUsd < $0.50', async () => {
+    const checkout = new Checkout({
+      rails: {
+        tempo: { recipient: '0xT' } as TempoRailSpec,
+        stripe: { profileId: 'profile_test_abc' } as never,
+      },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 0.01 }),
+    });
+    const result = await checkout.handle(req());
+    expect(result.status).toBe(402);
+    const acceptedStr = JSON.stringify(result.body.accepted_methods);
+    expect(acceptedStr).not.toContain('stripe');
+  });
+
+  it('keeps stripe in accepted_methods when amountUsd >= $0.50', async () => {
+    const checkout = new Checkout({
+      rails: {
+        tempo: { recipient: '0xT' } as TempoRailSpec,
+        stripe: { profileId: 'profile_test_abc' } as never,
+      },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 0.5 }),
+    });
+    const result = await checkout.handle(req());
+    expect(result.status).toBe(402);
+    const acceptedStr = JSON.stringify(result.body.accepted_methods);
+    expect(acceptedStr).toContain('stripe');
   });
 });
 
@@ -527,5 +592,66 @@ describe('Checkout — MPP railKey end-to-end derivation', () => {
     );
     await checkout.handle(req({ headers: { authorization: 'Payment xyz' } }));
     expect(observedRailKey).toBe('sol_rail');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// resolveRecipients error handling — mintRecipients throwing
+// CheckoutValidationError lands as a 4xx envelope; other errors rethrow
+// (covers the cross-bundle name-based catch added in 2.1.1).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Checkout — mintRecipients error handling', () => {
+  it('converts CheckoutValidationError from mintRecipients into a 4xx envelope', async () => {
+    const { CheckoutValidationError } = await import('../src/errors');
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: '0xT' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 1 }),
+      mintRecipients: () => {
+        throw new CheckoutValidationError({
+          code: 'invalid_credential',
+          message: 'cred busted',
+          action: 'retry_without_credential',
+          status: 401,
+        });
+      },
+    });
+    const result = await checkout.handle(req());
+    expect(result.status).toBe(401);
+    expect((result.body.error as { code: string }).code).toBe('invalid_credential');
+  });
+
+  it('catches a cross-bundle CheckoutValidationError by err.name (not instanceof)', async () => {
+    // Simulate an error thrown from a sibling-bundle CheckoutValidationError
+    // (subpath entries produce separate class identities under splitting:false).
+    class CrossBundleError extends Error {
+      readonly code = 'invalid_credential';
+      readonly status = 401;
+      readonly action = 'retry_without_credential';
+      constructor() {
+        super('different bundle');
+        this.name = 'CheckoutValidationError';
+      }
+    }
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: '0xT' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 1 }),
+      mintRecipients: () => { throw new CrossBundleError(); },
+    });
+    const result = await checkout.handle(req());
+    expect(result.status).toBe(401);
+    expect((result.body.error as { code: string }).code).toBe('invalid_credential');
+  });
+
+  it('rethrows non-CheckoutValidationError errors from mintRecipients', async () => {
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: '0xT' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 1 }),
+      mintRecipients: () => { throw new Error('upstream boom'); },
+    });
+    await expect(checkout.handle(req())).rejects.toThrow(/upstream boom/);
   });
 });

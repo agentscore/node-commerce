@@ -24,7 +24,11 @@
  * mppx intents at the exact cached price — see
  * `examples/multi-rail-merchant.ts` for the fixed-price MPP compose pattern;
  * the compute-first variant is structurally identical except the helper
- * passes the cached price + recipients into your callback.
+ * passes the cached price + recipients into your callback. Stripe SPT
+ * requires the computed price to be at least $0.50 USD — below that
+ * Stripe's fixed ~$0.30 fee makes the charge unprofitable, so
+ * `buildMppxComposeRails` auto-drops the stripe rail and sub-50-cent
+ * pay-per-result APIs ship Tempo + x402 + Solana only.
  *
  * Peer deps:
  *   bun add @agent-score/commerce hono @x402/core @x402/evm @coinbase/x402

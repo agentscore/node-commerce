@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { CheckoutValidationError } from '../../src/checkout.js';
+import { CheckoutValidationError } from '../../src/errors.js';
 import {
   buildGateFromPolicy,
   runGateWithEnforcement,

@@ -8,8 +8,15 @@ vi.mock('mppx', () => ({
       auth.startsWith('Payment ') ? 'Payment' : null,
     fromRequest: (request: Request) => {
       // Encode method + recipient as `Payment <method>:<recipient>` in tests.
+      // Special-case `Payment <malformed>` (no colon) → throw, mirroring mppx's
+      // InvalidCredentialEncodingError for unparseable credentials.
       const auth = request.headers.get('authorization') ?? '';
       const payload = auth.replace(/^Payment\s+/, '');
+      if (!payload.includes(':')) {
+        const err = new Error('Invalid base64url or JSON.');
+        err.name = 'InvalidCredentialEncodingError';
+        throw err;
+      }
       const [method, recipient] = payload.split(':');
       return {
         challenge: {
@@ -75,7 +82,7 @@ describe('createPayToAddressFromStripePI', () => {
     expect(result).toBe('0xCACHED');
   });
 
-  it('throws when the credential-bound payTo is NOT in the cache', async () => {
+  it('throws CheckoutValidationError(401, invalid_credential) when the credential-bound payTo is NOT in the cache', async () => {
     const { cache } = makeFakeCache({ hasAddress: false });
     const request = new Request('https://x.example', {
       method: 'POST',
@@ -88,7 +95,31 @@ describe('createPayToAddressFromStripePI', () => {
         stripe: makeFakeStripe({}),
         piCache: cache,
       }),
-    ).rejects.toThrow(/not found in cache or expired/);
+    ).rejects.toMatchObject({
+      name: 'CheckoutValidationError',
+      code: 'invalid_credential',
+      status: 401,
+    });
+  });
+
+  it('throws CheckoutValidationError(401, invalid_credential) when Authorization: Payment is malformed', async () => {
+    const { cache } = makeFakeCache({ hasAddress: true });
+    const request = new Request('https://x.example', {
+      method: 'POST',
+      headers: { authorization: 'Payment fake.jwt.bogus' },
+    });
+    await expect(
+      createPayToAddressFromStripePI({
+        request,
+        amountCents: 100,
+        stripe: makeFakeStripe({}),
+        piCache: cache,
+      }),
+    ).rejects.toMatchObject({
+      name: 'CheckoutValidationError',
+      code: 'invalid_credential',
+      status: 401,
+    });
   });
 
   it('mints a fresh PI and caches addresses + PI mapping when no auth header', async () => {
@@ -193,7 +224,7 @@ describe('createPayToAddressFromStripePI', () => {
     );
   });
 
-  it('throws when preferred + base + tempo are all missing from the minted PI', async () => {
+  it('throws CheckoutValidationError(503, payment_provider_unavailable) when preferred + base + tempo are all missing', async () => {
     // Stripe returns only `solana` while preferredNetwork defaults to `tempo`.
     // Both fallback keys (`base`, `tempo`) are also missing, so the final null guard fires.
     const { cache } = makeFakeCache();
@@ -205,6 +236,10 @@ describe('createPayToAddressFromStripePI', () => {
         stripe,
         piCache: cache,
       }),
-    ).rejects.toThrow(/Failed to resolve pay_to address/);
+    ).rejects.toMatchObject({
+      name: 'CheckoutValidationError',
+      code: 'payment_provider_unavailable',
+      status: 503,
+    });
   });
 });
