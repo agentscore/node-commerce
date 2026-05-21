@@ -98,8 +98,8 @@ export function createAgentScoreGate(options: AgentScoreGateOptions): (req: Requ
     const identity = extractIdentity(req);
     // Extract the payment signer pre-evaluate. When present, the API composes
     // signer_match + signer_sanctions verdicts on the primary assess response in one
-    // round trip — under policy.require_sanctions_clear, OFAC SDN wallet hits flip
-    // decision -> deny inline before the handler runs.
+    // round trip. Wallet-OFAC enforcement is unconditional — SDN wallet hits flip
+    // decision -> deny inline before the handler runs, regardless of policy flags.
     const signer = await extractPaymentSigner(req, readX402PaymentHeader(req));
     const outcome = await core.evaluate(identity, req, signer);
 

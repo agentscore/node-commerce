@@ -180,9 +180,10 @@ export async function captureWallet(
  * Returns `undefined` when the gate didn't run, the request was operator-token-only, or
  * no payment credential was attached (discovery legs).
  *
- * Under `policy.require_sanctions_clear`, an OFAC SDN hit (or unavailable lookup) is
- * already enforced by the gate (decision → deny before the handler runs); merchant code
- * typically only needs this getter for the `signer_match` wallet-binding verdict.
+ * Wallet-OFAC SDN enforcement is unconditional whenever a signer is in the request — an
+ * SDN hit (or unavailable lookup) is already enforced by the gate (decision → deny before
+ * the handler runs); merchant code typically only needs this getter for the `signer_match`
+ * wallet-binding verdict.
  */
 export function getSignerVerdict(c: Context): SignerVerdict | undefined {
   const state = c.get(GATE_STATE_KEY) as GateState | undefined;
