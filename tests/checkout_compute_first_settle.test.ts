@@ -2,7 +2,7 @@
  *  helper exercises both _handleX402Settle (verify + processX402Settle) and
  *  _handleMppSettle (compose + receipt method extraction) paths. */
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeFirstCheckout, createQuoteCache, type ComputeFirstSettledContext } from '../src';
 
 const X402_NETWORK = 'eip155:84532';
@@ -64,6 +64,13 @@ function makeX402PaymentHeader(network = X402_NETWORK, payTo = X402_PAY_TO): str
 }
 
 describe('computeFirstCheckout — x402 settle path', () => {
+  // computeFirstCheckout enforces wallet OFAC SDN before settle (matches
+  // Checkout's `runWalletSanctionsOnly`). Stub the env to opt these tests into
+  // the "no API key → log+skip" path so the focus stays on x402 settle, not on
+  // OFAC enforcement. The OFAC default is covered by tests in seamless-helpers.test.ts.
+  beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
+  afterEach(() => { vi.unstubAllEnvs(); });
+
   it('completes the round-trip: probe caches → settle replays cached body', async () => {
     const cache = createQuoteCache();
     const fakeServer = makeFakeX402Server();
@@ -180,6 +187,11 @@ describe('computeFirstCheckout — x402 settle path', () => {
 });
 
 describe('computeFirstCheckout — MPP settle path', () => {
+  // Same env-stub pattern as x402 settle (wallet OFAC path needs an API key
+  // or a mocked SDK; we cover the actual OFAC path in seamless-helpers).
+  beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
+  afterEach(() => { vi.unstubAllEnvs(); });
+
   it('composeMppx success → 200 with rail label', async () => {
     const cache = createQuoteCache();
     const fakeServer = makeFakeX402Server();
@@ -520,5 +532,89 @@ describe('computeFirstCheckout — MPP settle path', () => {
     expect(settleRes.status).toBe(400);
     const errBody = await settleRes.json() as { error: { code: string } };
     expect(errBody.error.code).toBe('mpp_settle_failed');
+  });
+});
+
+describe('computeFirstCheckout — wallet OFAC enforcement (always-on default)', () => {
+  it('denies on signer-sanctions outcome before the rail handler fires', async () => {
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return {
+        ...real,
+        createAgentScoreCore: () => ({
+          evaluate: async () => ({
+            kind: 'deny',
+            reason: { code: 'wallet_not_trusted', reasons: ['sanctions_flagged'] },
+          }),
+          getSignerVerdict: () => undefined,
+          captureWallet: async () => undefined,
+        }),
+      };
+    });
+    vi.stubEnv('AGENTSCORE_API_KEY', 'as_test_key');
+    const cache = createQuoteCache();
+    const fakeServer = makeFakeX402Server();
+    const { computeFirstCheckout: SCComputeFirstCheckout } = await import('../src/checkout_compute_first?ofac-deny');
+    const handler = SCComputeFirstCheckout({
+      ...baseOpts,
+      name: 'ofac_deny',
+      unitPriceCents: 1,
+      x402Server: fakeServer,
+      cache,
+      runWork: async () => ({ resultCount: 1, body: { matches: ['x'] } }),
+    });
+    const body = { q: 'x' };
+    await handler.handleWeb(new Request('https://api.example.com/search', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
+    const settleRes = await handler.handleWeb(new Request('https://api.example.com/search', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-payment': makeX402PaymentHeader(),
+      },
+      body: JSON.stringify(body),
+    }));
+    // Wallet OFAC denial: status mapped from reason.code → 403 via the helper.
+    expect(settleRes.status).toBe(403);
+    expect(fakeServer.verifyPayment).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+    vi.doUnmock('../src/core');
+  });
+
+  it('no AGENTSCORE_API_KEY: logs warn once, skips OFAC, x402 settle proceeds', async () => {
+    vi.stubEnv('AGENTSCORE_API_KEY', '');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const cache = createQuoteCache();
+    const fakeServer = makeFakeX402Server();
+    const { computeFirstCheckout: SCComputeFirstCheckout } = await import('../src/checkout_compute_first?ofac-no-key');
+    const handler = SCComputeFirstCheckout({
+      ...baseOpts,
+      name: 'ofac_no_key',
+      unitPriceCents: 1,
+      x402Server: fakeServer,
+      cache,
+      runWork: async () => ({ resultCount: 1, body: { matches: ['y'] } }),
+    });
+    const body = { q: 'y' };
+    await handler.handleWeb(new Request('https://api.example.com/search', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
+    const settleRes = await handler.handleWeb(new Request('https://api.example.com/search', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-payment': makeX402PaymentHeader(),
+      },
+      body: JSON.stringify(body),
+    }));
+    expect(settleRes.status).toBe(200);
+    expect(warnSpy.mock.calls.some((c) => String(c[0]).includes('AGENTSCORE_API_KEY is not set'))).toBe(true);
+    warnSpy.mockRestore();
+    vi.unstubAllEnvs();
   });
 });

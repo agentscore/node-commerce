@@ -1850,6 +1850,45 @@ describe('Checkout wallet OFAC default (no gate config)', () => {
     vi.doUnmock('../src/core');
   });
 
+  it('gate config WITHOUT apiKey: falls through to runWalletSanctionsOnly (no silent allow)', async () => {
+    // Pre-fix: a merchant who configured gate.requireKyc but forgot apiKey
+    // got a silent allow (runGate returned null). Now: fall back to wallet
+    // OFAC enforcement instead so they at least get the strict-liability
+    // floor. Verifies the dispatch by mocking core.evaluate to deny.
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return {
+        ...real,
+        createAgentScoreCore: () => _mockCore({
+          outcome: 'deny',
+          reason: { code: 'wallet_not_trusted', reasons: ['sanctions_flagged'] },
+        }),
+      };
+    });
+    vi.stubEnv('AGENTSCORE_API_KEY', 'as_test_key');
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?gate-no-apikey');
+    const checkout = new ScopedCheckout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: _mockX402Server() as never,
+      isCachedAddress: () => true,
+      onSettled: async () => ({}),
+      // gate set, but apiKey NOT — pre-fix this was silent-allow
+      gate: { requireKyc: true },
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'Content-Type': 'application/json', 'x-payment': _x402PaymentHeader('0xdead000000000000000000000000000000000bad') },
+      body: {},
+    });
+    expect(result.status).toBe(403);
+    expect(result.settled).toBe(false);
+    vi.unstubAllEnvs();
+    vi.doUnmock('../src/core');
+  });
+
   it('no AGENTSCORE_API_KEY: warns ONCE across multiple settles, skips OFAC, settle proceeds', async () => {
     vi.stubEnv('AGENTSCORE_API_KEY', '');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

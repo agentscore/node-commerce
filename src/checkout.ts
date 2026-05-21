@@ -1081,7 +1081,13 @@ export class Checkout {
       }
       return result;
     }
-    if (gate.apiKey === undefined) return null;
+    if (gate.apiKey === undefined) {
+      // Gate configured without an API key — full policy enforcement requires
+      // /v1/assess access, which we can't reach. Fall through to wallet OFAC
+      // SDN enforcement (the strict-liability default) so the merchant still
+      // gets the basic protection layer instead of silently allowing.
+      return this.runWalletSanctionsOnly(ctx);
+    }
 
     // Merge per-request policy overrides over the static config.
     let policyOverride: Partial<AgentScoreCoreOptions> | null | undefined;
@@ -1195,17 +1201,28 @@ export class Checkout {
   }
 
   /**
-   * Wallet OFAC SDN enforcement for merchants without an identity gate.
+   * Wallet OFAC SDN enforcement.
    *
-   * Runs on settle (payment header present) when `this.gate` is undefined.
-   * Resolves API key from `process.env.AGENTSCORE_API_KEY`. No key → log
-   * a one-time warning and skip (dev/testnet pattern; production should
-   * configure a key). No wallet signer (Stripe SPT) → skip silently.
+   * Runs on settle (payment header present) when either `this.gate` is
+   * undefined OR a gate is configured but has no `apiKey` to reach
+   * `/v1/assess` for full policy enforcement (fallback to the
+   * strict-liability default).
+   *
+   * Env knobs:
+   *   - `AGENTSCORE_API_KEY` — required. No key → one-time warning + skip
+   *     (dev/testnet pattern; production should always configure a key).
+   *   - `AGENTSCORE_BASE_URL` — optional override for staging/dev API
+   *     (e.g. `https://api-dev.agentscore.sh` or `http://localhost:3002`).
+   *
+   * Stripe SPT (no extractable wallet signer) → skip silently; Stripe runs
+   * its own OFAC screen on the buyer's Stripe account at customer creation.
    *
    * Calls `/v1/assess` with the signer wallet as both the primary address
    * and the signer block. The API enforces signer-sanctions unconditionally
-   * whenever a signer block is present (no policy flag needed). Denies on
-   * OFAC SDN hit; fail-closed on unavailable lookup (strict liability).
+   * when a signer is present (no policy flag needed). Denies on OFAC SDN
+   * hit; fail-closed on unavailable lookup (strict liability — falsely
+   * allowing a sanctioned settle is an OFAC violation, falsely denying a
+   * clean buyer is just bad UX).
    */
   private async runWalletSanctionsOnly(ctx: CheckoutContext): Promise<GateDenial | null> {
     const apiKey = process.env.AGENTSCORE_API_KEY;

@@ -29,6 +29,7 @@
 
 import { randomUUID } from 'crypto';
 import { deriveMppxReceiptMethod } from './_mppx_receipt';
+import { denialReasonToBody } from './_response';
 import {
   build402Body,
   buildAcceptedMethods,
@@ -37,6 +38,7 @@ import {
   buildPricingBlock,
   firstEncounterAgentMemory,
 } from './challenge';
+import { createAgentScoreCore } from './core';
 import { buildSuccessNextSteps } from './discovery';
 import { CheckoutValidationError } from './errors';
 import {
@@ -60,6 +62,12 @@ import { extractPaymentSigner, readX402PaymentHeader } from './signer';
 import type { Context } from 'hono';
 
 const DEFAULT_TTL_MS = 5 * 60_000;
+
+// Module-level so the missing-API-key warning fires at most once across all
+// computeFirstCheckout handlers in a process — matches the Checkout class's
+// `warnedNoApiKey` static. Not per-handler; multi-endpoint apps would otherwise
+// log the same warning N times on first traffic.
+let warnedNoApiKey = false;
 
 export interface WorkOutcome {
   /** Number of billable units returned by `runWork` (results, tokens, bytes, …).
@@ -368,6 +376,54 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
     return new Response(JSON.stringify(body402), { status: 402, headers });
   }
 
+  // Always-on wallet OFAC SDN enforcement for compute-first merchants.
+  // Mirrors `Checkout.runWalletSanctionsOnly`: extract signer from the payment
+  // header, call /v1/assess with the signer block (no policy), deny on SDN
+  // hit or unavailable lookup. Skips silently for Stripe SPT (no wallet
+  // signer to screen). Skips with a one-time warning when AGENTSCORE_API_KEY
+  // is unset (dev/testnet pattern).
+  async function enforceWalletSanctions(req: Request, referenceId: string): Promise<Response | null> {
+    const apiKey = process.env.AGENTSCORE_API_KEY;
+    if (!apiKey) {
+      if (!warnedNoApiKey) {
+        console.warn(
+          `[${opts.name}.computeFirst] AGENTSCORE_API_KEY is not set — wallet OFAC SDN sanctions are NOT being enforced. ` +
+          'Set the env var to enable strict-liability protection on settle.',
+        );
+        warnedNoApiKey = true;
+      }
+      return null;
+    }
+    const x402Header = readX402PaymentHeader(req);
+    const signer = await extractPaymentSigner(req, x402Header);
+    if (!signer) return null; // Stripe SPT — no wallet to screen
+    const baseUrl = process.env.AGENTSCORE_BASE_URL;
+    const core = createAgentScoreCore({
+      apiKey,
+      ...(baseUrl !== undefined && { baseUrl }),
+    });
+    const outcome = await core.evaluate({ address: signer.address }, undefined, signer);
+    if (outcome.kind === 'allow') return null;
+    const reason = outcome.reason;
+    const body = denialReasonToBody(reason);
+    const status =
+      reason.code === 'token_expired' || reason.code === 'invalid_credential'
+        ? 401
+        : reason.code === 'api_error'
+          ? 503
+          : 403;
+    return new Response(
+      JSON.stringify({
+        id: referenceId,
+        endpoint: opts.name,
+        created_at: new Date().toISOString(),
+        payment_status: 'failed',
+        ...body,
+      }),
+      { status, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
   async function handleX402Settle(
     req: Request,
     referenceId: string,
@@ -593,6 +649,12 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
           { status: 400, headers: { 'Content-Type': 'application/json' } },
         );
       }
+      // Wallet OFAC SDN enforcement (always-on default — matches Checkout's
+      // `runWalletSanctionsOnly`). Strict-liability check before the rail-
+      // specific settle so funds don't move (x402) or order doesn't fulfill
+      // (MPP) for a sanctioned wallet.
+      const ofacDenial = await enforceWalletSanctions(req, referenceId);
+      if (ofacDenial !== null) return ofacDenial;
       if (hasX402Header(req.headers)) return handleX402Settle(req, referenceId, quote.body, quote.priceCents, quote.recipients as MintedRecipients);
       return handleMppSettle(req, referenceId, quote.body, quote.priceCents, quote.recipients as MintedRecipients);
     }
