@@ -1892,6 +1892,8 @@ describe('Checkout wallet OFAC default (no gate config)', () => {
   it('no AGENTSCORE_API_KEY: warns ONCE across multiple settles, skips OFAC, settle proceeds', async () => {
     vi.stubEnv('AGENTSCORE_API_KEY', '');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { _resetWarnedNoApiKey } = await import('../src/_warnings');
+    _resetWarnedNoApiKey();
     const { Checkout: ScopedCheckout } = await import('../src/checkout?wallet-ofac-no-key');
     const checkout = new ScopedCheckout({
       rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },

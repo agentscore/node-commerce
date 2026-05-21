@@ -587,6 +587,10 @@ describe('computeFirstCheckout — wallet OFAC enforcement (always-on default)',
   it('no AGENTSCORE_API_KEY: logs warn once, skips OFAC, x402 settle proceeds', async () => {
     vi.stubEnv('AGENTSCORE_API_KEY', '');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // Reset the shared warn-once flag — earlier tests in this run may have
+    // tripped it (see src/_warnings.ts).
+    const { _resetWarnedNoApiKey } = await import('../src/_warnings');
+    _resetWarnedNoApiKey();
     const cache = createQuoteCache();
     const fakeServer = makeFakeX402Server();
     const { computeFirstCheckout: SCComputeFirstCheckout } = await import('../src/checkout_compute_first?ofac-no-key');

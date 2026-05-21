@@ -30,6 +30,7 @@
 import { randomUUID } from 'crypto';
 import { deriveMppxReceiptMethod } from './_mppx_receipt';
 import { denialReasonToBody } from './_response';
+import { warnMissingApiKeyOnce } from './_warnings';
 import {
   build402Body,
   buildAcceptedMethods,
@@ -62,12 +63,6 @@ import { extractPaymentSigner, readX402PaymentHeader } from './signer';
 import type { Context } from 'hono';
 
 const DEFAULT_TTL_MS = 5 * 60_000;
-
-// Module-level so the missing-API-key warning fires at most once across all
-// computeFirstCheckout handlers in a process — matches the Checkout class's
-// `warnedNoApiKey` static. Not per-handler; multi-endpoint apps would otherwise
-// log the same warning N times on first traffic.
-let warnedNoApiKey = false;
 
 export interface WorkOutcome {
   /** Number of billable units returned by `runWork` (results, tokens, bytes, …).
@@ -385,13 +380,7 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
   async function enforceWalletSanctions(req: Request, referenceId: string): Promise<Response | null> {
     const apiKey = process.env.AGENTSCORE_API_KEY;
     if (!apiKey) {
-      if (!warnedNoApiKey) {
-        console.warn(
-          `[${opts.name}.computeFirst] AGENTSCORE_API_KEY is not set — wallet OFAC SDN sanctions are NOT being enforced. ` +
-          'Set the env var to enable strict-liability protection on settle.',
-        );
-        warnedNoApiKey = true;
-      }
+      warnMissingApiKeyOnce(`${opts.name}.computeFirst`);
       return null;
     }
     const x402Header = readX402PaymentHeader(req);

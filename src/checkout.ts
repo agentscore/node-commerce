@@ -36,6 +36,7 @@ import { randomUUID } from 'node:crypto';
 import { normalizeHeadersToLowercase } from './_headers';
 import { extractMppxReceiptHeaderFromRaw, extractMppxReceiptMethod } from './_mppx_receipt';
 import { denialReasonToBody } from './_response';
+import { warnMissingApiKeyOnce } from './_warnings';
 import { buildAcceptedMethods } from './challenge/accepted_methods';
 import { type RailKey, buildAgentInstructions } from './challenge/agent_instructions';
 import { firstEncounterAgentMemory } from './challenge/agent_memory';
@@ -1071,6 +1072,11 @@ export class Checkout {
     const gate = this.gate;
     if (gate === undefined) return null;
     if (gate.runGate !== undefined) {
+      // Escape hatch — fully owns the gate. The wallet-OFAC fallback below
+      // (apiKey === undefined → runWalletSanctionsOnly) does NOT fire here;
+      // merchants who supply runGate are taking explicit ownership of
+      // compliance enforcement and should call /v1/assess themselves (or
+      // accept that they're not getting SDN protection).
       const result = await gate.runGate(ctx);
       // Allow merchants to return undefined as an alias for `null` (allow).
       if (result === undefined || result === null) return null;
@@ -1227,13 +1233,7 @@ export class Checkout {
   private async runWalletSanctionsOnly(ctx: CheckoutContext): Promise<GateDenial | null> {
     const apiKey = process.env.AGENTSCORE_API_KEY;
     if (!apiKey) {
-      if (!Checkout.warnedNoApiKey) {
-        console.warn(
-          '[checkout] AGENTSCORE_API_KEY is not set — wallet OFAC SDN sanctions are NOT being enforced. ' +
-          'Set the env var to enable strict-liability protection on settle.',
-        );
-        Checkout.warnedNoApiKey = true;
-      }
+      warnMissingApiKeyOnce('checkout');
       return null;
     }
 
@@ -1273,7 +1273,6 @@ export class Checkout {
     return { status, body: body as Record<string, unknown> };
   }
 
-  private static warnedNoApiKey = false;
 
   private async handleZeroSettle(
     ctx: CheckoutContext,
