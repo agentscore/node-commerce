@@ -80,8 +80,10 @@ export function buildHowToPay({
   totalUsd: string | number;
   /** Per-rail config — each is optional. Pass only the rails you support. */
   rails: HowToPayRails;
-  /** Placeholder text for the operator token in commands. Defaults to '<your_opc_token>'. */
-  opTokenPlaceholder?: string;
+  /** Placeholder text for the operator token in commands. Defaults to '<your_opc_token>'.
+   *  Pass `null` (gateless merchants) to strip the `-H 'X-Operator-Token: ...'` line entirely
+   *  from each rail command — appropriate when the merchant doesn't run an identity gate. */
+  opTokenPlaceholder?: string | null;
   /** Override max-spend value used in commands. Default: `ceil(totalUsd) + 1`
    *  (for prices ≥ $1) or `totalUsd.toFixed(decimals)` (for sub-dollar prices,
    *  so the command flags reflect the real amount instead of `1.00`). */
@@ -94,15 +96,20 @@ export function buildHowToPay({
   const d = decimals ?? 2;
   const defaultMaxSpend = totalNum >= 1 ? (Math.ceil(totalNum) + 1).toFixed(d) : totalNum.toFixed(d);
   const maxSpendStr = String(maxSpend ?? defaultMaxSpend);
+  // When opTokenPlaceholder is explicitly null, the merchant is gateless — strip
+  // the `-H 'X-Operator-Token: ...'` snippet from every rail command. Otherwise
+  // fall back to '<your_opc_token>' for back-compat.
+  const gateless = opTokenPlaceholder === null;
   const opToken = opTokenPlaceholder ?? '<your_opc_token>';
+  const opTokenHeaderFlag = gateless ? '' : `-H 'X-Operator-Token: ${opToken}' `;
   const block: HowToPayBlock = {};
 
   if (rails.tempo) {
     const networkName = rails.tempo.testnet ? 'tempo-testnet' : (rails.tempo.network ?? RAIL_SPEC_DEFAULTS.tempo.network);
     const chainId = rails.tempo.chainId ?? RAIL_SPEC_DEFAULTS.tempo.chainId;
     const recommend = rails.tempo.recommend ?? RAIL_SPEC_DEFAULTS.tempo.recommend;
-    const tempoCommand = `tempo request -X POST -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' --json '${retryBodyJson}' --max-spend ${maxSpendStr} ${url}`;
-    const payCommand = `agentscore-pay pay POST ${url} --chain tempo -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' -d '${retryBodyJson}' --max-spend ${maxSpendStr}`;
+    const tempoCommand = `tempo request -X POST ${opTokenHeaderFlag}-H 'Content-Type: application/json' --json '${retryBodyJson}' --max-spend ${maxSpendStr} ${url}`;
+    const payCommand = `agentscore-pay pay POST ${url} --chain tempo ${opTokenHeaderFlag}-H 'Content-Type: application/json' -d '${retryBodyJson}' --max-spend ${maxSpendStr}`;
     block.tempo = {
       setup: TEMPO_SETUP,
       prerequisite: `Run \`tempo wallet whoami\` and confirm USDC.e balance on ${networkName} (chain ${chainId}) is at least $${maxSpendStr}. If the tempo CLI is not installed, run the setup commands above first.`,
@@ -121,7 +128,7 @@ export function buildHowToPay({
     block.x402_base = {
       setup: PAY_SETUP_BASE,
       prerequisite: `Run \`agentscore-pay balance --chain base\` and confirm USDC balance on Base (${network}) is at least $${maxSpendStr}. If the CLI is not installed, run the setup commands above first.`,
-      command: `agentscore-pay pay POST ${url} --chain base -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' -d '${retryBodyJson}' --max-spend ${maxSpendStr}`,
+      command: `agentscore-pay pay POST ${url} --chain base ${opTokenHeaderFlag}-H 'Content-Type: application/json' -d '${retryBodyJson}' --max-spend ${maxSpendStr}`,
       what_it_does: 'Pays via USDC on Base.',
     };
   }
@@ -131,7 +138,7 @@ export function buildHowToPay({
     block.solana_mpp = {
       setup: PAY_SETUP_SOLANA,
       prerequisite: `Run \`agentscore-pay balance --chain solana\` and confirm USDC balance on Solana (${network}) is at least $${maxSpendStr}. If the CLI is not installed, run the setup commands above first.`,
-      command: `agentscore-pay pay POST ${url} --chain solana -H 'X-Operator-Token: ${opToken}' -H 'Content-Type: application/json' -d '${retryBodyJson}' --max-spend ${maxSpendStr}`,
+      command: `agentscore-pay pay POST ${url} --chain solana ${opTokenHeaderFlag}-H 'Content-Type: application/json' -d '${retryBodyJson}' --max-spend ${maxSpendStr}`,
       what_it_does: 'Pays via USDC on Solana.',
     };
   }
@@ -156,7 +163,9 @@ export function buildHowToPay({
       ];
       stripe.command_link_cli = [
         `SPEND_ID=$(link-cli spend-request create --payment-method-id <csmrpd_id_from_payment_methods_list> --credential-type shared_payment_token --network-id ${stripeCfg.profileId} --amount ${amountCents} --context "${sptContext}" --request-approval --output-json | jq -r .id)`,
-        `link-cli mpp pay ${url} --spend-request-id $SPEND_ID --method POST --data '${retryBodyJson}' --header 'X-Operator-Token: ${opToken}' --output-json`,
+        gateless
+          ? `link-cli mpp pay ${url} --spend-request-id $SPEND_ID --method POST --data '${retryBodyJson}' --output-json`
+          : `link-cli mpp pay ${url} --spend-request-id $SPEND_ID --method POST --data '${retryBodyJson}' --header 'X-Operator-Token: ${opToken}' --output-json`,
       ];
       stripe.what_it_does_link_cli =
         'Mints a one-time-use SharedPaymentToken scoped to this purchase (user approves in Link wallet), then submits it as the payment credential.';

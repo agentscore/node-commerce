@@ -670,6 +670,28 @@ export class Checkout {
   readonly discoveryProbe: DiscoveryProbeConfig | undefined;
   private _x402ServerGetter: (() => Promise<X402Server>) | undefined;
 
+  /**
+   * True when the merchant has configured an identity-bearing policy flag —
+   * `require_kyc`, `require_sanctions_clear` (name screening on the KYC
+   * identity), `min_age`, or jurisdiction lists. Wallet OFAC SDN enforcement
+   * (the always-on default) does NOT count as an identity gate; agents don't
+   * need an AgentScore credential to satisfy it.
+   *
+   * Used to conditionally emit AgentScore identity boilerplate in 402 bodies
+   * (`agent_memory`, `X-Operator-Token` references in per-rail commands).
+   */
+  hasIdentityGate(): boolean {
+    const g = this.gate;
+    if (!g) return false;
+    return Boolean(
+      g.requireKyc ||
+      g.requireSanctionsClear ||
+      g.minAge !== undefined ||
+      (g.allowedJurisdictions && g.allowedJurisdictions.length > 0) ||
+      (g.blockedJurisdictions && g.blockedJurisdictions.length > 0),
+    );
+  }
+
   constructor(opts: {
     rails: Record<string, CheckoutRailSpec>;
     url: string;
@@ -942,13 +964,23 @@ export class Checkout {
       }
     }
 
-    // 2. Per-request gate. Only fires when a payment header is present (so the
-    //    discovery leg stays anonymous-friendly). Merchants can wrap behavior
-    //    via `gate.runGate` for full control.
+    // 2. Per-request compliance. Only fires when a payment header is present
+    //    (so the discovery leg stays anonymous-friendly).
+    //
+    //    Two paths converge here:
+    //    - Merchants with an explicit `gate` config run the full identity
+    //      policy (KYC / age / sanctions / jurisdiction) via `runGate`.
+    //    - Merchants WITHOUT a `gate` config still get wallet OFAC SDN
+    //      enforcement via `runWalletSanctionsOnly` — this is the always-on
+    //      strict-liability default. Falls back to `process.env.AGENTSCORE_API_KEY`
+    //      for the API call; logs a warning and skips when no key is set
+    //      (dev/testnet pattern).
     const hasPaymentHeader =
       hasX402Header(request.headers) || hasMppxHeader(request.headers);
-    if (this.gate !== undefined && hasPaymentHeader) {
-      const denial = await this.runGate(ctx);
+    if (hasPaymentHeader) {
+      const denial = this.gate !== undefined
+        ? await this.runGate(ctx)
+        : await this.runWalletSanctionsOnly(ctx);
       if (denial !== null) {
         return {
           status: denial.status,
@@ -1161,6 +1193,66 @@ export class Checkout {
           : 403;
     return { status, body: body as Record<string, unknown> };
   }
+
+  /**
+   * Wallet OFAC SDN enforcement for merchants without an identity gate.
+   *
+   * Runs on settle (payment header present) when `this.gate` is undefined.
+   * Resolves API key from `process.env.AGENTSCORE_API_KEY`. No key → log
+   * a one-time warning and skip (dev/testnet pattern; production should
+   * configure a key). No wallet signer (Stripe SPT) → skip silently.
+   *
+   * Calls `/v1/assess` with the signer wallet as both the primary address
+   * and the signer block. The API enforces signer-sanctions unconditionally
+   * whenever a signer block is present (no policy flag needed). Denies on
+   * OFAC SDN hit; fail-closed on unavailable lookup (strict liability).
+   */
+  private async runWalletSanctionsOnly(ctx: CheckoutContext): Promise<GateDenial | null> {
+    const apiKey = process.env.AGENTSCORE_API_KEY;
+    if (!apiKey) {
+      if (!Checkout.warnedNoApiKey) {
+        console.warn(
+          '[checkout] AGENTSCORE_API_KEY is not set — wallet OFAC SDN sanctions are NOT being enforced. ' +
+          'Set the env var to enable strict-liability protection on settle.',
+        );
+        Checkout.warnedNoApiKey = true;
+      }
+      return null;
+    }
+
+    const headers = normalizeHeadersToLowercase(ctx.request.headers);
+    const x402Header = headers['payment-signature'] ?? headers['x-payment'];
+    const signer = await extractPaymentSignerFromAuth(headers['authorization'], x402Header);
+    if (!signer) {
+      // Stripe SPT path — no wallet signer, no OFAC check possible. Stripe
+      // screens its own customer accounts; we have nothing to add here.
+      return null;
+    }
+
+    const core = createAgentScoreCore({ apiKey });
+    // Pass the signer wallet as both the claimed address AND the signer block.
+    // The API resolves the operator (likely null for unclaimed wallets), skips
+    // identity policy (we set none), and enforces signer-sanctions on the
+    // signer block per TEC-311.
+    const outcome = await core.evaluate(
+      { address: signer.address },
+      ctx,
+      signer,
+    );
+    if (outcome.kind === 'allow') return null;
+
+    const reason = outcome.reason;
+    const body = denialReasonToBody(reason);
+    const status =
+      reason.code === 'token_expired' || reason.code === 'invalid_credential'
+        ? 401
+        : reason.code === 'api_error'
+          ? 503
+          : 403;
+    return { status, body: body as Record<string, unknown> };
+  }
+
+  private static warnedNoApiKey = false;
 
   private async handleZeroSettle(
     ctx: CheckoutContext,
@@ -1431,6 +1523,10 @@ export class Checkout {
       retryBodyJson: JSON.stringify(ctx.request.body),
       totalUsd: ctx.pricing.amountUsd.toFixed(pricingDecimals),
       rails: howToPayRails,
+      // Merchants without an identity-bearing policy flag get clean commands
+      // without an X-Operator-Token header — agents don't need one to satisfy
+      // wallet OFAC enforcement (the always-on default).
+      ...(this.hasIdentityGate() ? {} : { opTokenPlaceholder: null }),
       ...(ctx.pricing.decimals !== undefined && { decimals: ctx.pricing.decimals }),
     });
     const pricingBlock =
@@ -1478,7 +1574,10 @@ export class Checkout {
       pricing: pricingBlock,
       amountUsd: ctx.pricing.amountUsd.toFixed(pricingDecimals),
       retryBody: ctx.request.body,
-      agentMemory: firstEncounterAgentMemory({ firstEncounter: true }),
+      // Merchants without an identity-bearing gate get a clean 402: no
+      // AgentScore-identity bootstrap describing a verification flow they
+      // don't run. Wallet OFAC (the always-on default) doesn't need it.
+      agentMemory: firstEncounterAgentMemory({ firstEncounter: this.hasIdentityGate() }),
       ...(ctx.pricing.product ? { product: ctx.pricing.product as { id: string; name: string } } : {}),
       ...(ctx.pricing.bodyExtras ? { extra: ctx.pricing.bodyExtras } : {}),
       ...(x402Accepts.length > 0 ? {
