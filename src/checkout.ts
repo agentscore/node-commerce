@@ -1229,7 +1229,11 @@ export class Checkout {
       return null;
     }
 
-    const core = createAgentScoreCore({ apiKey });
+    const baseUrl = process.env.AGENTSCORE_BASE_URL;
+    const core = createAgentScoreCore({
+      apiKey,
+      ...(baseUrl !== undefined && { baseUrl }),
+    });
     // Pass the signer wallet as both the claimed address AND the signer block.
     // The API resolves the operator (likely null for unclaimed wallets), skips
     // identity policy (we set none), and enforces signer-sanctions on the
