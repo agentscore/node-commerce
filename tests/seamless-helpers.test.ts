@@ -14,7 +14,7 @@
  * - `formatUsdCents`
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   Checkout,
   type CheckoutContext,
@@ -1671,6 +1671,263 @@ describe('Checkout SDK gate path', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Wallet OFAC sanctions default (TEC-311) — gateless merchants
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Checkout wallet OFAC default (no gate config)', () => {
+  it('clean signer + AGENTSCORE_API_KEY set: calls /v1/assess, allow proceeds to settle', async () => {
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return {
+        ...real,
+        createAgentScoreCore: () => _mockCore({ outcome: 'allow' }),
+      };
+    });
+    vi.stubEnv('AGENTSCORE_API_KEY', 'as_test_key');
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?wallet-ofac-allow');
+    const checkout = new ScopedCheckout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: _mockX402Server() as never,
+      isCachedAddress: () => true,
+      onSettled: async () => ({ order_id: 'o-ok' }),
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': _x402PaymentHeader('0xAbC0000000000000000000000000000000000099') },
+      body: {},
+    });
+    expect(result.status).toBe(200);
+    vi.unstubAllEnvs();
+    vi.doUnmock('../src/core');
+  });
+
+  it('api_error from /v1/assess: returns 503 (transient API outage, fail-closed)', async () => {
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return {
+        ...real,
+        createAgentScoreCore: () => _mockCore({ outcome: 'deny', reason: { code: 'api_error' } }),
+      };
+    });
+    vi.stubEnv('AGENTSCORE_API_KEY', 'as_test_key');
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?wallet-ofac-api-error');
+    const checkout = new ScopedCheckout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: _mockX402Server() as never,
+      isCachedAddress: () => true,
+      onSettled: async () => ({}),
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': _x402PaymentHeader('0xAbC0000000000000000000000000000000000099') },
+      body: {},
+    });
+    expect(result.status).toBe(503);
+    vi.unstubAllEnvs();
+    vi.doUnmock('../src/core');
+  });
+
+  it('token_expired denial maps to 401', async () => {
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return {
+        ...real,
+        createAgentScoreCore: () => _mockCore({ outcome: 'deny', reason: { code: 'token_expired' } }),
+      };
+    });
+    vi.stubEnv('AGENTSCORE_API_KEY', 'as_test_key');
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?wallet-ofac-401');
+    const checkout = new ScopedCheckout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: _mockX402Server() as never,
+      isCachedAddress: () => true,
+      onSettled: async () => ({}),
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': _x402PaymentHeader('0xAbC0000000000000000000000000000000000099') },
+      body: {},
+    });
+    expect(result.status).toBe(401);
+    vi.unstubAllEnvs();
+    vi.doUnmock('../src/core');
+  });
+
+  it('SDN signer + AGENTSCORE_API_KEY set: denies with sanctions_flagged', async () => {
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return {
+        ...real,
+        createAgentScoreCore: () => _mockCore({
+          outcome: 'deny',
+          reason: { code: 'wallet_not_trusted', reasons: ['sanctions_flagged'] },
+        }),
+      };
+    });
+    vi.stubEnv('AGENTSCORE_API_KEY', 'as_test_key');
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?wallet-ofac-deny');
+    const checkout = new ScopedCheckout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: _mockX402Server() as never,
+      isCachedAddress: () => true,
+      onSettled: async () => ({}),
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': _x402PaymentHeader('0xdead000000000000000000000000000000000bad') },
+      body: {},
+    });
+    expect(result.status).toBe(403);
+    expect(result.settled).toBe(false);
+    vi.unstubAllEnvs();
+    vi.doUnmock('../src/core');
+  });
+
+  it('Stripe SPT (no extractable signer): skips OFAC silently, settle proceeds', async () => {
+    vi.doMock('../src/signer', async () => {
+      const real = await vi.importActual<typeof import('../src/signer')>('../src/signer');
+      return { ...real, extractPaymentSignerFromAuth: async () => null };
+    });
+    vi.stubEnv('AGENTSCORE_API_KEY', 'as_test_key');
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?wallet-ofac-spt');
+    const checkout = new ScopedCheckout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: _mockX402Server() as never,
+      isCachedAddress: () => true,
+      onSettled: async () => ({ order_id: 'o-spt' }),
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': _x402PaymentHeader('0xAbC0000000000000000000000000000000000099') },
+      body: {},
+    });
+    expect(result.status).toBe(200);
+    vi.unstubAllEnvs();
+    vi.doUnmock('../src/signer');
+  });
+
+  it('invalid_credential denial maps to 401 (matches token_expired path)', async () => {
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return {
+        ...real,
+        createAgentScoreCore: () => _mockCore({ outcome: 'deny', reason: { code: 'invalid_credential' } }),
+      };
+    });
+    vi.stubEnv('AGENTSCORE_API_KEY', 'as_test_key');
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?wallet-ofac-401b');
+    const checkout = new ScopedCheckout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: _mockX402Server() as never,
+      isCachedAddress: () => true,
+      onSettled: async () => ({}),
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': _x402PaymentHeader('0xAbC0000000000000000000000000000000000099') },
+      body: {},
+    });
+    expect(result.status).toBe(401);
+    vi.unstubAllEnvs();
+    vi.doUnmock('../src/core');
+  });
+
+  it('gate config WITHOUT apiKey: falls through to runWalletSanctionsOnly (no silent allow)', async () => {
+    // Pre-fix: a merchant who configured gate.requireKyc but forgot apiKey
+    // got a silent allow (runGate returned null). Now: fall back to wallet
+    // OFAC enforcement instead so they at least get the strict-liability
+    // floor. Verifies the dispatch by mocking core.evaluate to deny.
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return {
+        ...real,
+        createAgentScoreCore: () => _mockCore({
+          outcome: 'deny',
+          reason: { code: 'wallet_not_trusted', reasons: ['sanctions_flagged'] },
+        }),
+      };
+    });
+    vi.stubEnv('AGENTSCORE_API_KEY', 'as_test_key');
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?gate-no-apikey');
+    const checkout = new ScopedCheckout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: _mockX402Server() as never,
+      isCachedAddress: () => true,
+      onSettled: async () => ({}),
+      // gate set, but apiKey NOT — pre-fix this was silent-allow
+      gate: { requireKyc: true },
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'Content-Type': 'application/json', 'x-payment': _x402PaymentHeader('0xdead000000000000000000000000000000000bad') },
+      body: {},
+    });
+    expect(result.status).toBe(403);
+    expect(result.settled).toBe(false);
+    vi.unstubAllEnvs();
+    vi.doUnmock('../src/core');
+  });
+
+  it('no AGENTSCORE_API_KEY: warns ONCE across multiple settles, skips OFAC, settle proceeds', async () => {
+    vi.stubEnv('AGENTSCORE_API_KEY', '');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { _resetWarnedNoApiKey } = await import('../src/_warnings');
+    _resetWarnedNoApiKey();
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?wallet-ofac-no-key');
+    const checkout = new ScopedCheckout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: _mockX402Server() as never,
+      isCachedAddress: () => true,
+      onSettled: async () => ({ order_id: 'o-no-key' }),
+    });
+    const a = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': _x402PaymentHeader('0xAbC0000000000000000000000000000000000099') },
+      body: {},
+    });
+    expect(a.status).toBe(200);
+    const noKeyWarns = () => warnSpy.mock.calls.filter((c) => String(c[0]).includes('AGENTSCORE_API_KEY is not set')).length;
+    expect(noKeyWarns()).toBeGreaterThanOrEqual(1);
+    const warnsBeforeSecond = noKeyWarns();
+    // Second settle exercises the `if (!Checkout.warnedNoApiKey)` branch.
+    const b = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': _x402PaymentHeader('0xAbC0000000000000000000000000000000000099') },
+      body: {},
+    });
+    expect(b.status).toBe(200);
+    expect(noKeyWarns()).toBe(warnsBeforeSecond); // no new warns
+    warnSpy.mockRestore();
+    vi.unstubAllEnvs();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Zero-settle MPP carve-out
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1726,6 +1983,14 @@ function _x402PaymentHeader(payerAddress: string): string {
 }
 
 describe('Checkout handleX402 happy path', () => {
+  // These tests construct a gateless Checkout (no `gate` config) and exercise
+  // the x402 settle path. Under the always-on wallet OFAC default, that path
+  // would call /v1/assess — but these tests don't mock the AgentScore API.
+  // Stub the env to opt these tests into the "no API key → log+skip" path so
+  // the focus stays on the x402 mock surface, not on OFAC enforcement.
+  beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
+  afterEach(() => { vi.unstubAllEnvs(); });
+
   it('settles x402 via the mocked server and emits 200 with txHash', async () => {
     const onSettledArgs: Array<{ txHash?: string | null; signerAddress?: string | null }> = [];
     const checkout = new Checkout({
@@ -2236,6 +2501,11 @@ describe('Checkout handleX402 settle returns payer from settleResult when verifi
 });
 
 describe('Checkout zero-settle x402-base carve-out', () => {
+  // Gateless Checkout + x402 settle: stub the env to opt into the log+skip
+  // wallet-OFAC path (same reasoning as the happy-path block above).
+  beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
+  afterEach(() => { vi.unstubAllEnvs(); });
+
   it('lifts signer from x402 payload at $0 and emits 200 with tx_hash null', async () => {
     const checkout = new Checkout({
       rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },

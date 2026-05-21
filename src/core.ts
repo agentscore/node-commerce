@@ -679,8 +679,9 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         ...(Object.keys(policy).length > 0 ? { policy: policy as never } : {}),
         // Pre-extracted payment signer (by the adapter middleware). When present, the API
         // composes BOTH signer_match (wallet-binding) and signer_sanctions (OFAC SDN wallet
-        // check) verdicts on the response in one round trip. Under
-        // policy.require_sanctions_clear, a signer_sanctions hit flips decision -> deny inline.
+        // check) verdicts on the response in one round trip. Wallet-OFAC enforcement on the
+        // signer block is unconditional — a signer_sanctions hit flips decision -> deny
+        // regardless of policy.require_sanctions_clear (which gates the separate NAME screen).
         ...(signer && { signer: { address: signer.address, network: signer.network } }),
       };
       // SDK has two overloads — narrow by which identity is set so TS picks the right one.

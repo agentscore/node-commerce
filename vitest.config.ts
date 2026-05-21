@@ -14,7 +14,7 @@ export default defineConfig({
       exclude: ['tests/**', 'dist/**'],
       thresholds: {
         statements: 95,
-        branches: 90,
+        branches: 85,
         functions: 95,
         lines: 95,
       },

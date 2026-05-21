@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { agentscoreMiddleware, withAgentScoreGate } from '../src/identity/nextjs';
+import { agentscoreMiddleware, conditionalAgentscoreMiddleware, withAgentScoreGate, withConditionalAgentScoreGate } from '../src/identity/nextjs';
 
 const WALLET = '0xabc123';
 const API_KEY = 'test-api-key';
@@ -469,5 +469,61 @@ describe('Next.js adapter — error paths + chain', () => {
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const body = JSON.parse(fetchCall[1].body as string);
     expect(body.chain).toBe('solana');
+  });
+});
+
+describe('Next.js adapter — withConditionalAgentScoreGate', () => {
+  it('discovery leg (no payment header): handler runs without invoking gate; sync return wrapped in Promise', async () => {
+    const POST = withConditionalAgentScoreGate(
+      { apiKey: API_KEY },
+      (_req, _gate) => new Response('discovery'),
+    );
+    const req = new Request('https://example.com/', { method: 'POST' });
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('discovery');
+  });
+
+  it('settle leg (payment header attached): gate fires; allow continues to handler', async () => {
+    mockFetchOk(ALLOW_RESPONSE);
+    const POST = withConditionalAgentScoreGate(
+      { apiKey: API_KEY },
+      async () => Response.json({ ok: true }),
+    );
+    const req = new Request('https://example.com/', {
+      method: 'POST',
+      headers: { 'x-wallet-address': WALLET, 'x-payment': 'dGVzdA==' },
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('Next.js adapter — conditionalAgentscoreMiddleware', () => {
+  it('discovery leg returns undefined (chain continues)', async () => {
+    const mw = conditionalAgentscoreMiddleware({ apiKey: API_KEY });
+    const res = await mw(new Request('https://example.com/', { method: 'POST' }));
+    expect(res).toBeUndefined();
+  });
+
+  it('settle leg + allow returns undefined (chain continues)', async () => {
+    mockFetchOk(ALLOW_RESPONSE);
+    const mw = conditionalAgentscoreMiddleware({ apiKey: API_KEY });
+    const res = await mw(new Request('https://example.com/', {
+      method: 'POST',
+      headers: { 'x-wallet-address': WALLET, 'x-payment': 'dGVzdA==' },
+    }));
+    expect(res).toBeUndefined();
+  });
+
+  it('settle leg + deny returns the gate Response', async () => {
+    mockFetchOk(DENY_RESPONSE);
+    const mw = conditionalAgentscoreMiddleware({ apiKey: API_KEY, requireKyc: true });
+    const res = await mw(new Request('https://example.com/', {
+      method: 'POST',
+      headers: { 'x-wallet-address': WALLET, 'x-payment': 'dGVzdA==' },
+    }));
+    expect(res).toBeInstanceOf(Response);
+    expect(res?.status).toBe(403);
   });
 });

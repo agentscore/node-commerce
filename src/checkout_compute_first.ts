@@ -29,6 +29,8 @@
 
 import { randomUUID } from 'crypto';
 import { deriveMppxReceiptMethod } from './_mppx_receipt';
+import { denialReasonToBody } from './_response';
+import { warnMissingApiKeyOnce } from './_warnings';
 import {
   build402Body,
   buildAcceptedMethods,
@@ -37,6 +39,7 @@ import {
   buildPricingBlock,
   firstEncounterAgentMemory,
 } from './challenge';
+import { createAgentScoreCore } from './core';
 import { buildSuccessNextSteps } from './discovery';
 import { CheckoutValidationError } from './errors';
 import {
@@ -368,6 +371,48 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
     return new Response(JSON.stringify(body402), { status: 402, headers });
   }
 
+  // Always-on wallet OFAC SDN enforcement for compute-first merchants.
+  // Mirrors `Checkout.runWalletSanctionsOnly`: extract signer from the payment
+  // header, call /v1/assess with the signer block (no policy), deny on SDN
+  // hit or unavailable lookup. Skips silently for Stripe SPT (no wallet
+  // signer to screen). Skips with a one-time warning when AGENTSCORE_API_KEY
+  // is unset (dev/testnet pattern).
+  async function enforceWalletSanctions(req: Request, referenceId: string): Promise<Response | null> {
+    const apiKey = process.env.AGENTSCORE_API_KEY;
+    if (!apiKey) {
+      warnMissingApiKeyOnce(`${opts.name}.computeFirst`);
+      return null;
+    }
+    const x402Header = readX402PaymentHeader(req);
+    const signer = await extractPaymentSigner(req, x402Header);
+    if (!signer) return null; // Stripe SPT — no wallet to screen
+    const baseUrl = process.env.AGENTSCORE_BASE_URL;
+    const core = createAgentScoreCore({
+      apiKey,
+      ...(baseUrl !== undefined && { baseUrl }),
+    });
+    const outcome = await core.evaluate({ address: signer.address }, undefined, signer);
+    if (outcome.kind === 'allow') return null;
+    const reason = outcome.reason;
+    const body = denialReasonToBody(reason);
+    const status =
+      reason.code === 'token_expired' || reason.code === 'invalid_credential'
+        ? 401
+        : reason.code === 'api_error'
+          ? 503
+          : 403;
+    return new Response(
+      JSON.stringify({
+        id: referenceId,
+        endpoint: opts.name,
+        created_at: new Date().toISOString(),
+        payment_status: 'failed',
+        ...body,
+      }),
+      { status, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
   async function handleX402Settle(
     req: Request,
     referenceId: string,
@@ -593,6 +638,12 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
           { status: 400, headers: { 'Content-Type': 'application/json' } },
         );
       }
+      // Wallet OFAC SDN enforcement (always-on default — matches Checkout's
+      // `runWalletSanctionsOnly`). Strict-liability check before the rail-
+      // specific settle so funds don't move (x402) or order doesn't fulfill
+      // (MPP) for a sanctioned wallet.
+      const ofacDenial = await enforceWalletSanctions(req, referenceId);
+      if (ofacDenial !== null) return ofacDenial;
       if (hasX402Header(req.headers)) return handleX402Settle(req, referenceId, quote.body, quote.priceCents, quote.recipients as MintedRecipients);
       return handleMppSettle(req, referenceId, quote.body, quote.priceCents, quote.recipients as MintedRecipients);
     }
