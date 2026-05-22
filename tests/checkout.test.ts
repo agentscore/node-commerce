@@ -598,7 +598,7 @@ describe('Checkout — MPP railKey end-to-end derivation', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // resolveRecipients error handling — mintRecipients throwing
 // CheckoutValidationError lands as a 4xx envelope; other errors rethrow
-// (covers the cross-bundle name-based catch added in 2.1.1).
+// (covers the cross-bundle name-based catch added cross-bundle compat).
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Checkout — mintRecipients error handling', () => {

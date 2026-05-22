@@ -52,8 +52,8 @@ import { buildSuccessNextSteps } from '@agent-score/commerce/discovery';
 import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
 import { buildDefaultCheckoutRails, networks, validateX402NetworkConfig } from '@agent-score/commerce/payment';
 import {
-  createPayToAddressFromStripePI,
   createPiCache,
+  mintMultichainRecipients,
   simulateDepositForOutcome,
 } from '@agent-score/commerce/stripe-multichain';
 import { Hono, type Context } from 'hono';
@@ -96,23 +96,30 @@ async function _computePricing(ctx: CheckoutContext): Promise<PricingResult> {
 
 async function _mintRecipients(ctx: CheckoutContext): Promise<Record<string, string>> {
   const totalCents = Math.round((ctx.pricing?.amountUsd ?? 0) * 100);
-  // Reuse the buyer's signed-against payTo when the settle leg carries an MPP
-  // credential; otherwise mint a fresh multichain PI + cache all addresses.
-  const tempo = await createPayToAddressFromStripePI({
+  // `mintMultichainRecipients` returns the full per-rail map in one call —
+  // preferred over the single-string `createPayToAddressFromStripePI` for
+  // multi-rail merchants because there's no second pi-cache lookup to glue
+  // the other rails' addresses back together. On the settle leg it short-
+  // circuits to the buyer's signed-against payTo from the MPP credential;
+  // on the discovery leg it mints a fresh multichain PI + caches everything.
+  //
+  // For low-margin endpoints (sub-dollar per call), pass
+  // `staticRecipients: { solana: process.env.MERCHANT_SOLANA_RECIPIENT! }` to
+  // skip Stripe minting on Solana — at $0.01/call MPP spec §13.6's ~$0.50 per-PI
+  // ATA rent dominates revenue. With a stable merchant-owned recipient + one-
+  // time external pre-funding of its USDC ATA, every settle pays only the
+  // per-tx fee.
+  const { recipients } = await mintMultichainRecipients({
     request: ctx.request.raw as Request,
     amountCents: totalCents,
     stripe: stripeClient as never,
     piCache,
     networks: ['tempo', 'base', 'solana'],
   });
-  const paymentIntentId = piCache.getPaymentIntentId(tempo);
-  const out: Record<string, string> = { tempo };
-  if (paymentIntentId) {
-    const base = piCache.getNetworkDepositAddress(paymentIntentId, 'base');
-    if (base) out.x402_base = base;
-    const solana = piCache.getNetworkDepositAddress(paymentIntentId, 'solana');
-    if (solana) out.solana_mpp = solana;
-  }
+  const out: Record<string, string> = {};
+  if (recipients.tempo) out.tempo = recipients.tempo;
+  if (recipients.base) out.x402_base = recipients.base;
+  if (recipients.solana) out.solana_mpp = recipients.solana;
   return out;
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createPayToAddressFromStripePI } from '../src/stripe-multichain/pay_to_address';
+import { createPayToAddressFromStripePI, mintMultichainRecipients } from '../src/stripe-multichain/pay_to_address';
 import type { PiCache } from '../src/stripe-multichain/pi-cache';
 
 vi.mock('mppx', () => ({
@@ -240,6 +240,192 @@ describe('createPayToAddressFromStripePI', () => {
       name: 'CheckoutValidationError',
       code: 'payment_provider_unavailable',
       status: 503,
+    });
+  });
+
+  describe('staticRecipients (per-network merchant-owned wallets)', () => {
+    it('excludes static-recipient networks from the Stripe deposit_options request', async () => {
+      const { cache } = makeFakeCache();
+      const stripe = makeFakeStripe({ tempo: '0xT', base: '0xB' });
+      await createPayToAddressFromStripePI({
+        request: new Request('https://x.example', { method: 'POST' }),
+        amountCents: 100,
+        stripe,
+        piCache: cache,
+        networks: ['tempo', 'base', 'solana'],
+        staticRecipients: { solana: 'FR96wd96urHJdMnYayFrPYmDeAjKvwi3rQ2wkgXXTSP8' },
+      });
+      const callArg = stripe.paymentIntents.create.mock.calls[0]![0] as Record<string, unknown>;
+      const pmOpts = (callArg.payment_method_options as Record<string, unknown>).crypto as Record<string, unknown>;
+      const networks = ((pmOpts.deposit_options as Record<string, unknown>).networks) as string[];
+      expect(networks).toEqual(['tempo', 'base']);
+    });
+
+    it('registers static recipients with piCache.cacheAddress (so settle-leg hasAddress passes)', async () => {
+      const { cache, cachedAddresses } = makeFakeCache();
+      const stripe = makeFakeStripe({ tempo: '0xT', base: '0xB' });
+      const STATIC_SOLANA = 'FR96wd96urHJdMnYayFrPYmDeAjKvwi3rQ2wkgXXTSP8';
+      await createPayToAddressFromStripePI({
+        request: new Request('https://x.example', { method: 'POST' }),
+        amountCents: 100,
+        stripe,
+        piCache: cache,
+        staticRecipients: { solana: STATIC_SOLANA },
+      });
+      expect(cachedAddresses).toContain(STATIC_SOLANA);
+      expect(cachedAddresses).toContain('0xT');
+      expect(cachedAddresses).toContain('0xB');
+    });
+
+    it('merges static recipients into the per-PI network map (getNetworkDepositAddress returns the static)', async () => {
+      const { cache, cachedNetworkAddresses } = makeFakeCache();
+      const stripe = makeFakeStripe({ tempo: '0xT', base: '0xB' });
+      const STATIC_SOLANA = 'FR96wd96urHJdMnYayFrPYmDeAjKvwi3rQ2wkgXXTSP8';
+      await createPayToAddressFromStripePI({
+        request: new Request('https://x.example', { method: 'POST' }),
+        amountCents: 100,
+        stripe,
+        piCache: cache,
+        staticRecipients: { solana: STATIC_SOLANA },
+      });
+      const [, merged] = cachedNetworkAddresses[0]!;
+      expect(merged).toEqual({ tempo: '0xT', base: '0xB', solana: STATIC_SOLANA });
+    });
+
+    it('settle leg accepts a credential signed against a static recipient unconditionally (bypasses TTL)', async () => {
+      // hasAddress=false simulates the TTL having expired between discovery + settle.
+      // Without the static-recipient bypass, this would throw invalid_credential.
+      const { cache } = makeFakeCache({ hasAddress: false });
+      const STATIC_SOLANA = 'FR96wd96urHJdMnYayFrPYmDeAjKvwi3rQ2wkgXXTSP8';
+      const request = new Request('https://x.example', {
+        method: 'POST',
+        headers: { authorization: `Payment solana:${STATIC_SOLANA}` },
+      });
+      const result = await createPayToAddressFromStripePI({
+        request,
+        amountCents: 100,
+        stripe: makeFakeStripe({}),
+        piCache: cache,
+        staticRecipients: { solana: STATIC_SOLANA },
+      });
+      expect(result).toBe(STATIC_SOLANA);
+    });
+
+    it('settle leg still rejects when the credential signs against an unknown recipient even with staticRecipients configured', async () => {
+      // The static-recipient bypass MUST only apply when the signed-against recipient
+      // exactly matches the configured static address — otherwise it'd let any
+      // attacker-chosen recipient through.
+      const { cache } = makeFakeCache({ hasAddress: false });
+      const STATIC_SOLANA = 'FR96wd96urHJdMnYayFrPYmDeAjKvwi3rQ2wkgXXTSP8';
+      const request = new Request('https://x.example', {
+        method: 'POST',
+        headers: { authorization: 'Payment solana:ATTACKERATTACKERATTACKERATTACKERATTACKER' },
+      });
+      await expect(
+        createPayToAddressFromStripePI({
+          request,
+          amountCents: 100,
+          stripe: makeFakeStripe({}),
+          piCache: cache,
+          staticRecipients: { solana: STATIC_SOLANA },
+        }),
+      ).rejects.toMatchObject({
+        name: 'CheckoutValidationError',
+        code: 'invalid_credential',
+        status: 401,
+      });
+    });
+  });
+});
+
+describe('mintMultichainRecipients', () => {
+  it('returns the full per-rail map on the discovery leg', async () => {
+    const { cache } = makeFakeCache();
+    const stripe = makeFakeStripe({ tempo: '0xTEMPO', base: '0xBASE', solana: 'SOLABC' });
+    const request = new Request('https://x.example', { method: 'POST' });
+    const out = await mintMultichainRecipients({
+      request,
+      amountCents: 100,
+      stripe,
+      piCache: cache,
+    });
+    expect(out.recipients).toEqual({ tempo: '0xTEMPO', base: '0xBASE', solana: 'SOLABC' });
+    expect(out.paymentIntentId).toBe('pi_test_123');
+    expect(out.reusedFromCredential).toBe(false);
+  });
+
+  it('merges static_recipients with Stripe-minted addresses on the discovery leg', async () => {
+    const { cache } = makeFakeCache();
+    const stripe = makeFakeStripe({ tempo: '0xTEMPO', base: '0xBASE' });
+    const STATIC_SOLANA = 'FR96wd96urHJdMnYayFrPYmDeAjKvwi3rQ2wkgXXTSP8';
+    const request = new Request('https://x.example', { method: 'POST' });
+    const out = await mintMultichainRecipients({
+      request,
+      amountCents: 100,
+      stripe,
+      piCache: cache,
+      staticRecipients: { solana: STATIC_SOLANA },
+    });
+    expect(out.recipients).toEqual({ tempo: '0xTEMPO', base: '0xBASE', solana: STATIC_SOLANA });
+    expect(out.paymentIntentId).toBe('pi_test_123');
+    expect(out.reusedFromCredential).toBe(false);
+  });
+
+  it('flags reusedFromCredential: true when the settle leg short-circuits to the credential', async () => {
+    const { cache } = makeFakeCache({ hasAddress: true });
+    const request = new Request('https://x.example', {
+      method: 'POST',
+      headers: { authorization: 'Payment tempo:0xCACHED' },
+    });
+    const out = await mintMultichainRecipients({
+      request,
+      amountCents: 100,
+      stripe: makeFakeStripe({}),
+      piCache: cache,
+    });
+    expect(out.recipients).toEqual({}); // no PI minted, no static, nothing to merge
+    expect(out.paymentIntentId).toBeUndefined();
+    expect(out.reusedFromCredential).toBe(true);
+  });
+
+  it('on settle leg with static-recipient match, returns the static address without piCache.hasAddress check', async () => {
+    // Cache says false; the static-recipient bypass should let it through anyway.
+    const { cache } = makeFakeCache({ hasAddress: false });
+    const STATIC_SOLANA = 'FR96wd96urHJdMnYayFrPYmDeAjKvwi3rQ2wkgXXTSP8';
+    const request = new Request('https://x.example', {
+      method: 'POST',
+      headers: { authorization: `Payment solana:${STATIC_SOLANA}` },
+    });
+    const out = await mintMultichainRecipients({
+      request,
+      amountCents: 100,
+      stripe: makeFakeStripe({}),
+      piCache: cache,
+      staticRecipients: { solana: STATIC_SOLANA },
+    });
+    expect(out.recipients).toEqual({ solana: STATIC_SOLANA });
+    expect(out.reusedFromCredential).toBe(true);
+  });
+
+  it('on settle leg rejects an attacker-chosen recipient even when staticRecipients is configured', async () => {
+    const { cache } = makeFakeCache({ hasAddress: false });
+    const STATIC_SOLANA = 'FR96wd96urHJdMnYayFrPYmDeAjKvwi3rQ2wkgXXTSP8';
+    const request = new Request('https://x.example', {
+      method: 'POST',
+      headers: { authorization: 'Payment solana:ATTACKERATTACKERATTACKERATTACKERATTACKER' },
+    });
+    await expect(
+      mintMultichainRecipients({
+        request,
+        amountCents: 100,
+        stripe: makeFakeStripe({}),
+        piCache: cache,
+        staticRecipients: { solana: STATIC_SOLANA },
+      }),
+    ).rejects.toMatchObject({
+      name: 'CheckoutValidationError',
+      code: 'invalid_credential',
+      status: 401,
     });
   });
 });

@@ -68,6 +68,31 @@ export interface SolanaMppRailSpec {
   rpcUrl?: string;
   signer?: unknown;
   tokenProgram?: string;
+  /** Whether the recipient's ATA may be auto-created on first payment. **Default `true`.**
+   *
+   *  When `true` (default), the SDK passes
+   *  `splits: [{ recipient, amount: '0', ataCreationRequired: true }]` to
+   *  `solana.charge`, which puts the recipient in the MPP spec §13.6
+   *  `allowedAtaOwners` allow-list. Required on `@solana/mpp >= 0.6.0` with a
+   *  sponsored (fee-payer) setup — without it, every settle that emits a
+   *  `CreateIdempotent` ATA instruction is rejected. On `@solana/mpp 0.5.x`
+   *  the field is unknown and silently ignored, so the default is safe across
+   *  versions.
+   *
+   *  Opt out (`false`) only when every recipient's ATA is guaranteed to exist
+   *  out-of-band — typically when the merchant pre-creates the ATA from an
+   *  external wallet (one-time USDC transfer of any amount) and refuses to
+   *  let the fee-payer fund creation. Rare; mainly useful for low-margin
+   *  endpoints that use a stable merchant-owned recipient via
+   *  `staticRecipients` and want to guarantee zero rent per call.
+   *
+   *  Economic note: with rotating recipients (Stripe-multichain per-PI deposit
+   *  addresses), the sponsor pays ~0.002 SOL (~$0.50) of rent per call into
+   *  accounts the merchant can't close. Acceptable when settle amounts
+   *  dominate ($50+ transactions); not viable for sub-dollar merchants —
+   *  those should pair `ataCreationRequired: false` with a static recipient
+   *  whose ATA has been pre-created (one-time external USDC transfer). */
+  ataCreationRequired?: boolean;
 }
 
 /**
