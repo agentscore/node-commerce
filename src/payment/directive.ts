@@ -1,3 +1,4 @@
+import { usdToAtomic } from './amounts';
 import { lookupRail } from './rails';
 
 /**
@@ -36,8 +37,8 @@ export function buildPaymentRequestBlob({
   const currencyResolved = currency ?? railDef?.currency ?? 'usd';
   const chainIdResolved = chainId ?? railDef?.chainId;
 
-  const amountNum = typeof amountUsd === 'string' ? Number(amountUsd) : amountUsd;
-  const amountRaw = BigInt(Math.round(amountNum * 10 ** decimalsResolved)).toString();
+  // Shared ROUND_HALF_UP converter so half-base-unit amounts round deterministically.
+  const amountRaw = usdToAtomic(amountUsd, { decimals: decimalsResolved }).toString();
   const blob: Record<string, unknown> = { amount: amountRaw, currency: currencyResolved, decimals: decimalsResolved };
   if (recipient) blob.recipient = recipient;
   const methodDetails: Record<string, unknown> = {};

@@ -129,4 +129,39 @@ describe('zeroAmountCarveOut invariants', () => {
     expect(zeroAmountCarveOut({ rail: 'tempo' })).toEqual(NULL_RESULT);
     expect(zeroAmountCarveOut({ rail: 'solana' })).toEqual(NULL_RESULT);
   });
+
+  const encodePaymentCredential = (cred: unknown): string =>
+    `Payment ${Buffer.from(JSON.stringify(cred)).toString('base64')}`;
+
+  it('returns null for a DID with an unrecognized key family (neither eip155 nor solana)', async () => {
+    const auth = encodePaymentCredential({ source: 'did:pkh:cosmos:cosmoshub-4:cosmos1abc' });
+    expect(zeroAmountCarveOut({ rail: 'tempo', authorizationHeader: auth })).toEqual(NULL_RESULT);
+  });
+
+  it('returns null for a DID with too few segments (malformed prefix)', async () => {
+    const auth = encodePaymentCredential({ source: 'did:pkh:eip155' });
+    expect(zeroAmountCarveOut({ rail: 'tempo', authorizationHeader: auth })).toEqual(NULL_RESULT);
+  });
+
+  it('returns null for an eip155 DID whose address is not a valid 0x address', async () => {
+    const auth = encodePaymentCredential({ source: 'did:pkh:eip155:4217:not-an-address' });
+    expect(zeroAmountCarveOut({ rail: 'tempo', authorizationHeader: auth })).toEqual(NULL_RESULT);
+  });
+
+  it('returns null for a credential that base64-decodes to a non-object', async () => {
+    const auth = `Payment ${Buffer.from(JSON.stringify('just-a-string')).toString('base64')}`;
+    expect(zeroAmountCarveOut({ rail: 'tempo', authorizationHeader: auth })).toEqual(NULL_RESULT);
+  });
+
+  it('returns null for the "payment " scheme with only whitespace after it', async () => {
+    expect(zeroAmountCarveOut({ rail: 'tempo', authorizationHeader: 'Payment    ' })).toEqual(NULL_RESULT);
+  });
+
+  it('returns the null result for an unrecognized rail (defensive default branch)', async () => {
+    // The public type only permits the three known rails; a forced bad value
+    // hits the trailing `return NULL_RESULT` guard.
+    expect(
+      zeroAmountCarveOut({ rail: 'unknown-rail' as unknown as 'tempo', authorizationHeader: 'Payment x' }),
+    ).toEqual(NULL_RESULT);
+  });
 });

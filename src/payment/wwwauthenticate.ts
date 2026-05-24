@@ -7,12 +7,14 @@ export function wwwAuthenticateHeader(directives: string[]): string {
 }
 
 /**
- * Add the v1↔v2 amount-field alias to each accepts entry. Idempotent. Used by both
- * `paymentRequiredHeader` (header emit) and `build402Body` (body emit) so every
- * x402 entry on the wire carries BOTH `amount` (v2 spec) AND `maxAmountRequired`
- * (v1 spec) — strict v1-only parsers (e.g. Coinbase awal at `payments-mcp.coinbase.com`,
- * which is hardcoded to read `maxAmountRequired`) work alongside strict v2 parsers,
- * which ignore the alias.
+ * Add the v1↔v2 amount-field alias to each accepts entry. Idempotent.
+ *
+ * Opt-in helper: the 402 emitters (`paymentRequiredHeader` / `build402Body`) do NOT
+ * call this. Strict x402 v2 settlement matches the agent's echoed requirement against
+ * the server's rebuilt one by exact comparison, so an extra `maxAmountRequired` the
+ * rebuild lacks silently fails settle — keep emitted `accepts` as `buildPaymentRequirements`
+ * produced them. Call this only for a client hardcoded to read `maxAmountRequired`
+ * regardless of `x402Version`.
  */
 export function aliasAmountFields(accepts: unknown[]): unknown[] {
   return accepts.map((entry) => {

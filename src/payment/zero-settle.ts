@@ -15,10 +15,9 @@
  * is single-use; nothing on-chain to verify.
  *
  * The MPP path uses inline base64+JSON parsing (no `mppx` dependency at
- * runtime) so the cross-language byte-parity fixtures with the Python
- * sibling resolve to identical results. The full `extractPaymentSigner`
- * path is still mppx-backed for production traffic where the credential
- * is a real mppx-shaped object.
+ * runtime) so the zero-settle path stays dependency-free. The full
+ * `extractPaymentSigner` path is still mppx-backed for production traffic
+ * where the credential is a real mppx-shaped object.
  */
 
 import type { SignerNetwork } from '../signer';

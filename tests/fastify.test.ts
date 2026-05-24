@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { agentscoreGate, captureWallet, getGateDegradedState } from '../src/identity/fastify';
+import { agentscoreGate, captureWallet, conditionalAgentscoreGate, getGateDegradedState, getGateQuotaInfo } from '../src/identity/fastify';
 
 declare const __VERSION__: string;
 
@@ -34,6 +34,15 @@ function mockFetchStatus(status: number, errorCode?: string): void {
     ok: false,
     status,
     headers: new Headers({ 'retry-after': '0' }),
+    json: vi.fn().mockResolvedValue(body),
+  } as unknown as Response);
+}
+
+function mockFetchOkWithQuota(body: unknown): void {
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    headers: new Headers({ 'retry-after': '0', 'x-quota-limit': '1000', 'x-quota-used': '42', 'x-quota-reset': '2026-01-01T00:00:00Z' }),
     json: vi.fn().mockResolvedValue(body),
   } as unknown as Response);
 }
@@ -316,6 +325,64 @@ describe('Fastify adapter — error paths', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ degraded: false });
     expect(res.json().infraReason).toBeUndefined();
+  });
+
+  it('allow captures X-Quota-* headers into getGateQuotaInfo', async () => {
+    mockFetchOkWithQuota(ALLOW_RESPONSE);
+    const app = Fastify();
+    await app.register(agentscoreGate, { apiKey: API_KEY });
+    app.get('/test', async (req) => getGateQuotaInfo(req) ?? { none: true });
+
+    const res = await app.inject({ method: 'GET', url: '/test', headers: { 'x-wallet-address': WALLET } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ limit: 1000, used: 42, reset: '2026-01-01T00:00:00Z' });
+  });
+});
+
+describe('Fastify conditional gate — settle-leg allow paths', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('flows discovery legs (no payment header) straight through without calling assess', async () => {
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as unknown as typeof fetch;
+    const app = Fastify();
+    await app.register(conditionalAgentscoreGate, { apiKey: API_KEY });
+    app.post('/purchase', async () => ({ ok: true }));
+
+    const res = await app.inject({ method: 'POST', url: '/purchase', payload: {} });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ ok: true });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('settle leg with payment header: fail-open quota_exceeded marks degraded', async () => {
+    mockFetchStatus(429);
+    const app = Fastify();
+    await app.register(conditionalAgentscoreGate, { apiKey: API_KEY, failOpen: true });
+    app.post('/purchase', async (req) => getGateDegradedState(req));
+
+    const res = await app.inject({
+      method: 'POST', url: '/purchase',
+      headers: { 'x-wallet-address': WALLET, authorization: 'Payment <cred>' },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ degraded: true, infraReason: 'quota_exceeded' });
+  });
+
+  it('settle leg with payment header: allow captures quota into getGateQuotaInfo', async () => {
+    mockFetchOkWithQuota(ALLOW_RESPONSE);
+    const app = Fastify();
+    await app.register(conditionalAgentscoreGate, { apiKey: API_KEY });
+    app.post('/purchase', async (req) => getGateQuotaInfo(req) ?? { none: true });
+
+    const res = await app.inject({
+      method: 'POST', url: '/purchase',
+      headers: { 'x-wallet-address': WALLET, authorization: 'Payment <cred>' },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ limit: 1000, used: 42 });
   });
 });
 

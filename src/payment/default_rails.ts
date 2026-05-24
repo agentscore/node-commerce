@@ -39,13 +39,21 @@ type DefaultRails = {
 export function buildDefaultCheckoutRails(opts: BuildDefaultCheckoutRailsOptions): DefaultRails {
   const out: DefaultRails = {};
   if (opts.tempo) {
-    out.tempo = { recipient: '', ...RAIL_SPEC_DEFAULTS.tempo, ...opts.tempo };
+    // Derive network + chainId + token from `testnet` when the caller requests it
+    // without pinning them — testnet must point at Tempo Moderato (chain 42431) and
+    // the testnet USDC contract, not the mainnet defaults baked into RAIL_SPEC_DEFAULTS.
+    const merged: TempoRailSpec = { recipient: '', ...RAIL_SPEC_DEFAULTS.tempo, ...opts.tempo };
+    if (merged.testnet) {
+      if (opts.tempo.network === undefined) merged.network = 'tempo-testnet';
+      if (opts.tempo.chainId === undefined) merged.chainId = 42431;
+      if (opts.tempo.token === undefined) merged.token = USDC.tempo.testnet.address;
+    }
+    out.tempo = merged;
   }
   if (opts.x402Base) {
     // Derive chainId + token from network when caller overrides network without
     // pinning them — Sepolia network must point at the Sepolia USDC contract,
-    // not the mainnet contract baked into RAIL_SPEC_DEFAULTS. Mirrors python's
-    // `X402BaseRailSpec.__post_init__` derivation pattern.
+    // not the mainnet contract baked into RAIL_SPEC_DEFAULTS.
     const merged: X402BaseRailSpec = { recipient: '', ...RAIL_SPEC_DEFAULTS.x402Base, ...opts.x402Base };
     if (merged.network === networks.base.sepolia.caip2) {
       if (opts.x402Base.chainId === undefined) merged.chainId = networks.base.sepolia.chainId;
@@ -57,7 +65,7 @@ export function buildDefaultCheckoutRails(opts: BuildDefaultCheckoutRailsOptions
     out.x402_base = merged;
   }
   if (opts.solanaMpp) {
-    // Mint flips by network; mirrors `X402BaseRailSpec.__post_init__`. Accepts
+    // Mint flips by network (same pattern as the x402 Base rail above). Accepts
     // both CAIP-2 (`solana:EtWTRABZ…`) and the raw `@solana/mpp` `'devnet'` form
     // since the mppx server resolver tolerates both.
     const merged: SolanaMppRailSpec = { recipient: '', ...RAIL_SPEC_DEFAULTS.solanaMpp, ...opts.solanaMpp };

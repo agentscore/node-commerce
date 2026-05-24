@@ -63,6 +63,22 @@ describe('processX402Settle', () => {
     }
   });
 
+  it('accepts the spec `isValid: true` verify result (not just legacy `success: true`)', async () => {
+    const server = makeServer({ verifyPayment: vi.fn().mockResolvedValue({ isValid: true }) });
+    const result = await processX402Settle({ x402Server: server, ...baseInput });
+    expect(result.success).toBe(true);
+  });
+
+  it('omits paymentResponseHeader when settlePayment resolves a falsy result', async () => {
+    const server = makeServer({ settlePayment: vi.fn().mockResolvedValue(null) });
+    const result = await processX402Settle({ x402Server: server, ...baseInput });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.settleResult).toBeNull();
+      expect(result.paymentResponseHeader).toBeUndefined();
+    }
+  });
+
   describe('facilitator_error wrap', () => {
     it('wraps buildPaymentRequirements throws as facilitator_error step=build_requirements', async () => {
       const server = makeServer({
@@ -107,6 +123,23 @@ describe('processX402Settle', () => {
       if (!result.success) {
         expect(result.phase).toBe('settle_failed');
       }
+    });
+
+    it('handles non-Error throws on each facilitator step (the non-Error ternary side)', async () => {
+      // The catch blocks log `err instanceof Error ? err.message : err`. Throwing a
+      // plain string (not an Error) exercises the false side of that ternary on the
+      // build / enrich / verify steps.
+      const buildServer = makeServer({ buildPaymentRequirements: vi.fn().mockRejectedValue('build-string-error') });
+      const buildRes = await processX402Settle({ x402Server: buildServer, ...baseInput });
+      expect(buildRes).toMatchObject({ success: false, phase: 'facilitator_error', step: 'build_requirements', error: 'build-string-error' });
+
+      const enrichServer = makeServer({ enrichExtensions: vi.fn().mockImplementation(() => { throw 'enrich-string-error'; }) });
+      const enrichRes = await processX402Settle({ x402Server: enrichServer, ...baseInput, extension: { kind: 'bazaar' } });
+      expect(enrichRes).toMatchObject({ success: false, phase: 'facilitator_error', step: 'enrich_extensions', error: 'enrich-string-error' });
+
+      const verifyServer = makeServer({ verifyPayment: vi.fn().mockRejectedValue('verify-string-error') });
+      const verifyRes = await processX402Settle({ x402Server: verifyServer, ...baseInput });
+      expect(verifyRes).toMatchObject({ success: false, phase: 'facilitator_error', step: 'verify_payment', error: 'verify-string-error' });
     });
   });
 });

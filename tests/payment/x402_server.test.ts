@@ -50,6 +50,23 @@ describe('createX402Server', () => {
     });
     expect(server).toBeDefined();
   });
+
+  it('calls server.initialize() by default (initialize omitted) using a stub facilitator', async () => {
+    // A custom facilitator object is passed straight through to the resource
+    // server; its `getSupported()` is what `initialize()` calls. Returning a
+    // valid kinds list lets the default initialize path run without a network
+    // round-trip, exercising the `initialize !== false` true branch.
+    let getSupportedCalled = false;
+    const stubFacilitator = {
+      getSupported: async () => {
+        getSupportedCalled = true;
+        return { kinds: [{ x402Version: 2, network: 'eip155:8453', scheme: 'exact' }] };
+      },
+    };
+    const server = await createX402Server({ facilitator: stubFacilitator });
+    expect(server).toBeDefined();
+    expect(getSupportedCalled).toBe(true);
+  });
 });
 
 describe('buildX402AcceptsFor402', () => {

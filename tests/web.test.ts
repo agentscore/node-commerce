@@ -57,6 +57,44 @@ describe('Web Fetch adapter — createAgentScoreGate', () => {
     expect(result.allowed).toBe(true);
     if (result.allowed) {
       expect(result.data).toMatchObject({ decision: 'allow' });
+      // Wallet-authenticated allow exposes a bound getSignerVerdict; invoking it
+      // delegates to the cached core verdict (undefined here — no signer in the mock).
+      expect(typeof result.getSignerVerdict).toBe('function');
+      expect(result.getSignerVerdict?.()).toBeUndefined();
+    }
+  });
+
+  it('operator-token allow exposes captureWallet but no getSignerVerdict (operator path)', async () => {
+    mockFetchOk(ALLOW_RESPONSE);
+    const guard = createAgentScoreGate({ apiKey: API_KEY });
+    const req = new Request('https://example.com/', { headers: { 'x-operator-token': 'opc_test_123' } });
+
+    const result = await guard(req);
+
+    expect(result.allowed).toBe(true);
+    if (result.allowed) {
+      // operator-token path: getSignerVerdict is undefined (no wallet signer to bind);
+      // captureWallet IS available (fire-and-forget wallet attribution).
+      expect(result.getSignerVerdict).toBeUndefined();
+      expect(typeof result.captureWallet).toBe('function');
+    }
+  });
+
+  it('wallet + operator-token together: getSignerVerdict suppressed (operator-token present)', async () => {
+    // When BOTH headers are present the operator-token wins, so the wallet-only
+    // getSignerVerdict binding is NOT exposed (`!identity.operatorToken` is false).
+    mockFetchOk(ALLOW_RESPONSE);
+    const guard = createAgentScoreGate({ apiKey: API_KEY });
+    const req = new Request('https://example.com/', {
+      headers: { 'x-wallet-address': WALLET, 'x-operator-token': 'opc_both_456' },
+    });
+
+    const result = await guard(req);
+
+    expect(result.allowed).toBe(true);
+    if (result.allowed) {
+      expect(result.getSignerVerdict).toBeUndefined();
+      expect(typeof result.captureWallet).toBe('function');
     }
   });
 

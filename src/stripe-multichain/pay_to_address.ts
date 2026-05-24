@@ -22,8 +22,6 @@
  *   - `mintMultichainRecipients` returns the full per-rail map plus the PI
  *     id. Preferred for multi-rail merchants — avoids the second pi-cache
  *     lookup to stitch sibling addresses back together.
- *
- * Mirrors the python `pay_to_address.py` factoring.
  */
 
 import { CheckoutValidationError } from '../errors';

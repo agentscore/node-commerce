@@ -39,6 +39,15 @@ describe('buildAcceptedMethods', () => {
     });
   });
 
+  it('stripe entry exposes profile_id: null when no profileId is configured', async () => {
+    const methods = await buildAcceptedMethods({ stripe: { rails: ['card'] } });
+    expect(methods[0]).toMatchObject({
+      method: 'stripe/charge',
+      rails: ['card'],
+      profile_id: null,
+    });
+  });
+
   it('respects custom symbol/decimals overrides', async () => {
     const methods = await buildAcceptedMethods({
       tempo: { recipient: '0xt', symbol: 'CUSTOM', decimals: 18 },

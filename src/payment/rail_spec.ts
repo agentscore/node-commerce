@@ -129,10 +129,9 @@ export interface TempoSessionRailSpec {
 }
 
 /**
- * Default field values for each `*RailSpec`. Mirrors python-commerce's
- * `*RailSpec` dataclass defaults — callers can spread these into their spec
- * literal when they want defaults without typing them out. Sourced from the
- * USDC registry so they stay in sync with on-chain reality.
+ * Default field values for each `*RailSpec` — callers can spread these into
+ * their spec literal when they want defaults without typing them out. Sourced
+ * from the USDC registry so they stay in sync with on-chain reality.
  */
 export const RAIL_SPEC_DEFAULTS = {
   tempo: {

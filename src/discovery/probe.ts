@@ -94,8 +94,9 @@ interface DiscoveryProbeOptions {
    *  carries the standard x402 `payment-required` header (base64 PaymentRequired) AND
    *  an `accepts` array in the body — so x402 crawlers (e.g. Coinbase awal's
    *  `x402 details`/`x402 pay`) can discover the endpoint's x402 support without
-   *  needing to send a fully-formed business request. Each entry is run through
-   *  `aliasAmountFields` so v1-only parsers can read `maxAmountRequired` too.
+   *  needing to send a fully-formed business request. Entries are emitted as-is in
+   *  their declared `x402Version` shape (v2 `amount`); clients version-route on
+   *  `x402Version`.
    *
    *  Pass `networks` (shorthand) for the common case — the helper looks up USDC
    *  per network from the registry and uses placeholder payTo addresses. Or pass
@@ -171,9 +172,8 @@ export function buildDiscoveryProbeResponse(opts: DiscoveryProbeOptions): Discov
       ?? (opts.x402Sample.networks ?? [])
         .map((n) => sampleX402AcceptForNetwork(n, opts.x402Sample!.amountAtomic ?? '1000000'))
         .filter((e): e is Record<string, unknown> => e !== null);
-    // paymentRequiredHeader applies aliasAmountFields internally; do the same for
-    // the body's `accepts` so v1-only parsers (Coinbase awal at payments-mcp.coinbase.com)
-    // and v2-strict parsers can both read either field name.
+    // Emit the sample accepts as-is (no v1<->v2 amount alias) so the probe sample
+    // matches what the real 402 emits; clients version-route on `x402Version`.
     headers['payment-required'] = paymentRequiredHeader({
       x402Version,
       accepts: sampleAccepts,
@@ -184,7 +184,7 @@ export function buildDiscoveryProbeResponse(opts: DiscoveryProbeOptions): Discov
     // Also embed in body for clients that read body-level accepts (e.g. awal x402 details
     // falls back from header → body when the header isn't present).
     bodyObj.x402Version = x402Version;
-    // Reuse the header's already-aliased accepts so the body matches.
+    // Reuse the header's accepts so the body matches the header exactly.
     const headerJson = JSON.parse(Buffer.from(headers['payment-required'], 'base64').toString('utf-8'));
     bodyObj.accepts = headerJson.accepts;
   }

@@ -1,7 +1,7 @@
 /**
- * Generate the standard "Choose your identity header" section for an AgentScore-gated
- * merchant's llms.txt. Explains wallet-auth vs operator-token paths + the cross-merchant
- * memory contract so agents know how to authenticate without reading the API docs.
+ * Generate the standard "## Identity" section for an AgentScore-gated merchant's
+ * llms.txt. Explains the wallet-auth vs operator-token paths so agents know how to
+ * authenticate without reading the API docs.
  */
 export function llmsTxtIdentitySection({
   agentscore,

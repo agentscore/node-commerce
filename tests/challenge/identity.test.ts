@@ -33,4 +33,10 @@ describe('buildIdentityMetadata', () => {
     const block = buildIdentityMetadata({ mode: 'wallet', wallet: '0xabc', linkedWallets: [] });
     expect(block).not.toHaveProperty('linked_wallets');
   });
+
+  it('omits required_signer in wallet mode when no wallet is supplied', () => {
+    const block = buildIdentityMetadata({ mode: 'wallet' });
+    expect(block.identity_mode).toBe('wallet');
+    expect(block).not.toHaveProperty('required_signer');
+  });
 });

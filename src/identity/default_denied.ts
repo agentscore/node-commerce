@@ -1,6 +1,6 @@
 /** Factory for the standard `onDenied` callback shape used by Checkout's
- *  gate config. Replaces the ~100-line switch every consumer codebase
- *  (sayer, martin, sandbox) wrote by hand.
+ *  gate config. Replaces the denial-mapping switch a merchant would otherwise
+ *  hand-write.
  *
  *  The shape is framework-neutral (`{status, body, headers?}`) — matches
  *  `Checkout`'s `onDenied` signature directly. For per-framework gate

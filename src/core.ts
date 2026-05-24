@@ -175,8 +175,7 @@ export interface DenialReason {
   linked_wallets?: string[];
 }
 
-/** Operator verification details from the assess response. Mirrors python's
- *  `OperatorVerification` dataclass. */
+/** Operator verification details from the assess response. */
 export interface OperatorVerification {
   level: string;
   operator_type: string | null;
@@ -184,8 +183,7 @@ export interface OperatorVerification {
 }
 
 /** Account-level KYC facts that apply to every operator under the same account.
- *  Populated when the API returns account_verification (post-KYC operator).
- *  Mirrors python's account_verification dict shape. */
+ *  Populated when the API returns account_verification (post-KYC operator). */
 export interface AccountVerification {
   kyc_level?: string;
   sanctions_clear?: boolean;
@@ -194,7 +192,7 @@ export interface AccountVerification {
   verified_at?: string | null;
 }
 
-/** A single policy check from the assess response. Mirrors python's `PolicyCheck`. */
+/** A single policy check from the assess response. */
 export interface PolicyCheck {
   rule: string;
   passed: boolean;
@@ -202,7 +200,7 @@ export interface PolicyCheck {
   actual?: unknown;
 }
 
-/** Policy evaluation result from the assess response. Mirrors python's `PolicyResult`. */
+/** Policy evaluation result from the assess response. */
 export interface PolicyResult {
   all_passed: boolean;
   checks: PolicyCheck[];

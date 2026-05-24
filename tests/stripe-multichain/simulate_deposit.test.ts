@@ -59,6 +59,19 @@ describe('simulateCryptoDeposit', () => {
     expect(body).toContain('buyer_wallet=11111111111111111111111111111111');
   });
 
+  it('falls back to an empty buyer_wallet for a network with no default + no override', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true } as Response);
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    await simulateCryptoDeposit({
+      paymentIntentId: 'pi_x',
+      network: 'polygon' as unknown as 'base',
+      stripeSecretKey: 'sk_test_xxx',
+    });
+    const body = (fetchMock.mock.calls[0]![1] as RequestInit).body as string;
+    expect(body).toContain('buyer_wallet=');
+    expect(new URLSearchParams(body).get('buyer_wallet')).toBe('');
+  });
+
   it('passes tokenCurrency, transactionHash, and extra params + Stripe-Version header', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true } as Response);
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -162,6 +175,24 @@ describe('simulateDepositIfTestMode', () => {
     expect(errSpy).toHaveBeenCalledWith(
       expect.stringContaining('✗ Failed to simulate tempo deposit'),
       expect.any(String),
+    );
+    errSpy.mockRestore();
+  });
+
+  it('stringifies a non-Error rejection in the failure log (the non-Error ternary side)', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue('raw-string-failure') as unknown as typeof fetch;
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(
+      simulateDepositIfTestMode({
+        getPaymentIntentId: () => 'pi_x',
+        depositAddress: '0xabc',
+        network: 'base',
+        stripeSecretKey: 'sk_test_xxx',
+      }),
+    ).resolves.toBeUndefined();
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining('✗ Failed to simulate base deposit'),
+      'raw-string-failure',
     );
     errSpy.mockRestore();
   });

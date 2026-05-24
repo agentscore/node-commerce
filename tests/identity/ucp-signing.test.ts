@@ -382,6 +382,26 @@ describe('UCP signing — additional hardening', () => {
       .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'unrecognized_critical_header' });
   });
 
+  it('wraps a jose JWSInvalid (valid header, structurally broken compact JWS) into malformed_jws', async () => {
+    const { generateUCPSigningKey, buildJWKSResponse, verifyUCPProfile } = await import('../../src/identity/ucp-jwks');
+    const { publicJWK } = await generateUCPSigningKey({ kid: 'k' });
+    const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
+
+    const { base64url } = await import('jose');
+    // Valid protected header (passes the typ/alg/kid pre-checks), but the JWS has
+    // only two segments after it — jose's compactVerify rejects with JWSInvalid,
+    // which the inner catch wraps to malformed_jws (distinct from the pre-decode
+    // header check that fires for an unparseable header segment).
+    const headerJson = JSON.stringify({ alg: 'EdDSA', kid: 'k', typ: 'agentscore-profile+jws' });
+    const headerB64 = base64url.encode(new TextEncoder().encode(headerJson));
+    // Two segments only (header.payload) — not a valid compact JWS (needs three).
+    const jws = `${headerB64}.${base64url.encode(new TextEncoder().encode('{}'))}`;
+    const signed = { ...profile, signature: jws };
+
+    await expect(verifyUCPProfile(signed as never, buildJWKSResponse([publicJWK])))
+      .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'malformed_jws' });
+  });
+
   // RFC 7515 §4.1.11: crit MUST be a non-empty array of strings if present.
   // The four cases below mirror python-commerce's malformed_jws parity tests so
   // a malformed crit shape never silently falls through to the unrecognized

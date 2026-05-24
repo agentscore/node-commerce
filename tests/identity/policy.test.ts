@@ -147,6 +147,28 @@ describe('runGateWithEnforcement', () => {
     expect(result.status).toBe('unverified');
     expect(result.denialStatus).toBe(403);
   });
+
+  it('hard mode propagates a structured denial reason when present', async () => {
+    const result = await runGateWithEnforcement('hard', async () => ({
+      ok: false,
+      status: 403,
+      body: { error: { code: 'kyc_required' } },
+      reason: { code: 'kyc_required', verify_url: 'https://agentscore.sh/v/x' },
+    }));
+    expect(result.status).toBe('denied');
+    expect(result.denialReason).toMatchObject({ code: 'kyc_required', verify_url: 'https://agentscore.sh/v/x' });
+  });
+
+  it('soft mode carries through the denial reason while staying unverified', async () => {
+    const result = await runGateWithEnforcement('soft', async () => ({
+      ok: false,
+      status: 403,
+      body: { error: { code: 'kyc_required' } },
+      reason: { code: 'kyc_required' },
+    }));
+    expect(result.status).toBe('unverified');
+    expect(result.denialReason).toMatchObject({ code: 'kyc_required' });
+  });
 });
 
 // ── validateShippingAgainstPolicy ────────────────────────────────────────────
@@ -164,6 +186,32 @@ describe('validateShippingAgainstPolicy', () => {
         policy: { requireKyc: true },
       }),
     ).not.toThrow();
+  });
+
+  it('renders <unset> when the disallowed country string is empty (default message)', () => {
+    try {
+      validateShippingAgainstPolicy({
+        country: '',
+        state: '',
+        policy: { allowedShippingCountries: ['US'] },
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect((err as CheckoutValidationError).message).toContain('<unset>');
+    }
+  });
+
+  it('renders <unset> when the disallowed state string is empty (default message)', () => {
+    try {
+      validateShippingAgainstPolicy({
+        country: 'US',
+        state: '',
+        policy: { allowedShippingCountries: ['US'], allowedShippingStates: ['CA'] },
+      });
+      throw new Error('should have thrown');
+    } catch (err) {
+      expect((err as CheckoutValidationError).message).toContain('<unset>');
+    }
   });
 
   it('throws CheckoutValidationError on disallowed country', () => {

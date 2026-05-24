@@ -114,12 +114,14 @@ export {
   validationResponseNextjs,
   validationResponseWeb,
 } from './checkout';
-// RailSpec types + payment helpers re-exported at top-level for cross-language
-// parity with python-commerce. Power users can still import from `./payment`.
+// RailSpec types + payment helpers re-exported at top-level for convenience.
+// Power users can still import from `./payment`.
 export {
   buildDefaultCheckoutRails,
   buildMppxComposeRails,
   formatUsdCents,
+  isEvmNetwork,
+  isSolanaNetwork,
   loadSolanaFeePayer,
   type SolanaMppRailSpec,
   type StripeRailSpec,

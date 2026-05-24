@@ -67,4 +67,23 @@ describe('buildMppxComposeRails', () => {
     const solana = (out as unknown[][])[1] as [string, Record<string, unknown>];
     expect(solana[1].network).toBe('solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1');
   });
+
+  it('emits ONLY the stripe intent when neither tempo nor solana recipient is set', () => {
+    // No tempoRecipient and no solanaRecipient: both rail guards take their
+    // false branch; only the stripe rail (>= $0.50) survives.
+    const out = buildMppxComposeRails({ amountUsd: '1.00' });
+    const railNames = (out as unknown[][]).map((r) => (r as [string, unknown])[0]);
+    expect(railNames).toEqual(['stripe/charge']);
+  });
+
+  it('warns only once across repeated below-minimum calls (warn-latch false branch)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // First call may or may not warn depending on prior tests in this file; the
+    // second call must NOT add another warn since the module latch is set.
+    buildMppxComposeRails({ amountUsd: '0.02', tempoRecipient: '0xabc' });
+    const callsAfterFirst = warn.mock.calls.length;
+    buildMppxComposeRails({ amountUsd: '0.03', tempoRecipient: '0xabc' });
+    expect(warn.mock.calls.length).toBe(callsAfterFirst);
+    warn.mockRestore();
+  });
 });

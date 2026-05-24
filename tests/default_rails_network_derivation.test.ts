@@ -34,6 +34,61 @@ describe('buildDefaultCheckoutRails — x402Base network/token derivation', () =
     });
     expect(rails.x402_base?.token).toBe('0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef');
   });
+
+  it('explicit chainId override on Sepolia is preserved (chainId-defined branch)', () => {
+    const rails = buildDefaultCheckoutRails({
+      x402Base: { network: networks.base.sepolia.caip2, chainId: 99999 },
+    });
+    expect(rails.x402_base?.chainId).toBe(99999);
+    // token still derived since it was not pinned
+    expect(rails.x402_base?.token).toBe(USDC.base.sepolia.address);
+  });
+
+  it('a non-Base network is left untouched (neither sepolia nor mainnet branch)', () => {
+    // An EVM network that is neither Base Sepolia nor Base mainnet skips both
+    // derivation arms; token/chainId stay at whatever was merged from defaults.
+    const rails = buildDefaultCheckoutRails({
+      x402Base: { network: 'eip155:10', token: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85', chainId: 10 },
+    });
+    expect(rails.x402_base?.network).toBe('eip155:10');
+    expect(rails.x402_base?.chainId).toBe(10);
+    expect(rails.x402_base?.token).toBe('0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85');
+  });
+
+  it('explicit chainId + token override on mainnet are preserved (mainnet defined-branch)', () => {
+    const rails = buildDefaultCheckoutRails({
+      x402Base: {
+        network: networks.base.mainnet.caip2,
+        chainId: 8453,
+        token: '0xcafecafecafecafecafecafecafecafecafecafe',
+      },
+    });
+    expect(rails.x402_base?.chainId).toBe(8453);
+    expect(rails.x402_base?.token).toBe('0xcafecafecafecafecafecafecafecafecafecafe');
+  });
+});
+
+describe('buildDefaultCheckoutRails — tempo testnet field-pinned branches', () => {
+  it('testnet: true with explicit token/chainId/network keeps the overrides (defined branches)', () => {
+    const rails = buildDefaultCheckoutRails({
+      tempo: {
+        testnet: true,
+        network: 'tempo-custom',
+        chainId: 12345,
+        token: '0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed',
+      },
+    });
+    expect(rails.tempo?.network).toBe('tempo-custom');
+    expect(rails.tempo?.chainId).toBe(12345);
+    expect(rails.tempo?.token).toBe('0xfeedfeedfeedfeedfeedfeedfeedfeedfeedfeed');
+  });
+
+  it('solana devnet with explicit token keeps the override (token-defined branch)', () => {
+    const rails = buildDefaultCheckoutRails({
+      solanaMpp: { network: 'devnet', token: 'CustomMint1111111111111111111111111111111111' },
+    });
+    expect(rails.solana_mpp?.token).toBe('CustomMint1111111111111111111111111111111111');
+  });
 });
 
 describe('buildDefaultCheckoutRails — solanaMpp network/mint derivation', () => {

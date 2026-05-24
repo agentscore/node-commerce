@@ -6,6 +6,7 @@ import {
   agentscoreOpenApiSnippets,
   siwxSecurityScheme,
   xPaymentInfoExtension,
+  xPaymentInfoFromCheckout,
   xGuidanceExtension,
 } from '../../src/discovery/openapi';
 
@@ -49,6 +50,55 @@ describe('xPaymentInfoExtension', () => {
     });
     expect(ext['x-payment-info'].price).toMatchObject({ mode: 'dynamic', min: '0.01', max: '5.00' });
     expect(ext['x-payment-info'].protocols).toHaveLength(2);
+  });
+});
+
+describe('xPaymentInfoFromCheckout', () => {
+  const price = { mode: 'fixed' as const, currency: 'USD', amount: '0.10' };
+
+  it('maps each rail family to its discovery protocol and uses explicit `currency` over `token`', () => {
+    const ext = xPaymentInfoFromCheckout({
+      price,
+      checkout: {
+        rails: {
+          tempo: { network: 'tempo-mainnet', recipient: '0xt', currency: '0xTempoUSDC', token: '0xIgnored' },
+          x402_base: { network: 'eip155:8453', recipient: '0xb' },
+          solana_mpp: { network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp', recipient: 'Sol', token: 'SolMint' },
+          stripe: { profileId: 'acct_1' },
+        },
+      },
+    });
+    const protocols = ext['x-payment-info'].protocols;
+    expect(protocols).toContainEqual({ mpp: { method: 'tempo', intent: 'charge', currency: '0xTempoUSDC' } });
+    expect(protocols).toContainEqual({ x402: { scheme: 'exact', network: 'base', asset: 'USDC' } });
+    expect(protocols).toContainEqual({ mpp: { method: 'solana', intent: 'charge', currency: 'SolMint' } });
+    expect(protocols).toContainEqual({ mpp: { method: 'stripe', intent: 'charge', currency: 'usd' } });
+  });
+
+  it('omits the currency field for tempo/solana rails that carry neither currency nor token', () => {
+    const ext = xPaymentInfoFromCheckout({
+      price,
+      checkout: {
+        rails: {
+          tempo: { network: 'tempo-mainnet', recipient: '0xt' },
+          solana_mpp: { network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp', recipient: 'Sol' },
+        },
+      },
+    });
+    const protocols = ext['x-payment-info'].protocols;
+    expect(protocols).toContainEqual({ mpp: { method: 'tempo', intent: 'charge' } });
+    expect(protocols).toContainEqual({ mpp: { method: 'solana', intent: 'charge' } });
+  });
+
+  it('merges protocolExtras into the per-rail protocol blocks', () => {
+    const ext = xPaymentInfoFromCheckout({
+      price,
+      checkout: { rails: { tempo: { network: 'tempo-mainnet', recipient: '0xt', token: '0xTok' } } },
+      protocolExtras: { tempo: { extra_field: 'x' } },
+    });
+    expect(ext['x-payment-info'].protocols).toContainEqual({
+      mpp: { method: 'tempo', intent: 'charge', currency: '0xTok', extra_field: 'x' },
+    });
   });
 });
 
