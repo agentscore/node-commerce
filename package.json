@@ -106,7 +106,8 @@
     "lint:fix": "eslint . --fix",
     "knip": "knip",
     "test": "vitest run --coverage",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p examples/tsconfig.json",
+    "typecheck:examples": "tsc --noEmit -p examples/tsconfig.json",
     "prepare": "lefthook install",
     "prepublishOnly": "bun run build"
   },
