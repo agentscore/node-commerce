@@ -51,6 +51,11 @@ describe('isDiscoveryPath', () => {
     expect(isDiscoveryPath('/openapi.json', { customPaths: ['/sitemap.xml'], replace: true })).toBe(false);
     expect(isDiscoveryPath('/sitemap.xml', { customPaths: ['/sitemap.xml'], replace: true })).toBe(true);
   });
+
+  it('replace=true with NO customPaths treats every path as non-discovery (empty-set default)', () => {
+    expect(isDiscoveryPath('/openapi.json', { replace: true })).toBe(false);
+    expect(isDiscoveryPath('/anything', { replace: true })).toBe(false);
+  });
 });
 
 describe('noindexNonDiscoveryPaths (Hono middleware)', () => {
@@ -91,6 +96,13 @@ describe('noindexNonDiscoveryPaths (Hono middleware)', () => {
     const b = makeCtx('/sitemap.xml');
     await mw(b.ctx, async () => {});
     expect(b.headers['X-Robots-Tag']).toBeUndefined();
+  });
+
+  it('replacePaths=true with NO customPaths marks even default discovery paths as non-discovery', async () => {
+    const mw = noindexNonDiscoveryPaths({ replacePaths: true });
+    const a = makeCtx('/openapi.json');
+    await mw(a.ctx, async () => {});
+    expect(a.headers['X-Robots-Tag']).toBe('noindex, nofollow, noarchive, nosnippet');
   });
 
   it('honors a custom robotsTag value', async () => {

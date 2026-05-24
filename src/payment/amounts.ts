@@ -3,12 +3,12 @@
  *
  * `usdToAtomic(usd, { decimals: 6 })` returns the bigint atomic value of a USD
  * amount for a token with `decimals` places of precision (USDC is 6). String
- * parsing + bigint arithmetic so the result is exact; ROUND_HALF_UP at the
- * rounding boundary matches the cross-language Python sibling.
+ * parsing + bigint arithmetic so the result is exact, with ROUND_HALF_UP at the
+ * rounding boundary.
  *
  * Rejects negative, NaN, infinite, and unparseable inputs. Fixed-notation only;
- * scientific notation (e.g. `"1e6"`) is not parsed (mirrors the locked cross-
- * language fixture corpus, which uses fixed notation exclusively).
+ * scientific notation (e.g. `"1e6"`) is not parsed, so the encoded amount is
+ * unambiguous on the wire.
  */
 
 /**
@@ -69,8 +69,8 @@ export function usdToAtomic(usd: string | number, opts: { decimals: number }): b
   }
 
   // Fractional longer than decimals: truncate to `decimals` digits, then round-half-up
-  // via the next-position digit. A digit ≥ '5' rounds the combined value up by 1;
-  // matches Python's Decimal ROUND_HALF_UP semantics for non-negative inputs.
+  // via the next-position digit. A digit ≥ '5' rounds the combined value up by 1
+  // (ROUND_HALF_UP for non-negative inputs).
   const kept = fracPart.slice(0, decimals);
   const roundDigit = fracPart[decimals];
   let result = BigInt(intPart + kept);

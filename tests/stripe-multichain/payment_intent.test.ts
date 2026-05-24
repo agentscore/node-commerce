@@ -54,4 +54,21 @@ describe('createMultichainPaymentIntent', () => {
       status: 503,
     });
   });
+
+  it('skips deposit-address entries that lack an address field but keeps the valid ones', async () => {
+    const stripe = fakeStripe({
+      id: 'pi_mixed',
+      next_action: {
+        crypto_display_details: {
+          deposit_addresses: {
+            tempo: { address: '0xtempo' },
+            base: {}, // no address → skipped
+            solana: { address: null }, // null address → skipped
+          },
+        },
+      },
+    });
+    const result = await createMultichainPaymentIntent({ stripe, amount: 100 });
+    expect(result.depositAddresses).toEqual({ tempo: '0xtempo' });
+  });
 });

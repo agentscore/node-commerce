@@ -97,6 +97,13 @@ describe('usdToAtomic', () => {
     expect(() => usdToAtomic('1.2.3', { decimals: 6 })).toThrow(/invalid usd value/);
   });
 
+  it('rejects the literal strings "NaN" and "Infinity" as finite-value errors', () => {
+    // String inputs skip the typed-number guard; these literal strings hit the
+    // string-path finite check.
+    expect(() => usdToAtomic('NaN', { decimals: 6 })).toThrow(/finite/);
+    expect(() => usdToAtomic('Infinity', { decimals: 6 })).toThrow(/finite/);
+  });
+
   it('rejects negative decimals', () => {
     expect(() => usdToAtomic('1.00', { decimals: -1 })).toThrow(/non-negative integer/);
   });

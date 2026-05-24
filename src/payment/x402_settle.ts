@@ -17,21 +17,26 @@
 
 import type { X402Server } from './x402_server';
 
-export type ProcessX402SettleResult =
-  | {
-      success: true;
-      /** The matched requirement passed to `settlePayment`. */
-      matchedRequirement: unknown;
-      /** The settlement response from the facilitator. */
-      settleResult: unknown;
-      /** Base64-encoded JSON of `settleResult`, ready to set as the `payment-response`
-       *  HTTP header on the merchant's success response. x402 clients (`@x402/fetch`,
-       *  `agentscore-pay`) read this to confirm settlement landed. `undefined` when
-       *  there's no settle result (shouldn't happen on success path but typed defensively). */
-      paymentResponseHeader: string | undefined;
-      /** The x402 server's `processPaymentRequest` verify result. */
-      verifyResult: { success: true; [key: string]: unknown };
-    }
+/** Success result of `processX402Settle`: both verify and settle passed. */
+export interface ProcessX402SettleSuccess {
+  success: true;
+  /** The matched requirement passed to `settlePayment`. */
+  matchedRequirement: unknown;
+  /** The settlement response from the facilitator. */
+  settleResult: unknown;
+  /** Base64-encoded JSON of `settleResult`, ready to set as the `payment-response`
+   *  HTTP header on the merchant's success response. x402 clients (`@x402/fetch`,
+   *  `agentscore-pay`) read this to confirm settlement landed. `undefined` when
+   *  there's no settle result (shouldn't happen on success path but typed defensively). */
+  paymentResponseHeader: string | undefined;
+  /** The x402 server's `processPaymentRequest` verify result. */
+  verifyResult: { success: true; [key: string]: unknown };
+}
+
+/** Failure result of `processX402Settle`, discriminated by `phase`. Map to a controlled HTTP
+ *  response via `classifyX402SettleResult`; keep raw `error` / `verifyResult` / `reason`
+ *  server-side rather than serializing them to the consumer. */
+export type ProcessX402SettleFailure =
   /** No-requirements branch: `buildPaymentRequirements` returned an empty array, so
    *  there is nothing to verify against. Indicates a merchant-side misconfiguration
    *  (resource config doesn't match any registered scheme/network).
@@ -65,6 +70,8 @@ export type ProcessX402SettleResult =
       step: 'build_requirements' | 'enrich_extensions' | 'verify_payment';
       error: unknown;
     };
+
+export type ProcessX402SettleResult = ProcessX402SettleSuccess | ProcessX402SettleFailure;
 
 /**
  * The merchant-shaped response for a non-success `ProcessX402SettleResult`.

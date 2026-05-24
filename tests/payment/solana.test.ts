@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadSolanaFeePayer } from '../../src/payment/solana';
 
 describe('loadSolanaFeePayer', () => {
@@ -26,5 +26,20 @@ describe('loadSolanaFeePayer', () => {
     } catch (err) {
       expect(err).toBeInstanceOf(Error);
     }
+  });
+});
+
+describe('loadSolanaFeePayer — peer-dep guard', () => {
+  afterEach(() => { vi.doUnmock('@solana/kit'); });
+
+  it('throws a guiding error when @solana/kit lacks the required exports', async () => {
+    // Simulate the peer dep being absent/incompatible (module resolves but the
+    // needed functions are missing) to exercise the install-guidance throw.
+    vi.doMock('@solana/kit', () => ({
+      createKeyPairSignerFromPrivateKeyBytes: undefined,
+      getBase58Codec: undefined,
+    }));
+    const { loadSolanaFeePayer: freshLoad } = await import(`../../src/payment/solana?nokit=${Date.now()}`);
+    await expect(freshLoad({ privateKey: 'a'.repeat(128) })).rejects.toThrow(/@solana\/kit not installed/);
   });
 });

@@ -502,6 +502,25 @@ describe('Checkout framework adapters', () => {
     expect(resp.status).toBe(402);
   });
 
+  it('handleHono normalizes a Headers-instance header() return (instanceof Headers branch)', async () => {
+    // Some Hono-shaped contexts return a Web Fetch `Headers` from `c.req.header()`
+    // rather than a plain record; the adapter's `headersToRecord` handles both. This
+    // exercises the `instanceof Headers` iteration path.
+    const checkout = minimalCheckout();
+    const c = {
+      req: {
+        method: 'POST',
+        url: 'https://api.example/purchase',
+        json: async () => ({ item: 'wine' }),
+        header: () => new Headers({ 'x-wallet-address': '0xabc' }),
+      },
+      json: (body: unknown, status?: number) => new Response(JSON.stringify(body), { status }),
+      body: (body: string, status?: number) => new Response(body, { status }),
+    };
+    const resp = await checkout.handleHono(c);
+    expect(resp.status).toBe(402);
+  });
+
   it('handleHono returns invalid_body envelope when json() throws', async () => {
     const checkout = minimalCheckout();
     const c = {
@@ -849,6 +868,50 @@ describe('buildSignedJwksResponse + buildSignedUcpResponse - Headers instance re
     try {
       const resp = await buildSignedJwksResponse({});
       expect(resp.headers['X-Request-ID']).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+      else process.env.UCP_SIGNING_KEY_JWK_PRIVATE = prev;
+      _resetUCPSigningKeyCache();
+    }
+  });
+
+  it('omits X-Request-ID when a plain header record carries no x-request-id key', async () => {
+    // Exercises the record-iteration path that finds no match and returns
+    // undefined (distinct from the Headers-instance and undefined-headers paths).
+    const { buildSignedJwksResponse } = await import('../src/discovery/well_known');
+    const { generateUCPSigningKey, _resetUCPSigningKeyCache } = await import('../src/identity/ucp-jwks');
+    const { exportJWK } = await import('jose');
+    _resetUCPSigningKeyCache();
+    const { privateKey } = await generateUCPSigningKey({ kid: 'rec-no-rid' });
+    const privJwk = await exportJWK(privateKey as Parameters<typeof exportJWK>[0]);
+    const prev = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+    process.env.UCP_SIGNING_KEY_JWK_PRIVATE = JSON.stringify({ ...privJwk, kid: 'rec-no-rid' });
+    try {
+      const resp = await buildSignedJwksResponse({
+        requestHeaders: { 'content-type': 'application/json', accept: '*/*' },
+      });
+      expect(resp.headers['X-Request-ID']).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+      else process.env.UCP_SIGNING_KEY_JWK_PRIVATE = prev;
+      _resetUCPSigningKeyCache();
+    }
+  });
+
+  it('reads X-Request-ID from a plain header record (case-insensitive key)', async () => {
+    const { buildSignedJwksResponse } = await import('../src/discovery/well_known');
+    const { generateUCPSigningKey, _resetUCPSigningKeyCache } = await import('../src/identity/ucp-jwks');
+    const { exportJWK } = await import('jose');
+    _resetUCPSigningKeyCache();
+    const { privateKey } = await generateUCPSigningKey({ kid: 'rec-rid' });
+    const privJwk = await exportJWK(privateKey as Parameters<typeof exportJWK>[0]);
+    const prev = process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
+    process.env.UCP_SIGNING_KEY_JWK_PRIVATE = JSON.stringify({ ...privJwk, kid: 'rec-rid' });
+    try {
+      const resp = await buildSignedJwksResponse({
+        requestHeaders: { 'X-Request-Id': 'req-from-record' },
+      });
+      expect(resp.headers['X-Request-ID']).toBe('req-from-record');
     } finally {
       if (prev === undefined) delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
       else process.env.UCP_SIGNING_KEY_JWK_PRIVATE = prev;
@@ -1666,6 +1729,89 @@ describe('Checkout SDK gate path', () => {
     });
     expect(result.status).toBe(402);
     expect((result.body as { error: { code: string; upstream: string } }).error.code).toBe('custom_kyc');
+    vi.doUnmock('../src/core');
+  });
+});
+
+describe('Checkout SDK gate path — fully-populated gate config', () => {
+  it('forwards every optional gate field + perRequestPolicy override into the core options', async () => {
+    // A maximal gate config exercises the optional-spread branches that build
+    // `coreOpts` (baseUrl / userAgent / requireKyc / requireSanctionsClear /
+    // minAge / blocked+allowedJurisdictions / failOpen / cacheSeconds / chain /
+    // createSessionOnMissing) plus the perRequestPolicy merge.
+    let capturedPolicyCtx = false;
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return {
+        ...real,
+        createAgentScoreCore: () => _mockCore({ outcome: 'allow' }),
+      };
+    });
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?gate-maximal');
+    const checkout = new ScopedCheckout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      composeMppx: async () => ({ status: 200, railKey: 'tempo', txHash: '0xtx', signerAddress: '0xabc', signerNetwork: 'evm' }),
+      onSettled: async () => ({ order_id: 'o-max' }),
+      gate: {
+        apiKey: 'k',
+        baseUrl: 'https://staging.agentscore.test',
+        userAgent: 'merchant-app/9.9',
+        requireKyc: true,
+        requireSanctionsClear: true,
+        minAge: 21,
+        blockedJurisdictions: ['IR'],
+        allowedJurisdictions: ['US', 'CA'],
+        failOpen: false,
+        cacheSeconds: 120,
+        chain: 'base',
+        context: 'goods',
+        merchantName: 'Maximal Merchant',
+        perRequestPolicy: async (ctx) => {
+          capturedPolicyCtx = ctx !== undefined;
+          return { minAge: 18 };
+        },
+      },
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: 'Payment <cred>' },
+      body: {},
+    });
+    expect(result.status).toBe(200);
+    expect(capturedPolicyCtx).toBe(true);
+    vi.doUnmock('../src/core');
+  });
+
+  it('perRequestPolicy returning null short-circuits the gate (skips assess)', async () => {
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return { ...real, createAgentScoreCore: () => _mockCore({ outcome: 'deny', reason: { code: 'kyc_required' } }) };
+    });
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?gate-policy-null');
+    const checkout = new ScopedCheckout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      composeMppx: async () => ({ status: 200, railKey: 'tempo', txHash: '0xtx', signerAddress: '0xabc', signerNetwork: 'evm' }),
+      onSettled: async () => ({ order_id: 'o-null' }),
+      gate: {
+        apiKey: 'k',
+        requireKyc: true,
+        // null → bypass the gate entirely for this request
+        perRequestPolicy: async () => null,
+      },
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: 'Payment <cred>' },
+      body: {},
+    });
+    // Gate skipped → settle proceeds (the deny mock would otherwise have blocked).
+    expect(result.status).toBe(200);
     vi.doUnmock('../src/core');
   });
 });

@@ -87,6 +87,62 @@ describe('createMppxServer — additional rail branches', () => {
     });
     expect(server).toBeDefined();
   });
+
+  it("solana rail with raw 'localnet' network resolves the localnet RPC default", async () => {
+    // `rpcUrl` is omitted so the localnet default (http://localhost:8899) is used;
+    // `rpcUrl` presence marks the spec as Solana so 'localnet' (not a solana: CAIP-2)
+    // still routes correctly. Passing tokenProgram keeps it detected as Solana.
+    const server = await createMppxServer({
+      rails: {
+        solana: {
+          recipient: 'JDK3GZwsmgWwdFicNnrLHEgZc54SNYp6egWL9LL3k9f5',
+          network: 'localnet',
+          tokenProgram: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+        } as SolanaMppRailSpec,
+      },
+      secretKey: 'mpp_secret_xxx',
+    });
+    expect(server).toBeDefined();
+  });
+
+  it('solana rail with ataCreationRequired: false omits the self-referential split', async () => {
+    const server = await createMppxServer({
+      rails: {
+        solana: {
+          recipient: 'JDK3GZwsmgWwdFicNnrLHEgZc54SNYp6egWL9LL3k9f5',
+          network: networks.solana.devnet.caip2,
+          ataCreationRequired: false,
+        } as SolanaMppRailSpec,
+      },
+      secretKey: 'mpp_secret_xxx',
+    });
+    expect(server).toBeDefined();
+  });
+
+  it('tempo rail rejects a non-string (factory) recipient with a TypeError', async () => {
+    await expect(
+      createMppxServer({
+        rails: {
+          tempo: { recipient: () => '0x0000000000000000000000000000000000000001' } as unknown as TempoRailSpec,
+        },
+        secretKey: 'mpp_secret_xxx',
+      }),
+    ).rejects.toThrow(/requires a string recipient/);
+  });
+
+  it('solana rail rejects a non-string (factory) recipient with a TypeError', async () => {
+    await expect(
+      createMppxServer({
+        rails: {
+          solana: {
+            recipient: () => 'JDK3GZwsmgWwdFicNnrLHEgZc54SNYp6egWL9LL3k9f5',
+            network: networks.solana.devnet.caip2,
+          } as unknown as SolanaMppRailSpec,
+        },
+        secretKey: 'mpp_secret_xxx',
+      }),
+    ).rejects.toThrow(/requires a string recipient/);
+  });
 });
 
 describe('composeMppxRequest', () => {

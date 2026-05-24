@@ -1,11 +1,6 @@
 /** Settle-outcome → simulator dispatch. Replaces the 3-branch rail/railKey
- *  switch + thin `simulateDepositIfTestnet(addr, network)` wrapper that
- *  consumer codebases (sayer, martin, sandbox) hand-rolled in their own
- *  `lib/payment.ts` files.
- *
- *  Folding the dispatch into the SDK removes the consumer-wrap anti-pattern
- *  (`feedback_no_consumer_sdk_rewrapping`): merchants call this directly from
- *  `onSettled`, no per-merchant payment.ts wrapper needed.
+ *  switch + thin testnet-deposit wrapper a merchant would otherwise hand-roll
+ *  in their own payment helpers. Call it directly from `onSettled`.
  */
 
 import { simulateDepositIfTestMode } from './simulate_deposit';

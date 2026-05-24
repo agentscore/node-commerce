@@ -22,6 +22,13 @@ describe('buildDefaultCheckoutRails', () => {
     expect(rails.tempo?.testnet).toBe(true);
   });
 
+  it('derives tempo network/chainId/token from `testnet: true` alone', () => {
+    const rails = buildDefaultCheckoutRails({ tempo: { testnet: true } });
+    expect(rails.tempo?.network).toBe('tempo-testnet');
+    expect(rails.tempo?.chainId).toBe(42431);
+    expect(rails.tempo?.token).toBe('0x20c0000000000000000000000000000000000000');
+  });
+
   it('keys map to canonical rails-dict slugs (`x402_base`, `solana_mpp`)', () => {
     const rails = buildDefaultCheckoutRails({ x402Base: {}, solanaMpp: {} });
     expect(rails.x402_base).toBeDefined();

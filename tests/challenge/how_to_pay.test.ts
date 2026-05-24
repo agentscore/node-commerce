@@ -42,6 +42,15 @@ describe('buildHowToPay', () => {
     expect(block.tempo!.alternative_command).toContain('tempo request');
   });
 
+  it('respects recommend=tempo (single command, no alternative_command)', () => {
+    const block = buildHowToPay({
+      ...baseInput,
+      rails: { tempo: { recipient: '0xabc', recommend: 'tempo' } },
+    });
+    expect(block.tempo!.command).toContain('tempo request');
+    expect(block.tempo!.alternative_command).toBeUndefined();
+  });
+
   it('builds x402_base + solana_mpp entries with --chain flags', () => {
     const block = buildHowToPay({
       ...baseInput,

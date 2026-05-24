@@ -13,6 +13,17 @@ describe('payment_header case-insensitive Record lookup', () => {
     expect(readHeader({ 'Authorization': 'Payment foo' }, 'authorization')).toBe('Payment foo');
   });
 
+  it('readHeader returns the first element of a string[] header value (Node multi-value shape)', () => {
+    // Node/Fastify expose repeated headers as string arrays; readHeader takes the
+    // first string element.
+    expect(readHeader({ 'x-payment': ['first', 'second'] }, 'x-payment')).toBe('first');
+  });
+
+  it('readHeader returns null for an array whose first element is not a string', () => {
+    expect(readHeader({ 'x-payment': [] }, 'x-payment')).toBeNull();
+    expect(readHeader({ 'x-payment': [undefined as unknown as string] }, 'x-payment')).toBeNull();
+  });
+
   it('hasPaymentHeader / hasX402Header / hasMppxHeader match title-case keys', () => {
     expect(hasPaymentHeader({ 'Payment-Signature': 'abc' })).toBe(true);
     expect(hasX402Header({ 'Payment-Signature': 'abc' })).toBe(true);

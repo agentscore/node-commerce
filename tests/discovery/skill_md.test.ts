@@ -90,6 +90,10 @@ describe('buildSkillMd', () => {
       expect(() => buildSkillMd({ ...baseInput, name: '' })).toThrow(/1-64/);
     });
 
+    it('rejects an undefined name and reports length 0 (nullish-coalesced length)', () => {
+      expect(() => buildSkillMd({ ...baseInput, name: undefined as unknown as string })).toThrow(/got 0/);
+    });
+
     it('rejects name exceeding 64 characters', () => {
       expect(() => buildSkillMd({ ...baseInput, name: 'a'.repeat(65) })).toThrow(/1-64/);
     });
@@ -213,6 +217,15 @@ describe('buildSkillMd', () => {
       expect(out).toContain('**MPP on Tempo**');
       expect(out).not.toContain('**Stripe Shared Payment Token**');
       expect(out).not.toContain('link-cli');
+    });
+
+    it('handles an empty acceptedRails list (no default client map → empty defaults)', () => {
+      // acceptedRails: [] makes compatibleClientsByRails return undefined, exercising
+      // the `?? {}` fallback; the payment table renders with no rail rows.
+      const out = buildSkillMd({ ...baseInput, acceptedRails: [] });
+      expect(out).toContain('## Payment');
+      expect(out).not.toContain('**MPP on Tempo**');
+      expect(out).not.toContain('**x402 on Base**');
     });
 
     it('honors compatibleClients override per rail', () => {

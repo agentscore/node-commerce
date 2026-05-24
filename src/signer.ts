@@ -114,6 +114,24 @@ export async function extractPaymentSigner(
   request: Request,
   x402PaymentHeader?: string,
 ): Promise<PaymentSigner | null> {
+  // x402 — base64 JSON, EIP-3009 only. EVM `payload.authorization.from` is the signer.
+  // Tried before the MPP path so a request carrying both header families resolves the
+  // x402 signer first, consistent with `extractSignerForPrecheck`.
+  if (x402PaymentHeader) {
+    try {
+      const decoded = atob(x402PaymentHeader);
+      const parsed = JSON.parse(decoded) as {
+        payload?: { authorization?: { from?: string } };
+      };
+      const from = parsed?.payload?.authorization?.from;
+      if (typeof from === 'string' && /^0x[0-9a-fA-F]{40}$/.test(from)) {
+        return { address: from.toLowerCase(), network: 'evm' };
+      }
+    } catch (err) {
+      console.warn('[gate] x402 signer extraction failed:', err instanceof Error ? err.message : err);
+    }
+  }
+
   // MPP — Authorization: Payment <base64>
   const authHeader = request.headers.get('authorization');
   if (authHeader) {
@@ -141,22 +159,6 @@ export async function extractPaymentSigner(
       }
     } catch (err) {
       console.warn('[gate] MPP signer extraction failed:', err instanceof Error ? err.message : err);
-    }
-  }
-
-  // x402 — base64 JSON, EIP-3009 only. EVM `payload.authorization.from` is the signer.
-  if (x402PaymentHeader) {
-    try {
-      const decoded = atob(x402PaymentHeader);
-      const parsed = JSON.parse(decoded) as {
-        payload?: { authorization?: { from?: string } };
-      };
-      const from = parsed?.payload?.authorization?.from;
-      if (typeof from === 'string' && /^0x[0-9a-fA-F]{40}$/.test(from)) {
-        return { address: from.toLowerCase(), network: 'evm' };
-      }
-    } catch (err) {
-      console.warn('[gate] x402 signer extraction failed:', err instanceof Error ? err.message : err);
     }
   }
 

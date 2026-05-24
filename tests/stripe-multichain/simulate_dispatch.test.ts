@@ -27,6 +27,11 @@ describe('networkForOutcome', () => {
     expect(networkForOutcome({ rail: 'mpp', railKey: 'stripe' })).toBeNull();
   });
 
+  it('maps the bare railKey forms (tempo / x402_base)', () => {
+    expect(networkForOutcome({ railKey: 'tempo' })).toBe('tempo');
+    expect(networkForOutcome({ railKey: 'x402_base' })).toBe('base');
+  });
+
   it('returns null for unknown outcomes', () => {
     expect(networkForOutcome({})).toBeNull();
     expect(networkForOutcome({ rail: 'mpp', mppMethod: 'unknown' })).toBeNull();
@@ -56,5 +61,29 @@ describe('simulateDepositForOutcome', () => {
     // The simulator early-returns on sk_live_*; getPaymentIntentId is called once
     // inside simulateDepositIfTestMode only when the testnet branch is taken.
     expect(getPaymentIntentId).not.toHaveBeenCalled();
+  });
+
+  it('forwards buyerWallet + stripeVersion through to the simulator on a test key', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true } as Response);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await simulateDepositForOutcome({
+        outcome: { rail: 'x402' },
+        depositAddress: '0xabc',
+        getPaymentIntentId: () => 'pi_cached',
+        stripeSecretKey: 'sk_test_xxx',
+        buyerWallet: '0xbuyerwallet',
+        stripeVersion: '2026-03-04.preview',
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [, init] = fetchMock.mock.calls[0]!;
+      expect((init as RequestInit).body as string).toContain('buyer_wallet=0xbuyerwallet');
+      expect(((init as RequestInit).headers as Record<string, string>)['Stripe-Version']).toBe('2026-03-04.preview');
+    } finally {
+      globalThis.fetch = originalFetch;
+      warnSpy.mockRestore();
+    }
   });
 });

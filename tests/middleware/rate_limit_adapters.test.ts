@@ -154,6 +154,19 @@ describe('rateLimitFastify', () => {
     expect(headers['X-RateLimit-Remaining']).toBe('4');
   });
 
+  it('reads x-forwarded-for when Node exposes it as a string[] (takes the first entry)', async () => {
+    const hook = rateLimitFastify({ maxRequests: 5 });
+    const headers: Record<string, string> = {};
+    const reply = {
+      header: (k: string, v: string) => { headers[k] = v; return reply; },
+      code: () => reply,
+      send: () => reply,
+    };
+    const req = { headers: { 'x-forwarded-for': ['10.0.0.1, 9.9.9.9', '8.8.8.8'] }, ip: undefined };
+    await hook(req as never, reply as never);
+    expect(headers['X-RateLimit-Remaining']).toBe('4');
+  });
+
   it('falls back to "unknown" key when no forwarded-for + no ip', async () => {
     const hook = rateLimitFastify({ maxRequests: 5 });
     const reply = {

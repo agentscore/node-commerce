@@ -63,4 +63,11 @@ describe('aliasAmountFields', () => {
     const out = aliasAmountFields([{ scheme: 'exact', network: 'eip155:8453' }]);
     expect(out[0]).toEqual({ scheme: 'exact', network: 'eip155:8453' });
   });
+
+  it('passes through non-object entries (null / string) verbatim', () => {
+    const out = aliasAmountFields([null, 'not-an-object', { amount: '5' }]);
+    expect(out[0]).toBeNull();
+    expect(out[1]).toBe('not-an-object');
+    expect(out[2]).toEqual({ amount: '5', maxAmountRequired: '5' });
+  });
 });

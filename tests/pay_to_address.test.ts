@@ -428,4 +428,56 @@ describe('mintMultichainRecipients', () => {
       status: 401,
     });
   });
+
+  it('rebuilds the full per-rail network map from cache when the credential resolves to a known PI', async () => {
+    // getPaymentIntentId returns a real PI id, so readNetworkMapFromCache runs and
+    // hydrates the per-network map (tempo/base/solana) from the cache, and the
+    // returned paymentIntentId is populated.
+    const stored: Record<string, string> = {
+      tempo: '0xTEMPOdeposit',
+      base: '0xBASEdeposit',
+    };
+    const cache: PiCache = {
+      async cacheAddress() {},
+      async hasAddress() { return true; },
+      cachePaymentIntent() {},
+      getPaymentIntentId() { return 'pi_reused_999'; },
+      cacheNetworkAddresses() {},
+      getNetworkDepositAddress(_pi: string, n: string) { return stored[n]; },
+      stop() {},
+    };
+    const request = new Request('https://x.example', {
+      method: 'POST',
+      headers: { authorization: 'Payment tempo:0xTEMPOdeposit' },
+    });
+    const out = await mintMultichainRecipients({
+      request,
+      amountCents: 100,
+      stripe: makeFakeStripe({}),
+      piCache: cache,
+    });
+    expect(out.reusedFromCredential).toBe(true);
+    expect(out.paymentIntentId).toBe('pi_reused_999');
+    expect(out.recipients).toEqual({ tempo: '0xTEMPOdeposit', base: '0xBASEdeposit' });
+  });
+
+  it('rejects a credential whose recipient field is empty (missing recipient)', async () => {
+    const { cache } = makeFakeCache({ hasAddress: true });
+    const request = new Request('https://x.example', {
+      method: 'POST',
+      headers: { authorization: 'Payment tempo:' },
+    });
+    await expect(
+      mintMultichainRecipients({
+        request,
+        amountCents: 100,
+        stripe: makeFakeStripe({}),
+        piCache: cache,
+      }),
+    ).rejects.toMatchObject({
+      name: 'CheckoutValidationError',
+      code: 'invalid_credential',
+      status: 401,
+    });
+  });
 });

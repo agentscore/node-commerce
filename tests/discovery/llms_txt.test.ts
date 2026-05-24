@@ -25,6 +25,20 @@ describe('llmsTxtIdentitySection', () => {
     expect(section).toContain('age 21+');
     expect(section).toContain('US only');
   });
+
+  it('emits only sanctions-clear when that is the only compliance flag (other flags absent)', () => {
+    // Exercises the false side of require_kyc / min_age / allowed_jurisdictions
+    // and the true side of require_sanctions_clear.
+    const section = llmsTxtIdentitySection({
+      agentscore: true,
+      compliance: { require_sanctions_clear: true },
+    });
+    expect(section).toContain('Compliance');
+    expect(section).toContain('sanctions clear');
+    expect(section).not.toContain('KYC required');
+    expect(section).not.toContain('age ');
+    expect(section).not.toContain(' only.');
+  });
 });
 
 describe('llmsTxtPaymentSection', () => {
@@ -99,6 +113,16 @@ describe('llmsTxtPaymentSection', () => {
         verbose: true,
       });
       expect(section).toContain('exact amount in the 402 challenge');
+    });
+
+    it('labels testnet rails as Base Sepolia / Solana devnet (verbose)', () => {
+      const section = llmsTxtPaymentSection({
+        rails: ['x402-base-sepolia', 'mpp-solana-devnet'],
+        appUrl: 'https://x',
+        verbose: true,
+      });
+      expect(section).toContain('Base Sepolia');
+      expect(section).toContain('Solana devnet');
     });
 
     it('emits the Stripe SPT block when stripe-spt is configured', () => {

@@ -208,6 +208,128 @@ describe('error response edge cases', () => {
     expect(status).toHaveBeenCalledWith(503);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
   });
+
+  it('typed QuotaExceededError (429 quota_exceeded) denies api_error when failOpen is false', async () => {
+    // 429 body with `error.code: quota_exceeded` makes the SDK classify it as the
+    // typed QuotaExceededError, exercising the core deny branch (not the untyped
+    // defensive 429 fallback). The SDK retries the 429 once; both attempts return it.
+    mockFetchStatus(429, 'quota_exceeded');
+    const mw = agentscoreGate({ apiKey: API_KEY });
+    const req = makeReq(WALLET);
+    const { res, status, json } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledWith(503);
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
+  });
+
+  it('typed QuotaExceededError fails open (degraded allow) when failOpen is true', async () => {
+    mockFetchStatus(429, 'quota_exceeded');
+    const mw = agentscoreGate({ apiKey: API_KEY, failOpen: true });
+    const req = makeReq(WALLET);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('typed SdkTimeoutError (AbortError name) denies api_error when failOpen is false', async () => {
+    // An Error whose `.name === "AbortError"` makes the SDK wrap it in the typed
+    // TimeoutError, exercising the `instanceof SdkTimeoutError` deny branch in core.
+    const abortErr = new Error('The user aborted a request.');
+    abortErr.name = 'AbortError';
+    mockFetchReject(abortErr);
+    const mw = agentscoreGate({ apiKey: API_KEY });
+    const req = makeReq(WALLET);
+    const { res, status, json } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledWith(503);
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
+  });
+
+  it('typed SdkTimeoutError fails open (degraded allow) when failOpen is true', async () => {
+    const abortErr = new Error('The user aborted a request.');
+    abortErr.name = 'AbortError';
+    mockFetchReject(abortErr);
+    const mw = agentscoreGate({ apiKey: API_KEY, failOpen: true });
+    const req = makeReq(WALLET);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Defensive untyped-error fallbacks (status-based + Error.name based)
+// ---------------------------------------------------------------------------
+
+describe('untyped SDK error fallbacks (defensive paths)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.doUnmock('@agent-score/sdk');
+    vi.resetModules();
+  });
+
+  async function gateWithAssessThrow(thrown: unknown, opts?: { failOpen?: boolean }) {
+    // Mock the SDK so `assess` throws a raw error the SDK normally would have
+    // wrapped — exercising core's defensive untyped fallbacks. Keep the real
+    // error classes so the typed `instanceof` checks above still behave.
+    vi.doMock('@agent-score/sdk', async () => {
+      const real = await vi.importActual<typeof import('@agent-score/sdk')>('@agent-score/sdk');
+      return {
+        ...real,
+        AgentScore: class {
+          async assess(): Promise<never> { throw thrown; }
+        },
+      };
+    });
+    const { agentscoreGate: freshGate } = await import('../src/identity/express?untyped-err');
+    return freshGate({ apiKey: API_KEY, ...(opts ?? {}) });
+  }
+
+  it('maps an untyped Error.name="TimeoutError" to api_error (deny) when failOpen is false', async () => {
+    const mw = await gateWithAssessThrow(Object.assign(new Error('slow'), { name: 'TimeoutError' }));
+    const { res, status, json } = makeRes();
+    await mw(makeReq(WALLET), res, makeNext());
+    expect(status).toHaveBeenCalledWith(503);
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
+  });
+
+  it('maps an untyped Error.name="AbortError" to a degraded allow when failOpen is true', async () => {
+    const mw = await gateWithAssessThrow(Object.assign(new Error('aborted'), { name: 'AbortError' }), { failOpen: true });
+    const { res } = makeRes();
+    const next = makeNext();
+    await mw(makeReq(WALLET), res, next);
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('maps an untyped status=429 error (no typed subclass) to api_error (deny) when failOpen is false', async () => {
+    const mw = await gateWithAssessThrow(Object.assign(new Error('rate'), { status: 429 }));
+    const { res, status, json } = makeRes();
+    await mw(makeReq(WALLET), res, makeNext());
+    expect(status).toHaveBeenCalledWith(503);
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
+  });
+
+  it('maps an untyped status=429 error to a degraded allow when failOpen is true', async () => {
+    const mw = await gateWithAssessThrow(Object.assign(new Error('rate'), { status: 429 }), { failOpen: true });
+    const { res } = makeRes();
+    const next = makeNext();
+    await mw(makeReq(WALLET), res, next);
+    expect(next).toHaveBeenCalledOnce();
+  });
 });
 
 // ---------------------------------------------------------------------------

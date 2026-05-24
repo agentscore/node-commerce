@@ -1,7 +1,6 @@
 /** Builder for the `compose(...intents)` array passed to mppx in a merchant's
  *  custom `composeMppx` hook. Replaces the hand-rolled `composeRails`
- *  assembly that recurs verbatim across every multi-rail merchant (sayer,
- *  martin, sandbox).
+ *  assembly common to multi-rail merchants.
  *
  *  The intent shape is mppx-protocol-shaped; this helper just spares callers
  *  from re-typing the same atomic-conversion + per-rail object literal.

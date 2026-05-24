@@ -474,6 +474,59 @@ describe('computeFirstCheckout — MPP settle path', () => {
     expect(res.status).toBe(200);
   });
 
+  it('MPP signer resolves from the Authorization DID when composeMppx omits signerAddress (onSettled gets signer + txHash)', async () => {
+    // Mock mppx so extractPaymentSigner's MPP-credential path returns a real
+    // EVM signer from the `did:pkh:eip155` source — exercising the line-559
+    // `.then(s => s ? {...} : undefined)` truthy branch + the onSettled
+    // signer/txHash spreads (572-573) that the signerAddress-supplied tests skip.
+    vi.doMock('mppx', () => ({
+      Credential: {
+        extractPaymentScheme: () => true,
+        fromRequest: () => ({ source: 'did:pkh:eip155:42431:0xEB2Ca790F72787c7e61bC6c861353a1e4ACDFCa5' }),
+      },
+    }));
+    try {
+      const cache = createQuoteCache();
+      const fakeServer = makeFakeX402Server();
+      let settledSigner: ComputeFirstSettledContext['signer'] | undefined;
+      let settledIntent: string | undefined;
+      const handler = computeFirstCheckout({
+        ...baseOpts,
+        name: 'mpp_did_signer',
+        unitPriceCents: 1,
+        x402Server: fakeServer,
+        cache,
+        runWork: async () => ({ resultCount: 1, body: { matches: ['a'] } }),
+        composeMppx: async (ctx) => {
+          if (!ctx.request.headers.get('authorization')) return { status: 402, headers: {} };
+          // No signerAddress — forces the extractPaymentSigner fallback.
+          return { status: 200, raw: { receipt: { method: 'tempo' } }, txHash: 'pi_did_999' };
+        },
+        onSettled: async (ctx) => {
+          settledSigner = ctx.signer;
+          settledIntent = ctx.paymentIntentId;
+        },
+      });
+      const body = { q: 'didsig' };
+      await handler.handleWeb(new Request('https://api.example.com/search', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      }));
+      const res = await handler.handleWeb(new Request('https://api.example.com/search', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Payment <mpp-cred>' },
+        body: JSON.stringify(body),
+      }));
+      expect(res.status).toBe(200);
+      const settled = await res.json() as { signer?: { address: string; network: string } };
+      expect(settled.signer?.address).toBe('0xeb2ca790f72787c7e61bc6c861353a1e4acdfca5');
+      expect(settled.signer?.network).toBe('evm');
+      expect(settledSigner?.address).toBe('0xeb2ca790f72787c7e61bc6c861353a1e4acdfca5');
+      expect(settledIntent).toBe('pi_did_999');
+    } finally {
+      vi.doUnmock('mppx');
+    }
+  });
+
   it('validateInput throwing non-CheckoutValidationError re-throws', async () => {
     const handler = computeFirstCheckout({
       ...baseOpts,

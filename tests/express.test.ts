@@ -821,6 +821,85 @@ describe('agentscoreGate middleware — verify_url and operator_verification in 
     }));
   });
 
+  it('falls back to the bare denial when session-create returns 200 without required fields', async () => {
+    // /v1/sessions 200 but missing session_id/poll_secret/verify_url → core treats
+    // it as a mint failure and returns the bare wallet_not_trusted denial rather
+    // than propagating undefined fields into the 403 body.
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200, headers: new Headers({ 'retry-after': '0' }),
+        json: vi.fn().mockResolvedValue({ decision: 'deny', decision_reasons: ['kyc_required'] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200, headers: new Headers({ 'retry-after': '0' }),
+        json: vi.fn().mockResolvedValue({ ok: true }), // no session_id / poll_secret / verify_url
+      });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const mw = agentscoreGate({
+      apiKey: API_KEY,
+      requireKyc: true,
+      createSessionOnMissing: { apiKey: API_KEY, context: 'api' },
+    });
+    const { res, status, json } = makeRes();
+    await mw(makeReq(WALLET), res, makeNext());
+    expect(status).toHaveBeenCalledWith(403);
+    // Bare denial fallback, NOT identity_verification_required.
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'wallet_not_trusted' }) }));
+    warnSpy.mockRestore();
+  });
+
+  it('re-mints a verification session from a CACHED fixable denial on the second request', async () => {
+    // First request: fresh kyc_required deny → cached. Second request (same wallet,
+    // within TTL) reads the cached fixable denial and re-runs the session mint
+    // (core's isFixableDenial(cached.reasons) branch) so the agent still gets the
+    // identity_verification_required bootstrap without a fresh /v1/assess call.
+    const fetchMock = vi.fn()
+      // 1st request: /v1/assess deny
+      .mockResolvedValueOnce({
+        ok: true, status: 200, headers: new Headers({ 'retry-after': '0' }),
+        json: vi.fn().mockResolvedValue({ decision: 'deny', decision_reasons: ['kyc_required'], verify_url: 'https://agentscore.sh/verify/c1' }),
+      })
+      // 1st request: session mint POST
+      .mockResolvedValueOnce({
+        ok: true, status: 200, headers: new Headers({ 'retry-after': '0' }),
+        json: vi.fn().mockResolvedValue({ session_id: 'sess_1', poll_secret: 'ps_1', verify_url: 'https://agentscore.sh/verify/s1' }),
+      })
+      // 2nd request: session mint POST (cached-deny path; no /v1/assess)
+      .mockResolvedValueOnce({
+        ok: true, status: 200, headers: new Headers({ 'retry-after': '0' }),
+        json: vi.fn().mockResolvedValue({ session_id: 'sess_2', poll_secret: 'ps_2', verify_url: 'https://agentscore.sh/verify/s2' }),
+      });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const mw = agentscoreGate({
+      apiKey: API_KEY,
+      requireKyc: true,
+      cacheSeconds: 300,
+      createSessionOnMissing: { apiKey: API_KEY, context: 'api' },
+    });
+
+    const r1 = makeReq(WALLET);
+    const c1 = makeRes();
+    await mw(r1, c1.res, makeNext());
+    expect(c1.status).toHaveBeenCalledWith(403);
+    expect(c1.json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'identity_verification_required' }) }));
+
+    const callsAfterFirst = fetchMock.mock.calls.length;
+    const r2 = makeReq(WALLET);
+    const c2 = makeRes();
+    await mw(r2, c2.res, makeNext());
+    // Second request did NOT call /v1/assess again (cache hit), but DID mint a
+    // fresh session off the cached fixable denial.
+    expect(c2.status).toHaveBeenCalledWith(403);
+    expect(c2.json).toHaveBeenCalledWith(expect.objectContaining({
+      error: expect.objectContaining({ code: 'identity_verification_required' }),
+      session_id: 'sess_2',
+    }));
+    // Only one new fetch (the session mint), and it was a session-mint POST not assess.
+    expect(fetchMock.mock.calls.length).toBe(callsAfterFirst + 1);
+  });
+
   it('exposes the full assess response on reason.data in custom onDenied', async () => {
     const denyWithPolicy = {
       decision: 'deny',

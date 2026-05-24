@@ -116,12 +116,11 @@ function canonicalizeProfile(profile: UCPProfile): string {
 
 /** Deterministic JSON.stringify with lexicographic key ordering at every level.
  *  Rejects ANY non-finite Number (NaN, Infinity, -Infinity) and any Number
- *  whose value has a fractional part OR whose JSON representation may diverge
- *  cross-language. Cross-language float canonicalization (RFC 8785 §3.2.2.3)
- *  is not stable between Node's JSON.stringify and Python's json.dumps
- *  (e.g. `1.0` → `1` vs `1.0`, `1e-7` → `1e-7` vs `1e-07`). UCP profiles
- *  must use decimal strings for monetary or fractional fields to preserve
- *  byte parity with the Python sibling. */
+ *  whose value has a fractional part OR whose JSON representation may not be
+ *  byte-stable across implementations. Float canonicalization (RFC 8785 §3.2.2.3)
+ *  is not stable across JSON encoders (e.g. `1.0` → `1` vs `1.0`, `1e-7` → `1e-7`
+ *  vs `1e-07`), so UCP profiles must use decimal strings for monetary or
+ *  fractional fields to keep the signed bytes stable for any verifier. */
 function stableStringify(value: unknown): string {
   if (value === undefined) {
     throw new Error(
@@ -156,27 +155,25 @@ function stableStringify(value: unknown): string {
     }
     if (!Number.isInteger(value)) {
       throw new Error(
-        `UCP profile canonicalization rejects non-integer Number ${value}. Use a decimal string (e.g. "9.99") for monetary or fractional fields to preserve cross-language byte-parity.`,
+        `UCP profile canonicalization rejects non-integer Number ${value}. Use a decimal string (e.g. "9.99") for monetary or fractional fields so the signed canonical bytes stay stable for any verifier.`,
       );
     }
     if (!Number.isSafeInteger(value)) {
       throw new Error(
         `stableStringify: integer ${value} exceeds Number.MAX_SAFE_INTEGER. ` +
-          'For values >2^53, use a decimal string to preserve cross-language byte parity.',
+          'For values >2^53, use a decimal string to keep the signed bytes stable across implementations.',
       );
     }
   }
   if (typeof value === 'string') {
-    // Cross-language byte parity: pre-ES2019 V8 (and any environment whose
-    // JSON.stringify still escapes U+2028 / U+2029) emits \u2028 / \u2029
-    // for these codepoints, while Python's json.dumps with ensure_ascii=False
-    // emits them raw. A string carrying either would canonicalize to different
-    // bytes across the Node and Python siblings and break signature
-    // verification at the language boundary. Mirror the rejection in
-    // core/api/src/lib/canonicalize.ts so the contract stays symmetric.
+    // Canonical-byte stability: pre-ES2019 V8 (and any environment whose
+    // JSON.stringify still escapes U+2028 / U+2029) emits escape sequences for
+    // these codepoints, while some JSON encoders emit them raw. A string
+    // carrying either would canonicalize to different bytes across implementations
+    // and break signature verification for any verifier reparsing the canonical body.
     if (value.includes('\u2028') || value.includes('\u2029')) {
       throw new Error(
-        'stableStringify: strings containing U+2028 (LINE SEPARATOR) or U+2029 (PARAGRAPH SEPARATOR) are not allowed; cross-language byte parity requires neither be present (Node JSON.stringify on older V8 escapes them; Python json.dumps with ensure_ascii=False does not).',
+        'stableStringify: strings containing U+2028 (LINE SEPARATOR) or U+2029 (PARAGRAPH SEPARATOR) are not allowed; stable canonical bytes require neither be present (some JSON encoders escape them, others emit them raw).',
       );
     }
     return JSON.stringify(value);
@@ -193,15 +190,14 @@ function stableStringify(value: unknown): string {
     }
     return aPoints.length - bPoints.length;
   });
-  // Cross-language byte parity: same rejection rationale as the string-value
-  // branch above. Object keys flow through JSON.stringify(k) at the pairs line
-  // below, so without this check a key carrying U+2028 / U+2029 would pass on
-  // modern V8 but Python's _reject_unsafe_numbers (which recurses into dict
-  // keys) would throw at verify time.
+  // Same rejection rationale as the string-value branch above. Object keys flow
+  // through JSON.stringify(k) at the pairs line below, so without this check a key
+  // carrying U+2028 / U+2029 would pass on modern V8 but break canonical-byte
+  // stability for verifiers whose JSON encoder treats those codepoints differently.
   for (const k of keys) {
     if (k.includes(' ') || k.includes(' ')) {
       throw new Error(
-        'stableStringify: object keys containing U+2028 (LINE SEPARATOR) or U+2029 (PARAGRAPH SEPARATOR) are not allowed; cross-language byte parity (Node JSON.stringify on older V8 escapes them; Python json.dumps with ensure_ascii=False does not).',
+        'stableStringify: object keys containing U+2028 (LINE SEPARATOR) or U+2029 (PARAGRAPH SEPARATOR) are not allowed; stable canonical bytes require neither be present (some JSON encoders escape them, others emit them raw).',
       );
     }
   }
@@ -361,9 +357,8 @@ export async function verifyUCPProfile(
   // Pre-decode the protected header so typ → alg → kid → crit checks run BEFORE
   // jose's compactVerify. jose enforces `crit` internally ahead of the key-resolver
   // callback, which would surface `unrecognized_critical_header` on a JWS that
-  // also has a wrong typ; the python-commerce sibling's `_peek_jws_header` decodes
-  // the header manually and checks typ first. Mirroring that ordering here means
-  // a JWS with multiple header faults emits the same `code` in both SDKs.
+  // also has a wrong typ. Decoding the header manually and checking typ first
+  // means a JWS with multiple header faults emits the most specific `code`.
   let header: { alg?: unknown; kid?: unknown; typ?: unknown; crit?: unknown };
   try {
     const protectedB64 = sig.split('.')[0];
@@ -381,9 +376,8 @@ export async function verifyUCPProfile(
     );
   }
 
-  // Header check order is typ → alg → kid → crit to match the Python sibling's
-  // _peek_jws_header. RFC 8725 §3.11: enforce expected typ to prevent
-  // cross-protocol token reuse.
+  // Header check order is typ → alg → kid → crit. RFC 8725 §3.11: enforce the
+  // expected typ to prevent cross-protocol token reuse.
   if (header.typ !== PROFILE_TYP) {
     throw new UCPVerificationError('wrong_typ', `UCP signature typ must be "${PROFILE_TYP}"; got ${String(header.typ)}.`);
   }
@@ -401,7 +395,7 @@ export async function verifyUCPProfile(
     );
   }
   // RFC 7515 §4.1.11: `crit` MUST be a non-empty array of strings if present.
-  // Shape-check first (matches python-commerce's malformed_jws split) so that
+  // Shape-check first so that
   // explicit `crit: null` / `crit: []` / `crit: "foo"` / `crit: [42]` aren't
   // silently accepted; only well-formed crit arrays fall through to the
   // unrecognized-extension check (RFC 8725 §3.10 — UCP defines no crit headers).
@@ -443,8 +437,7 @@ export async function verifyUCPProfile(
         // RFC 7517 §4.2: reject keys not intended for signature verification.
         // `use` and `alg` are optional per RFC 7517; an explicit JSON null is
         // out-of-spec but treat it as absent (skip-on-null) so a JWK with
-        // `"use": null` matches Python's `is not None` semantics in
-        // ucp_jwks.py and the two languages stay symmetric.
+        // `"use": null` is accepted rather than rejected.
         const matchedKey = matches[0] as Record<string, unknown>;
         if (matchedKey.use != null && matchedKey.use !== 'sig') {
           throw new UCPVerificationError('unusable_key', `JWK with kid=${kid} has use=${JSON.stringify(matchedKey.use)}; expected "sig".`);

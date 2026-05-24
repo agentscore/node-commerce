@@ -22,9 +22,7 @@
 /**
  * UCP per-element shape note: each binding interface (`UCPServiceBinding`,
  * `UCPCapabilityBinding`, `UCPPaymentHandlerBinding`) carries the canonical UCP fields
- * plus arbitrary vendor extras flat on the same object via `[k: string]: unknown`. The
- * python sibling models these as dataclasses with an explicit `extras: dict` field. Both
- * designs offer equivalent guarantees through different mechanisms.
+ * plus arbitrary vendor extras flat on the same object via `[k: string]: unknown`.
  */
 // ─── Payment handler builders ─────────────────────────────────────────────
 // Vendors compose UCP `payment_handlers` blocks by spreading these helpers.
@@ -70,9 +68,8 @@ export interface UCPSigningKey {
 /**
  * Construct a UCPSigningKey from a public JWK dict (e.g. the `publicJWK` returned by
  * `generateUCPSigningKey()`). Validates required fields and rejects symmetric keys that
- * can't publicly verify a JWS in trust-mode UCP. Mirrors python's
- * `UCPSigningKey.from_jwk(public_jwk)` classmethod via the `UCPSigningKey.fromJWK`
- * static-method-style namespace export below.
+ * can't publicly verify a JWS in trust-mode UCP. Exposed as `UCPSigningKey.fromJWK`
+ * via the static-method-style namespace export below.
  */
 function ucpSigningKeyFromJWKImpl(jwk: Record<string, unknown>): UCPSigningKey {
   if (!jwk || typeof jwk !== 'object') {
@@ -95,8 +92,8 @@ function ucpSigningKeyFromJWKImpl(jwk: Record<string, unknown>): UCPSigningKey {
   return jwk as unknown as UCPSigningKey;
 }
 
-/** Static-method-style namespace on the `UCPSigningKey` interface — mirrors python's
- *  `UCPSigningKey.from_jwk(jwk)` classmethod. Use as `UCPSigningKey.fromJWK(jwk)`. */
+/** Static-method-style namespace on the `UCPSigningKey` interface.
+ *  Use as `UCPSigningKey.fromJWK(jwk)`. */
 export const UCPSigningKey = {
   fromJWK: ucpSigningKeyFromJWKImpl,
 };
@@ -221,7 +218,7 @@ interface BuildUCPProfileInput {
    *  attestation lives on the AP2 risk-signal endpoint, not here. */
   agentscore_gate?: AgentScoreGatePolicy;
   /** Optional override for the AgentScore capability schema URL. Field is snake_cased
-   *  for cross-language parity with the Python sibling. */
+   *  to match the on-the-wire UCP profile shape. */
   agentscore_schema_url?: string;
   /** Optional override for the AgentScore capability spec URL. */
   agentscore_spec_url?: string;
@@ -375,8 +372,7 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
       schema: input.agentscore_schema_url ?? AGENTSCORE_DEFAULT_SCHEMA_URL,
       extends: AGENTSCORE_EXTENDS,
     };
-    // Omit `config` when empty so node + python emit byte-identical canonical output
-    // (python's UCPCapabilityBinding.to_dict already drops empty config).
+    // Omit `config` when empty so the canonical signed output stays stable.
     if (Object.keys(gateConfig).length > 0) agentscoreBinding.config = gateConfig;
     const existing = capabilities[AGENTSCORE_CAPABILITY_NAME];
     if (existing) existing.push(agentscoreBinding);

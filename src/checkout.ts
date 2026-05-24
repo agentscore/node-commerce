@@ -226,9 +226,7 @@ export function pricingResult(opts: {
  * Per-route discovery-probe config. When passed to {@link Checkout}, any
  * empty-body POST without a payment credential short-circuits with a sample
  * 402 advertising the merchant's payment shape — the canonical pattern x402
- * crawlers (`awal x402 details`, `x402-proxy`, `x402scan`) rely on.
- *
- * Mirrors python's `DiscoveryProbeConfig` dataclass.
+ * crawlers rely on.
  */
 export interface DiscoveryProbeConfig {
   realm: string;
@@ -1114,10 +1112,9 @@ export class Checkout {
       ...(gate.cacheSeconds !== undefined && { cacheSeconds: gate.cacheSeconds }),
       ...(gate.chain !== undefined && { chain: gate.chain }),
       // Auto-default `createSessionOnMissing` from gate config when the merchant
-      // didn't supply one. Matches python-commerce's behavior — every gated route
-      // gets the bootstrap session-mint UX out of the box. Merchants who need
-      // custom session context or onBeforeSession side effects (goods merchants
-      // pre-minting an order_id) supply their own config instead.
+      // didn't supply one, so every gated route gets the bootstrap session-mint UX
+      // out of the box. Merchants who need custom session context or onBeforeSession
+      // side effects (goods merchants pre-minting an order_id) supply their own config.
       createSessionOnMissing: (gate.createSessionOnMissing as unknown as CreateSessionOnMissing | undefined) ?? {
         apiKey: gate.apiKey,
         ...(gate.baseUrl !== undefined && { baseUrl: gate.baseUrl }),
@@ -1253,8 +1250,8 @@ export class Checkout {
     });
     // Pass the signer wallet as both the claimed address AND the signer block.
     // The API resolves the operator (likely null for unclaimed wallets), skips
-    // identity policy (we set none), and enforces signer-sanctions on the
-    // signer block per TEC-311.
+    // identity policy (we set none), and enforces signer-sanctions (OFAC SDN)
+    // on the signer block.
     const outcome = await core.evaluate(
       { address: signer.address },
       ctx,

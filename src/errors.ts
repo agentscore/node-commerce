@@ -2,9 +2,8 @@
  * Cross-module typed errors.
  *
  * Lives in its own module so `payment/` and `stripe-multichain/` helpers can
- * throw `CheckoutValidationError` without importing from `checkout.ts`. (In
- * the python sibling this avoids a checkout → payment → checkout cycle; in
- * node it sidesteps tsup's per-entry class duplication.)
+ * throw `CheckoutValidationError` without importing from `checkout.ts` — this
+ * also sidesteps tsup's per-entry class duplication.
  *
  * Re-exported from `checkout.ts` and the top-level entry to preserve the
  * public import path.

@@ -1,6 +1,6 @@
 /** Tests for `lazyX402Server` + `lazyMppxServer`. */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { lazyX402Server, lazyMppxServer } from '../../src/payment/lazy';
 
 describe('lazyX402Server', () => {
@@ -63,5 +63,36 @@ describe('lazyMppxServer', () => {
     const b = getter();
     // Both calls should share the in-flight promise — settle them either way.
     await Promise.allSettled([a, b]);
+  });
+
+  it('returns the cached instance on a subsequent (post-settle) call', async () => {
+    const getter = lazyMppxServer({ rails: {}, secretKey: 'test-mppx-cached' });
+    const first = await getter();
+    const second = await getter();
+    expect(second).toBe(first);
+  });
+});
+
+describe('lazyX402Server — memoized getter invocation (stub facilitator)', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('constructs the x402 server on first getter call and caches it for subsequent calls', async () => {
+    // lazyX402Server derives facilitator from CDP creds; with neither it uses the
+    // public HTTP facilitator and calls initialize() (network). Stub global.fetch so
+    // the facilitator getSupported() resolves without a real round-trip, then assert
+    // the getter memoizes (second call returns the identical instance).
+    const supportedBody = JSON.stringify({ kinds: [{ x402Version: 2, network: 'eip155:8453', scheme: 'exact' }] });
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: async () => supportedBody,
+      json: async () => JSON.parse(supportedBody),
+    })) as unknown as typeof fetch;
+    const getter = lazyX402Server({ spec: { recipient: '0xabc' } });
+    const a = await getter();
+    const b = await getter();
+    expect(a).toBeDefined();
+    expect(b).toBe(a);
   });
 });
