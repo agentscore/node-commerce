@@ -8,4 +8,4 @@ pre-commit:
 pre-push:
   commands:
     typecheck:
-      run: bunx tsc --noEmit
+      run: bun run build && bun run typecheck

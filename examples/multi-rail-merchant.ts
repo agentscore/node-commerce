@@ -42,12 +42,13 @@ import {
   Checkout,
   CheckoutGateConfig,
   CheckoutValidationError,
+  getIdentityStatus,
   pricingResult,
   type CheckoutContext,
   type PricingResult,
-  type Receipt,
   type SettleOutcome,
 } from '@agent-score/commerce';
+import { type Receipt } from '@agent-score/commerce/challenge';
 import { buildSuccessNextSteps } from '@agent-score/commerce/discovery';
 import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
 import { buildDefaultCheckoutRails, networks, validateX402NetworkConfig } from '@agent-score/commerce/payment';
@@ -151,7 +152,7 @@ async function _onSettled(ctx: CheckoutContext, outcome: SettleOutcome): Promise
     }),
     extras: {
       tx_hash: outcome.txHash,
-      identity_status: ctx.identityStatus,
+      identity_status: getIdentityStatus(ctx),
     },
   };
   return receipt as unknown as Record<string, unknown>;

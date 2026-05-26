@@ -30,6 +30,8 @@
 import {
   Checkout,
   CheckoutValidationError,
+  buildGateFromPolicy,
+  getIdentityStatus,
   type CheckoutContext,
   type CheckoutGateConfig,
   type PolicyBlock,
@@ -38,6 +40,7 @@ import {
   type TempoRailSpec,
   validateShippingAgainstPolicy,
 } from '@agent-score/commerce';
+import { type AgentScoreCoreOptions } from '@agent-score/commerce/core';
 import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
 import { Hono, type Context } from 'hono';
 
@@ -102,17 +105,17 @@ async function _computePricing(ctx: CheckoutContext): Promise<PricingResult> {
   return { amountUsd: product.priceUsd };
 }
 
-function _perRequestPolicy(ctx: CheckoutContext): PolicyBlock | null {
+function _perRequestPolicy(ctx: CheckoutContext): AgentScoreCoreOptions | null {
   const policy = ctx.state.policy as PolicyBlock | null | undefined;
   if (policy === undefined || policy === null) return null;
-  return policy;
+  return buildGateFromPolicy(policy, { apiKey: API_KEY });
 }
 
 async function _onSettled(ctx: CheckoutContext, outcome: SettleOutcome): Promise<Record<string, unknown>> {
   const product = ctx.state.product as Product;
   return {
     order: { product: product.name, totalUsd: product.priceUsd },
-    identity_status: ctx.identityStatus,
+    identity_status: getIdentityStatus(ctx),
     tx_hash: outcome.txHash,
   };
 }

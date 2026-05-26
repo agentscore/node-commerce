@@ -45,6 +45,7 @@ import {
   buildVerificationRequiredBody,
   denialReasonStatus,
   denialReasonToBody,
+  getIdentityStatus,
   isFixableDenial,
   verificationAgentInstructions,
 } from '@agent-score/commerce';
@@ -90,7 +91,7 @@ async function _onDenied(
       status: 403,
       body: buildVerificationRequiredBody(reason, {
         message: 'Identity verification is required for this purchase.',
-        agentInstructions: VERIFICATION_INSTRUCTIONS,
+        agentInstructions: JSON.stringify(VERIFICATION_INSTRUCTIONS),
       }),
     };
   }
@@ -137,7 +138,7 @@ async function _onSettled(ctx: CheckoutContext, outcome: SettleOutcome): Promise
     ok: true,
     reference_id: ctx.referenceId,
     tx_hash: outcome.txHash,
-    identity_status: ctx.identityStatus,
+    identity_status: getIdentityStatus(ctx),
   };
 }
 

@@ -158,7 +158,7 @@ const RESERVED_FIELDS = new Set([
  *     status: 403,
  *     body: buildVerificationRequiredBody(reason, {
  *       message: 'Identity verification is required to call this endpoint.',
- *       agentInstructions: VERIFICATION_AGENT_INSTRUCTIONS,
+ *       agentInstructions: JSON.stringify(VERIFICATION_AGENT_INSTRUCTIONS),
  *     }),
  *   };
  * }
