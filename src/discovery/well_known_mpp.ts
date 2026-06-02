@@ -15,6 +15,9 @@ export interface PaymentMethodConfig {
   identity_paths?: {
     wallet?: { header: string; applies_to_rails: string[]; note?: string };
     operator_token?: { header: string; applies_to_rails: string[]; note?: string };
+    /** AIP Agent Identity Token path (opt-in merchants). `header` is `Agent-Identity`; the request
+     *  also carries the RFC 9421 `Signature-Input`/`Signature` proof-of-possession. */
+    agent_identity?: { header: string; applies_to_rails: string[]; note?: string; trusted_issuers?: string[] };
   };
   /** Compliance policy summary for agents to know what they need before purchasing. */
   compliance?: {

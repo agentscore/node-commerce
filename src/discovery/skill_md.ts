@@ -20,6 +20,9 @@ export interface SkillMdIdentityRequirements {
   allowedJurisdictions?: string[];
   /** Whether sanctions screening is enforced. */
   sanctionsClear?: boolean;
+  /** Whether the merchant accepts AIP Agent Identity Tokens (AgentScore is always a trusted
+   *  issuer). When true, the Identity section documents the `Agent-Identity` + RFC 9421 path. */
+  aip?: boolean;
 }
 
 /** PHYSICAL-GOODS-ONLY. Shipping-policy block for skill.md. Digital goods and
@@ -239,14 +242,24 @@ function identitySection(input: BuildSkillMdInput): string {
   if (id.minAge) reqs.push(`age ${id.minAge}+`);
   if (id.allowedJurisdictions?.length) reqs.push(`${id.allowedJurisdictions.join('/')} only`);
   if (id.sanctionsClear) reqs.push('sanctions clear');
-  if (reqs.length === 0) return '';
+  if (reqs.length === 0 && !id.aip) return '';
   const bootstrap = input.identityBootstrapUrl
     ? `\n\nIf you don't have a Passport, fetch \`${input.identityBootstrapUrl}\` and follow the onboarding there first. Bring back the \`opc_...\` operator token in \`X-Operator-Token\` on every gated request.`
+    : '';
+  const reqLine = reqs.length
+    ? `This merchant uses AgentScore identity. Required: ${reqs.join(', ')}.${bootstrap}`
+    : `This merchant uses AgentScore identity.${bootstrap}`;
+  const aipNote = id.aip
+    ? '\n\nThis merchant accepts AIP Agent Identity Tokens. If you hold an AIT from a trusted issuer ' +
+      '(AgentScore is always trusted), present the JWT in an `Agent-Identity` header plus an RFC 9421 ' +
+      'HTTP Message Signature (`Signature-Input` + `Signature` over `@method @authority @path agent-identity`, ' +
+      'tag `agent-identity`) signed with the token-bound cnf key — it satisfies identity in one round trip, ' +
+      'no separate AgentScore credential needed. `agentscore-pay pay --identity aip` does this automatically.'
     : '';
   return [
     '## Identity Prerequisite',
     '',
-    `This merchant uses AgentScore identity. Required: ${reqs.join(', ')}.${bootstrap}`,
+    `${reqLine}${aipNote}`,
     '',
     'Denial bodies carry an `agent_instructions` block describing the recovery action — read the `action` field and follow it. See the identity-bootstrap skill for the canonical denial-code → action table.',
   ].join('\n');

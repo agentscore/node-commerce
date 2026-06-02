@@ -1,8 +1,11 @@
 import { denialReasonStatus } from '../_denial';
 import { denialReasonToBody } from '../_response';
+import { buildAipErrorBody, verifyAitRequest, type AipGateOptions } from '../aip/gate';
+import { hasAgentIdentityHeader } from '../aip/request';
 import { createAgentScoreCore } from '../core';
 import { hasPaymentHeader } from '../payment/payment_header';
 import { extractPaymentSigner, readX402PaymentHeader } from '../signer';
+import type { VerifiedAit } from '../aip/verify';
 import type {
   AgentIdentity,
   AgentScoreCore,
@@ -209,5 +212,70 @@ export function conditionalAgentscoreGate(options: AgentScoreGateOptions): Middl
     }
     return gate(c, next);
   };
+}
+
+// ---------------------------------------------------------------------------
+// AIP gate (Agentic Identity Protocol) — verifies a key-bound Agent Identity Token (AIT)
+// from a trusted IdP instead of an opaque operator token. Cryptographic identity only;
+// merchants who want compliance enrichment feed the verified claims to /v1/assess. Hono is
+// Fetch-native, so this reuses `verifyAitRequest(c.req.raw)` directly while keeping the same
+// middleware + `getVerifiedAit` accessor shape as the express/fastify adapters.
+// ---------------------------------------------------------------------------
+
+const AIT_CONTEXT_KEY = '__agentscoreAit';
+
+export interface AipGateHonoOptions extends AipGateOptions {
+  /** Custom denial responder. Defaults to a 401/403 `application/problem+json` Response. */
+  onDenied?: (c: Context, body: ReturnType<typeof buildAipErrorBody>) => Response | Promise<Response>;
+}
+
+function defaultAipOnDenied(_c: Context, body: ReturnType<typeof buildAipErrorBody>): Response {
+  return new Response(JSON.stringify(body), {
+    status: body.status,
+    headers: { 'content-type': 'application/problem+json' },
+  });
+}
+
+/**
+ * Hono middleware that requires a valid AIT on every request it guards.
+ *
+ * ```ts
+ * import { JwksCache } from '@agent-score/commerce';
+ * import { aipGate, getVerifiedAit } from '@agent-score/commerce/identity/hono';
+ *
+ * const jwks = new JwksCache({ trustedIssuers: ['https://issuer.example'] }); // AgentScore always trusted
+ * app.post('/checkout', aipGate({ jwks }), (c) => {
+ *   const ait = getVerifiedAit(c)!;
+ *   return c.json({ buyer: ait.payload.identity?.email });
+ * });
+ * ```
+ */
+export function aipGate(options: AipGateHonoOptions): MiddlewareHandler {
+  const { onDenied = defaultAipOnDenied, ...gateOpts } = options;
+  return async (c, next) => {
+    const result = await verifyAitRequest(c.req.raw, gateOpts);
+    if (!result.ok) {
+      return onDenied(c, buildAipErrorBody(result.failure));
+    }
+    c.set(AIT_CONTEXT_KEY, result.ait);
+    await next();
+  };
+}
+
+/** Wrap {@link aipGate} so it only runs when an `Agent-Identity` header is present. */
+export function conditionalAipGate(options: AipGateHonoOptions): MiddlewareHandler {
+  const gate = aipGate(options);
+  return async (c, next) => {
+    if (!hasAgentIdentityHeader(c.req.raw)) {
+      await next();
+      return;
+    }
+    return gate(c, next);
+  };
+}
+
+/** Read the verified AIT attached to a Hono `Context` by {@link aipGate}. */
+export function getVerifiedAit(c: Context): VerifiedAit | undefined {
+  return c.get(AIT_CONTEXT_KEY) as VerifiedAit | undefined;
 }
 
