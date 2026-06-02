@@ -220,7 +220,7 @@
     "jose": "^6.2.3",
     "knip": "^6.15.0",
     "lefthook": "^2.1.9",
-    "mppx": "0.6.26",
+    "mppx": "0.6.28",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.60.0",
