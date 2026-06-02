@@ -126,3 +126,15 @@ export function conditionalAgentscoreMiddleware(options: Parameters<typeof creat
   };
 }
 
+
+// ---------------------------------------------------------------------------
+// AIP gate (Agentic Identity Protocol) — Next.js App Router. Fetch-native, so these are
+// thin re-exports of web's AIP gate (works with NextRequest, which extends Request).
+// ---------------------------------------------------------------------------
+export {
+  createAipGate,
+  withAipGate,
+  withConditionalAipGate,
+  type AipGateWebOptions,
+  type AipGuardResult,
+} from './web';

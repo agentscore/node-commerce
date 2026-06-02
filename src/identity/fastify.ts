@@ -1,8 +1,11 @@
 import { denialReasonStatus } from '../_denial';
 import { denialReasonToBody } from '../_response';
+import { buildAipErrorBody, verifyAitParts, type AipGateOptions } from '../aip/gate';
+import { hasAgentIdentityHeaderNode } from '../aip/request';
 import { createAgentScoreCore } from '../core';
 import { hasPaymentHeader } from '../payment/payment_header';
 import { extractPaymentSignerFromAuth } from '../signer';
+import type { VerifiedAit } from '../aip/verify';
 import type {
   AgentIdentity,
   AgentScoreCore,
@@ -228,3 +231,72 @@ const conditionalAgentscoreGatePlugin: FastifyPluginAsync<AgentScoreGateOptions>
 };
 (conditionalAgentscoreGatePlugin as unknown as Record<symbol, boolean>)[Symbol.for('skip-override')] = true;
 export const conditionalAgentscoreGate = conditionalAgentscoreGatePlugin;
+
+// ---------------------------------------------------------------------------
+// AIP gate (Agentic Identity Protocol) — verifies a key-bound Agent Identity Token (AIT)
+// from a trusted IdP. Cryptographic identity only; enrich via /v1/assess from the handler.
+// ---------------------------------------------------------------------------
+
+const AIT_STATE_KEY = '__agentscoreAit';
+
+export interface AipGateFastifyOptions extends AipGateOptions {
+  /** Custom denial responder. Defaults to a 401/403 `application/problem+json` reply. */
+  onDenied?: (req: FastifyRequest, reply: FastifyReply, body: ReturnType<typeof buildAipErrorBody>) => void | Promise<void>;
+}
+
+function defaultAipOnDenied(_req: FastifyRequest, reply: FastifyReply, body: ReturnType<typeof buildAipErrorBody>): void {
+  reply.code(body.status).header('content-type', 'application/problem+json').send(body);
+}
+
+/**
+ * Fastify plugin that requires a valid AIT on every request in its scope.
+ *
+ * ```ts
+ * import { JwksCache } from '@agent-score/commerce';
+ * import { aipGate, getVerifiedAit } from '@agent-score/commerce/identity/fastify';
+ *
+ * const jwks = new JwksCache({ trustedIssuers: ['https://issuer.example'] });
+ * await app.register(aipGate, { jwks });
+ * app.post('/checkout', (req, reply) => reply.send({ buyer: getVerifiedAit(req)?.payload.identity?.email }));
+ * ```
+ */
+const aipGatePlugin: FastifyPluginAsync<AipGateFastifyOptions> = async (fastify, options) => {
+  const { onDenied = defaultAipOnDenied, ...gateOpts } = options;
+  fastify.addHook('preHandler', async (request, reply) => {
+    const result = await verifyAitParts(
+      { method: request.method, url: request.url, headers: request.headers as Record<string, string | string[] | undefined> },
+      gateOpts,
+    );
+    if (!result.ok) {
+      await onDenied(request, reply, buildAipErrorBody(result.failure));
+      return;
+    }
+    (request as unknown as Record<string, unknown>)[AIT_STATE_KEY] = result.ait;
+  });
+};
+(aipGatePlugin as unknown as Record<symbol, boolean>)[Symbol.for('skip-override')] = true;
+export const aipGate = aipGatePlugin;
+
+/** Conditional AIP plugin — only verifies when an `Agent-Identity` header is present. */
+const conditionalAipGatePlugin: FastifyPluginAsync<AipGateFastifyOptions> = async (fastify, options) => {
+  const { onDenied = defaultAipOnDenied, ...gateOpts } = options;
+  fastify.addHook('preHandler', async (request, reply) => {
+    if (!hasAgentIdentityHeaderNode(request.headers as Record<string, string | string[] | undefined>)) return;
+    const result = await verifyAitParts(
+      { method: request.method, url: request.url, headers: request.headers as Record<string, string | string[] | undefined> },
+      gateOpts,
+    );
+    if (!result.ok) {
+      await onDenied(request, reply, buildAipErrorBody(result.failure));
+      return;
+    }
+    (request as unknown as Record<string, unknown>)[AIT_STATE_KEY] = result.ait;
+  });
+};
+(conditionalAipGatePlugin as unknown as Record<symbol, boolean>)[Symbol.for('skip-override')] = true;
+export const conditionalAipGate = conditionalAipGatePlugin;
+
+/** Read the verified AIT attached to a Fastify request by {@link aipGate}. */
+export function getVerifiedAit(request: FastifyRequest): VerifiedAit | undefined {
+  return (request as unknown as Record<string, VerifiedAit | undefined>)[AIT_STATE_KEY];
+}

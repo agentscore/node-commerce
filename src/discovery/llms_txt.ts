@@ -6,9 +6,14 @@
 export function llmsTxtIdentitySection({
   agentscore,
   compliance,
+  aip,
 }: {
   /** When true, include the AgentScore identity-paths explanation (wallet vs operator-token). */
   agentscore?: boolean;
+  /** When true, also advertise the AIP Agent Identity Token path. AgentScore's own issuer is
+   *  always trusted, so set this whenever the merchant has an AIP gate (even with no external
+   *  issuers). */
+  aip?: boolean;
   /** Compliance policy to mention (KYC, age, jurisdiction). */
   compliance?: {
     require_kyc?: boolean;
@@ -20,6 +25,13 @@ export function llmsTxtIdentitySection({
   if (!agentscore) {
     return '';
   }
+  const aipBullet = aip
+    ? '\n- **`Agent-Identity: <JWT>` + RFC 9421 signature** — present an Agent Identity Token (AIP) ' +
+      'from a trusted issuer (AgentScore is always trusted). Short-lived and bound to your key; sign ' +
+      'the request (`Signature-Input` + `Signature` over `@method @authority @path agent-identity`, ' +
+      'tag `agent-identity`) to prove possession. No long-lived token on the wire. Mint one with ' +
+      '`agentscore-pay identity-mint` or let `agentscore-pay pay --identity aip` attach it automatically.'
+    : '';
   const complianceNote = compliance
     ? `\n\nCompliance: ${[
         compliance.require_kyc ? 'KYC required' : null,
@@ -37,7 +49,7 @@ export function llmsTxtIdentitySection({
 AgentScore identity is reusable across every AgentScore-gated merchant — one KYC, no re-verification per site. Pick a header:
 
 - **\`X-Wallet-Address: 0x...\` or base58** — works on signing rails (Tempo, x402, Solana MPP). The wallet you claim must sign the payment.
-- **\`X-Operator-Token: opc_...\`** — works on every rail, including Stripe SPT. Reusable across AgentScore merchants until expiry.
+- **\`X-Operator-Token: opc_...\`** — works on every rail, including Stripe SPT. Reusable across AgentScore merchants until expiry.${aipBullet}
 - **Neither** — you get a 403 with \`verify_url\`. Complete the session flow once and reuse the resulting \`opc_...\` everywhere.${complianceNote}`;
 }
 

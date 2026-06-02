@@ -44,9 +44,14 @@ export type { AgentMemoryHint };
  */
 export function firstEncounterAgentMemory({
   firstEncounter,
+  aipTrustedIssuers,
 }: {
   firstEncounter: boolean;
+  /** When the merchant accepts AIP, pass its trusted-issuer list (AgentScore's canonical issuer
+   *  plus any externals) so the hint advertises the `agent_identity` path. Omit for non-AIP
+   *  merchants. */
+  aipTrustedIssuers?: string[];
 }): AgentMemoryHint | undefined {
   if (!firstEncounter) return undefined;
-  return buildAgentMemoryHint();
+  return buildAgentMemoryHint(aipTrustedIssuers);
 }

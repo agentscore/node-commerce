@@ -1,8 +1,11 @@
 import { denialReasonStatus } from '../_denial';
 import { denialReasonToBody } from '../_response';
+import { buildAipErrorBody, verifyAitParts, type AipGateOptions } from '../aip/gate';
+import { hasAgentIdentityHeaderNode } from '../aip/request';
 import { createAgentScoreCore } from '../core';
 import { hasPaymentHeader } from '../payment/payment_header';
 import { extractPaymentSignerFromAuth } from '../signer';
+import type { VerifiedAit } from '../aip/verify';
 import type {
   AgentIdentity,
   AgentScoreCore,
@@ -184,4 +187,68 @@ export function conditionalAgentscoreGate(options: AgentScoreGateOptions) {
     }
     return gate(req, res, next);
   };
+}
+
+// ---------------------------------------------------------------------------
+// AIP gate (Agentic Identity Protocol) — verifies a key-bound Agent Identity Token (AIT)
+// from a trusted IdP instead of an opaque operator token. Cryptographic identity only;
+// merchants who want compliance enrichment feed the verified claims to /v1/assess.
+// ---------------------------------------------------------------------------
+
+const AIT_STATE_KEY = '__agentscoreAit';
+
+export interface AipGateExpressOptions extends AipGateOptions {
+  /** Custom denial responder. Defaults to a 401/403 `application/problem+json` body. */
+  onDenied?: (req: Request, res: Response, body: ReturnType<typeof buildAipErrorBody>) => void;
+}
+
+function defaultAipOnDenied(_req: Request, res: Response, body: ReturnType<typeof buildAipErrorBody>): void {
+  res.status(body.status).type('application/problem+json').json(body);
+}
+
+/**
+ * Express middleware that requires a valid AIT on every request it guards.
+ *
+ * ```ts
+ * import { JwksCache } from '@agent-score/commerce';
+ * import { aipGate, getVerifiedAit } from '@agent-score/commerce/identity/express';
+ *
+ * const jwks = new JwksCache({ trustedIssuers: ['https://issuer.example'] }); // AgentScore always trusted
+ * app.post('/checkout', aipGate({ jwks }), (req, res) => {
+ *   const ait = getVerifiedAit(req)!;
+ *   res.json({ buyer: ait.payload.identity?.email });
+ * });
+ * ```
+ */
+export function aipGate(options: AipGateExpressOptions) {
+  const { onDenied = defaultAipOnDenied, ...gateOpts } = options;
+  return async function aipGateMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
+    const result = await verifyAitParts(
+      { method: req.method, url: req.url, headers: req.headers as Record<string, string | string[] | undefined> },
+      gateOpts,
+    );
+    if (!result.ok) {
+      onDenied(req, res, buildAipErrorBody(result.failure));
+      return;
+    }
+    (req as unknown as Record<string, unknown>)[AIT_STATE_KEY] = result.ait;
+    next();
+  };
+}
+
+/** Wrap {@link aipGate} so it only runs when an `Agent-Identity` header is present. */
+export function conditionalAipGate(options: AipGateExpressOptions) {
+  const gate = aipGate(options);
+  return async function conditionalAipMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
+    if (!hasAgentIdentityHeaderNode(req.headers as Record<string, string | string[] | undefined>)) {
+      next();
+      return;
+    }
+    return gate(req, res, next);
+  };
+}
+
+/** Read the verified AIT attached to an Express request by {@link aipGate}. */
+export function getVerifiedAit(req: Request): VerifiedAit | undefined {
+  return (req as unknown as Record<string, VerifiedAit | undefined>)[AIT_STATE_KEY];
 }

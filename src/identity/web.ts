@@ -1,8 +1,11 @@
 import { denialReasonStatus } from '../_denial';
 import { denialReasonToBody } from '../_response';
+import { buildAipErrorBody, verifyAitRequest, type AipGateOptions } from '../aip/gate';
+import { hasAgentIdentityHeader } from '../aip/request';
 import { createAgentScoreCore } from '../core';
 import { hasPaymentHeader } from '../payment/payment_header';
 import { extractPaymentSigner, readX402PaymentHeader } from '../signer';
+import type { VerifiedAit } from '../aip/verify';
 import type {
   AgentIdentity,
   AgentScoreCoreOptions,
@@ -204,5 +207,64 @@ export function withConditionalAgentScoreGate<TCtx = unknown>(
   return async (req: Request, ctx: TCtx): Promise<Response> => {
     if (!hasPaymentHeader(req)) return handler(req, {}, ctx);
     return wrapped(req, ctx);
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AIP gate (Agentic Identity Protocol) — Web Fetch
+//
+// `createAipGate` verifies a key-bound Agent Identity Token (AIT) from a trusted IdP and
+// returns a guard result; `withAipGate` wraps a handler. Fetch-native, so it reuses
+// `verifyAitRequest` directly. Identity verification only — merchants enrich via /v1/assess.
+// ---------------------------------------------------------------------------
+
+export type AipGuardResult =
+  | { allowed: true; ait: VerifiedAit }
+  | { allowed: false; response: Response };
+
+export interface AipGateWebOptions extends AipGateOptions {
+  /** Custom denial responder. Defaults to a 401/403 `application/problem+json` Response. */
+  onDenied?: (req: Request, body: ReturnType<typeof buildAipErrorBody>) => Response | Promise<Response>;
+}
+
+const defaultAipResponse = (body: ReturnType<typeof buildAipErrorBody>): Response =>
+  new Response(JSON.stringify(body), { status: body.status, headers: { 'content-type': 'application/problem+json' } });
+
+/** Create a Web Fetch AIP guard: returns `{ allowed, ait }` or `{ allowed: false, response }`. */
+export function createAipGate(options: AipGateWebOptions): (req: Request) => Promise<AipGuardResult> {
+  const { onDenied, ...gateOpts } = options;
+  return async (req: Request): Promise<AipGuardResult> => {
+    const result = await verifyAitRequest(req, gateOpts);
+    if (result.ok) { return { allowed: true, ait: result.ait }; }
+    const body = buildAipErrorBody(result.failure);
+    const response = onDenied ? await onDenied(req, body) : defaultAipResponse(body);
+    return { allowed: false, response };
+  };
+}
+
+/** Wrap a Web Fetch handler with the AIP gate. Denied requests return the problem+json Response. */
+export function withAipGate<TCtx = unknown>(
+  options: AipGateWebOptions,
+  handler: (req: Request, gate: { ait: VerifiedAit }, ctx?: TCtx) => Response | Promise<Response>,
+): (req: Request, ctx?: TCtx) => Promise<Response> {
+  const guard = createAipGate(options);
+  return async (req, ctx) => {
+    const result = await guard(req);
+    if (!result.allowed) { return result.response; }
+    return handler(req, { ait: result.ait }, ctx);
+  };
+}
+
+/** Conditional variant: only runs the AIP gate when an `Agent-Identity` header is present. */
+export function withConditionalAipGate<TCtx = unknown>(
+  options: AipGateWebOptions,
+  handler: (req: Request, gate: { ait?: VerifiedAit }, ctx?: TCtx) => Response | Promise<Response>,
+): (req: Request, ctx?: TCtx) => Promise<Response> {
+  const guard = createAipGate(options);
+  return async (req, ctx) => {
+    if (!hasAgentIdentityHeader(req)) { return handler(req, {}, ctx); }
+    const result = await guard(req);
+    if (!result.allowed) { return result.response; }
+    return handler(req, { ait: result.ait }, ctx);
   };
 }

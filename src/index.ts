@@ -104,6 +104,7 @@ export {
   type ReferenceIdFn,
   type RunGateFn,
   type SettleOutcome,
+  buildAipTrustedIssuers,
   getIdentityStatus,
   makeMppxComposeHook,
   pricingResult,
@@ -145,3 +146,52 @@ export {
 export { createQuoteCache, type CachedQuote, type QuoteCache, type QuoteCacheOptions } from './quote_cache';
 export { createDefaultOnDenied, defaultReadOnlyOnDenied, type CreateDefaultOnDeniedOptions, type DefaultOnDeniedResult } from './identity/default_denied';
 export { hasMppxHeader, hasPaymentHeader, hasX402Header } from './payment/payment_header';
+// AIP (Agentic Identity Protocol) — AIT verification (verifier role) + RFC 9421 signing.
+export {
+  AGENT_IDENTITY_HEADER,
+  verifyAit,
+  type VerifiedAit,
+  type VerifyAitFailure,
+  type VerifyAitOptions,
+  type VerifyAitResult,
+  type VerifyRequestContext,
+} from './aip/verify';
+export {
+  AIP_COVERED_COMPONENTS,
+  AIP_SIGNATURE_TAG,
+  signMessage,
+  verifyMessageSignature,
+  type SignMessageInput,
+  type VerifyFailureReason,
+  type VerifyMessageSignatureInput,
+  type VerifyMessageSignatureResult,
+} from './aip/http-signature';
+export {
+  AGENTSCORE_CANONICAL_ISSUER,
+  HARD_MAX_CACHE_SECONDS,
+  JWKS_WELL_KNOWN_PATH,
+  JwksCache,
+  canonicalizeIssuer,
+  type JwksCacheOptions,
+  type JwksLookupResult,
+} from './aip/jwks';
+export {
+  isAitShape,
+  validateAitPayload,
+  type AitHeader,
+  type AitPayload,
+  type AitValidationResult,
+  type AmrValue,
+  type IdentityClaim,
+  type IntentClaim,
+  type TrustLevel,
+} from './aip/types';
+export { buildVerifyContextFromRequest, hasAgentIdentityHeader } from './aip/request';
+export {
+  aipErrorCode,
+  aipErrorStatus,
+  buildAipErrorBody,
+  verifyAitRequest,
+  type AipGateOptions,
+  type AipGateResult,
+} from './aip/gate';

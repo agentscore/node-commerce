@@ -24,7 +24,8 @@ Single TypeScript package, tsup-built CJS + ESM with subpath exports. Per-framew
 
 | Directory | Contents |
 |---|---|
-| `src/identity/` | Per-framework gate adapters (hono, express, fastify, nextjs, web) |
+| `src/identity/` | Per-framework gate adapters (hono, express, fastify, nextjs, web). Each also exports the opt-in AIP gate (`aipGate` / `conditionalAipGate` / `getVerifiedAit`; nextjs/web use `createAipGate` / `withAipGate` / `withConditionalAipGate`) |
+| `src/aip/` | AIP verifier: `verify.ts` (claim pipeline), `http-signature.ts` (RFC 9421 verify + sign), `jwks.ts` (issuer JWKS cache), `gate.ts` (problem+json errors), `request.ts`, `types.ts` (AIT claim contract) |
 | `src/core.ts` | Shared assess/session/cache/captureWallet (framework-agnostic) |
 | `src/payment/` | Payment-protocol helpers (`networks.ts`, `usdc.ts`, `rails.ts`, `directive.ts`, `dispatch.ts`, `signer.ts`, `wwwauthenticate.ts`, `settlement_override.ts`, `x402.ts`, `x402_server.ts`, `mppx_server.ts`) |
 | `src/discovery/` | Probe + Bazaar + `/.well-known/mpp.json` + `llms.txt` + `skill.md` + OpenAPI |
@@ -72,7 +73,9 @@ Each helper returns `{ [reverse-DNS-key]: [binding] }` so spreading composes the
 
 ## Identity model
 
-Two identity types: wallet (`X-Wallet-Address`) and operator-token (`X-Operator-Token`). Default checks operator-token first, then wallet. Address normalization is network-aware via `src/address.ts`: EVM lowercased, Solana base58 preserved verbatim. Used for cache keys, wallet→operator resolves, and signer-match comparisons.
+Two header-based identity types: wallet (`X-Wallet-Address`) and operator-token (`X-Operator-Token`). Default checks operator-token first, then wallet. Address normalization is network-aware via `src/address.ts`: EVM lowercased, Solana base58 preserved verbatim. Used for cache keys, wallet→operator resolves, and signer-match comparisons.
+
+A third, **opt-in** identity type is the Agent Identity Token (AIP): a JWT issued by a trusted issuer, bound to the agent's key via `cnf` (RFC 7800) and presented in an `Agent-Identity` header alongside an RFC 9421 HTTP Message Signature (proof-of-possession over `@method @authority @path agent-identity`). AIP engages only when the merchant opts in — `Checkout({ gate: { aip: { trustedIssuers } } })`, or the per-framework `aipGate` / `conditionalAipGate` adapters. With no `aip` config the `Agent-Identity` header is ignored and wallet/operator behavior is unchanged. When opted in, the gate verifies the token at the edge (issuer-JWKS signature + PoP) BEFORE `/v1/assess`, then sends the raw token as `aip_token` so the same policy evaluates against its attested claims; a verified AIT becomes the sole identity (wins over wallet/operator). A present-but-invalid AIT is a hard deny (no fall-through). **AgentScore's canonical issuer (`https://agentscore.sh`, exported as `AGENTSCORE_CANONICAL_ISSUER`) is always trusted** — `JwksCache` merges it itself, so every gate/adapter inherits it and `trustedIssuers` is optional + externals-only (a merchant can't fail to trust AgentScore AITs). `gate.aip` also accepts `issuerPolicies?: Record<issuer, AipIssuerPolicy>` — a per-issuer whole-policy REPLACEMENT (keyed by canonicalized `iss`): a verified AIT from a listed issuer is evaluated against that block instead of the gate defaults (e.g. relax a partner issuer to `{requireKyc, minAge:21}` while AgentScore AITs face the full policy). Plus `maxSkewSeconds` / `authority`. Per-adapter accessor: `getVerifiedAit(ctx)` (hono/express/fastify) returns the verified claims. See `src/aip/` and `examples/aip-merchant.ts`.
 
 Denial reason codes: `missing_identity`, `identity_verification_required`, `token_expired`, `invalid_credential`, `wallet_signer_mismatch`, `wallet_auth_requires_wallet_signing`, `wallet_not_trusted`, `api_error`, `payment_required`. Each carries a structured `agent_instructions` JSON block describing concrete recovery actions. See `src/_response.ts` and `src/core.ts` for the canned action copy.
 
