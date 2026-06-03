@@ -58,7 +58,7 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     expect(cap).toBeDefined();
     // Date-format version (UCP convention; matches every other binding's version field).
     expect(cap?.version).toBe('2026-04-08');
-    expect(cap?.spec).toContain('agentscore.sh');
+    expect(cap?.spec).toContain('agentscore.com');
     expect(cap?.schema).toContain('sh-agentscore-identity-v1.json');
     // Multi-parent extends — matches Shopify's dev.shopify.catalog.storefront pattern
     // and UCP-canonical dev.ucp.shopping.discount (extends [checkout, cart]).
@@ -114,8 +114,8 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     const tempoHandler: UCPPaymentHandlerBinding = {
       id: 'tempo',
       version: '2026-04-08',
-      spec: 'https://agentscore.sh/specification/payment-handlers/tempo',
-      schema: 'https://agentscore.sh/schemas/payment-handlers/tempo.json',
+      spec: 'https://agentscore.com/specification/payment-handlers/tempo',
+      schema: 'https://agentscore.com/schemas/payment-handlers/tempo.json',
       config: { recipient: '0xtempo' },
     };
     const profile = buildUCPProfile({
@@ -135,8 +135,8 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     const tempoHandlerNoConfig: UCPPaymentHandlerBinding = {
       id: 'tempo',
       version: '2026-04-08',
-      spec: 'https://agentscore.sh/specification/payment-handlers/tempo',
-      schema: 'https://agentscore.sh/schemas/payment-handlers/tempo.json',
+      spec: 'https://agentscore.com/specification/payment-handlers/tempo',
+      schema: 'https://agentscore.com/schemas/payment-handlers/tempo.json',
     };
     const profile = buildUCPProfile({
       ...baseInput,

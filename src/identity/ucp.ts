@@ -257,8 +257,8 @@ export interface AgentScoreGatePolicy {
    *  with `allowed_jurisdictions`. */
   blocked_jurisdictions?: string[];
 }
-const AGENTSCORE_DEFAULT_SPEC_URL = 'https://agentscore.sh/specification/identity';
-const AGENTSCORE_DEFAULT_SCHEMA_URL = 'https://agentscore.sh/schemas/ucp/sh-agentscore-identity-v1.json';
+const AGENTSCORE_DEFAULT_SPEC_URL = 'https://agentscore.com/specification/identity';
+const AGENTSCORE_DEFAULT_SCHEMA_URL = 'https://agentscore.com/schemas/ucp/sh-agentscore-identity-v1.json';
 // Multi-parent extension — `sh.agentscore.identity` declares merchant policy relevant at
 // both checkout-build (compliance gate) and cart-build (price-gate eligibility, jurisdiction-
 // restricted items in cart) time, so an agent reading either parent capability picks up the
@@ -417,8 +417,8 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
 export const AGENTSCORE_UCP_CAPABILITY = AGENTSCORE_CAPABILITY_NAME;
 
 const HANDLER_VERSION = '2026-04-08';
-const SPEC_BASE = 'https://agentscore.sh/specification/payment-handlers';
-const SCHEMA_BASE = 'https://agentscore.sh/schemas/payment-handlers';
+const SPEC_BASE = 'https://agentscore.com/specification/payment-handlers';
+const SCHEMA_BASE = 'https://agentscore.com/schemas/payment-handlers';
 
 // CAIP-2 → UCP-namespace network-name mapping. UCP payment_handler bindings publish
 // network strings in the UCP namespace (`base-8453`, `solana-mainnet-beta`); RailSpecs

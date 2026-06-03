@@ -197,7 +197,7 @@ describe('payment-handler metadata', () => {
     expect(mppBinding.version).toBe(x402Binding.version);
     expect(x402Binding.version).toBe(stripeBinding.version);
     for (const b of [mppBinding, x402Binding, stripeBinding]) {
-      expect(b.spec.startsWith('https://agentscore.sh/specification/payment-handlers/')).toBe(true);
+      expect(b.spec.startsWith('https://agentscore.com/specification/payment-handlers/')).toBe(true);
     }
   });
 });

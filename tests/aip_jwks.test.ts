@@ -96,15 +96,15 @@ describe('JwksCache.isTrusted', () => {
     // The invariant must hold for EVERY consumer (raw adapters included), not just Checkout —
     // a merchant can't accidentally fail to trust AgentScore-issued AITs.
     const noList = new JwksCache({ fetchImpl: makeFetch([keyA]) });
-    expect(noList.isTrusted('https://agentscore.sh')).toBe(true);
-    expect(noList.isTrusted('https://agentscore.sh/')).toBe(true); // canonicalized
+    expect(noList.isTrusted('https://agentscore.com')).toBe(true);
+    expect(noList.isTrusted('https://agentscore.com/')).toBe(true); // canonicalized
     expect(noList.isTrusted('https://issuer.example')).toBe(false);
 
     const emptyList = new JwksCache({ trustedIssuers: [], fetchImpl: makeFetch([keyA]) });
-    expect(emptyList.isTrusted('https://agentscore.sh')).toBe(true);
+    expect(emptyList.isTrusted('https://agentscore.com')).toBe(true);
 
     const withExternal = new JwksCache({ trustedIssuers: ['https://issuer.example'], fetchImpl: makeFetch([keyA]) });
-    expect(withExternal.isTrusted('https://agentscore.sh')).toBe(true); // still implicit
+    expect(withExternal.isTrusted('https://agentscore.com')).toBe(true); // still implicit
     expect(withExternal.isTrusted('https://issuer.example')).toBe(true);
   });
 });

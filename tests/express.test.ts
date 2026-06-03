@@ -791,7 +791,7 @@ describe('agentscoreGate middleware — verify_url and operator_verification in 
       claimed_at: null,
       verified_at: null,
     },
-    verify_url: 'https://agentscore.sh/verify/abc123',
+    verify_url: 'https://agentscore.com/verify/abc123',
     resolved_operator: '0xoperator456',
   };
 
@@ -799,7 +799,7 @@ describe('agentscoreGate middleware — verify_url and operator_verification in 
     mockFetchOk({
       session_id: 'sess_ex1',
       poll_secret: 'ps_ex',
-      verify_url: 'https://agentscore.sh/verify/ex',
+      verify_url: 'https://agentscore.com/verify/ex',
       next_steps: { action: 'deliver_verify_url_and_poll', user_message: 'Verify to continue' },
     });
     const mw = agentscoreGate({
@@ -858,17 +858,17 @@ describe('agentscoreGate middleware — verify_url and operator_verification in 
       // 1st request: /v1/assess deny
       .mockResolvedValueOnce({
         ok: true, status: 200, headers: new Headers({ 'retry-after': '0' }),
-        json: vi.fn().mockResolvedValue({ decision: 'deny', decision_reasons: ['kyc_required'], verify_url: 'https://agentscore.sh/verify/c1' }),
+        json: vi.fn().mockResolvedValue({ decision: 'deny', decision_reasons: ['kyc_required'], verify_url: 'https://agentscore.com/verify/c1' }),
       })
       // 1st request: session mint POST
       .mockResolvedValueOnce({
         ok: true, status: 200, headers: new Headers({ 'retry-after': '0' }),
-        json: vi.fn().mockResolvedValue({ session_id: 'sess_1', poll_secret: 'ps_1', verify_url: 'https://agentscore.sh/verify/s1' }),
+        json: vi.fn().mockResolvedValue({ session_id: 'sess_1', poll_secret: 'ps_1', verify_url: 'https://agentscore.com/verify/s1' }),
       })
       // 2nd request: session mint POST (cached-deny path; no /v1/assess)
       .mockResolvedValueOnce({
         ok: true, status: 200, headers: new Headers({ 'retry-after': '0' }),
-        json: vi.fn().mockResolvedValue({ session_id: 'sess_2', poll_secret: 'ps_2', verify_url: 'https://agentscore.sh/verify/s2' }),
+        json: vi.fn().mockResolvedValue({ session_id: 'sess_2', poll_secret: 'ps_2', verify_url: 'https://agentscore.com/verify/s2' }),
       });
     global.fetch = fetchMock as unknown as typeof fetch;
 
@@ -904,7 +904,7 @@ describe('agentscoreGate middleware — verify_url and operator_verification in 
     const denyWithPolicy = {
       decision: 'deny',
       decision_reasons: ['kyc_required'],
-      verify_url: 'https://agentscore.sh/verify/xyz',
+      verify_url: 'https://agentscore.com/verify/xyz',
       policy_result: { all_passed: false, checks: [{ rule: 'require_kyc', passed: false }] },
     };
     mockFetchOk(denyWithPolicy);
@@ -1020,7 +1020,7 @@ describe('agentscoreGate middleware — verify_url and operator_verification in 
     expect(json).toHaveBeenCalledWith(
       expect.objectContaining({
         error: expect.objectContaining({ code: 'wallet_not_trusted' }),
-        verify_url: 'https://agentscore.sh/verify/abc123',
+        verify_url: 'https://agentscore.com/verify/abc123',
       }),
     );
 
@@ -1184,7 +1184,7 @@ describe('agentscoreGate — identity model', () => {
 describe('agentscoreGate middleware — createSessionOnMissing', () => {
   const SESSION_RESPONSE = {
     session_id: 'sess_abc123',
-    verify_url: 'https://agentscore.sh/verify/sess_abc123',
+    verify_url: 'https://agentscore.com/verify/sess_abc123',
     poll_secret: 'ps_secret_456',
     next_steps: {
       action: 'deliver_verify_url_and_poll',
@@ -1217,7 +1217,7 @@ describe('agentscoreGate middleware — createSessionOnMissing', () => {
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
       error: expect.objectContaining({ code: 'identity_verification_required' }),
-      verify_url: 'https://agentscore.sh/verify/sess_abc123',
+      verify_url: 'https://agentscore.com/verify/sess_abc123',
       session_id: 'sess_abc123',
       poll_secret: 'ps_secret_456',
     }));
@@ -1246,7 +1246,7 @@ describe('agentscoreGate middleware — createSessionOnMissing', () => {
     await mw(req, res, next);
 
     const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(fetchCall[0]).toBe('https://api.agentscore.sh/v1/sessions');
+    expect(fetchCall[0]).toBe('https://api.agentscore.com/v1/sessions');
     const headers = fetchCall[1].headers as Record<string, string>;
     expect(headers['X-API-Key']).toBe('ask_session_key');
     expect(JSON.parse(fetchCall[1].body as string)).toEqual({});

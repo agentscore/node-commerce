@@ -345,7 +345,7 @@ export type RunGateFn = (ctx: CheckoutContext) => Promise<GateDenial | null>;
 export interface CheckoutGateConfig {
   /** AgentScore API key. Required when `runGate` is omitted. */
   apiKey?: string;
-  /** Override the default `https://api.agentscore.sh` base URL. */
+  /** Override the default `https://api.agentscore.com` base URL. */
   baseUrl?: string;
   /** Prepended to the default User-Agent on API calls. */
   userAgent?: string;
@@ -705,7 +705,7 @@ function pickRail<T>(rails: Record<string, CheckoutRailSpec>, key: string): T | 
  *  canonical issuer independently. */
 export function buildAipTrustedIssuers(externalIssuers?: string[]): string[] {
   const out = [AGENTSCORE_CANONICAL_ISSUER, ...(externalIssuers ?? [])];
-  // De-dupe on canonical form so an explicit `https://agentscore.sh` (or trailing-slash variant)
+  // De-dupe on canonical form so an explicit `https://agentscore.com` (or trailing-slash variant)
   // doesn't double up; keep the first-seen original string for each canonical key.
   const seen = new Set<string>();
   const deduped: string[] = [];
@@ -1421,7 +1421,7 @@ export class Checkout {
    *   - `AGENTSCORE_API_KEY` — required. No key → one-time warning + skip
    *     (dev/testnet pattern; production should always configure a key).
    *   - `AGENTSCORE_BASE_URL` — optional override for staging/dev API
-   *     (e.g. `https://api-dev.agentscore.sh` or `http://localhost:3002`).
+   *     (e.g. `https://api-dev.agentscore.com` or `http://localhost:3002`).
    *
    * Stripe SPT (no extractable wallet signer) → skip silently; Stripe runs
    * its own OFAC screen on the buyer's Stripe account at customer creation.

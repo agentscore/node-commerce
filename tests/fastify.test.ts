@@ -16,7 +16,7 @@ const ALLOW_RESPONSE = {
 const DENY_RESPONSE = {
   decision: 'deny',
   decision_reasons: ['kyc_required'],
-  verify_url: 'https://agentscore.sh/verify/xyz',
+  verify_url: 'https://agentscore.com/verify/xyz',
 };
 
 function mockFetchOk(body: unknown): void {
@@ -111,7 +111,7 @@ describe('Fastify adapter — deny behavior', () => {
     expect(res.json()).toMatchObject({
       error: expect.objectContaining({ code: 'wallet_not_trusted' }),
       reasons: ['kyc_required'],
-      verify_url: 'https://agentscore.sh/verify/xyz',
+      verify_url: 'https://agentscore.com/verify/xyz',
     });
   });
 
@@ -135,7 +135,7 @@ describe('Fastify adapter — deny behavior', () => {
     const denyWithPolicy = {
       decision: 'deny',
       decision_reasons: ['kyc_required'],
-      verify_url: 'https://agentscore.sh/verify/xyz',
+      verify_url: 'https://agentscore.com/verify/xyz',
       policy_result: { all_passed: false, checks: [{ rule: 'require_kyc', passed: false }] },
     };
     mockFetchOk(denyWithPolicy);
@@ -215,7 +215,7 @@ describe('Fastify adapter — fail-open + session creation paths', () => {
     mockFetchOk({
       session_id: 'sess_fy1',
       poll_secret: 'ps_fy',
-      verify_url: 'https://agentscore.sh/verify/fy',
+      verify_url: 'https://agentscore.com/verify/fy',
       next_steps: { action: 'deliver_verify_url_and_poll', user_message: 'Verify to continue' },
     });
     const app = Fastify();

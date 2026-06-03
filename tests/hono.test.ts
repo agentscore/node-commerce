@@ -23,7 +23,7 @@ const DENY_RESPONSE = {
   decision: 'deny',
   decision_reasons: ['kyc_required'],
   subject: { chains: ['base'], address: WALLET },
-  verify_url: 'https://agentscore.sh/verify/xyz',
+  verify_url: 'https://agentscore.com/verify/xyz',
 };
 
 // API emits structured next_steps on /v1/sessions success; gate stringifies
@@ -31,7 +31,7 @@ const DENY_RESPONSE = {
 const SESSION_RESPONSE = {
   session_id: 'sess_123',
   poll_secret: 'ps_secret',
-  verify_url: 'https://agentscore.sh/verify/new',
+  verify_url: 'https://agentscore.com/verify/new',
   next_steps: {
     action: 'deliver_verify_url_and_poll',
     user_message: 'Ask the user to verify',
@@ -182,7 +182,7 @@ describe('Hono adapter — deny behavior', () => {
       error: expect.objectContaining({ code: 'wallet_not_trusted' }),
       decision: 'deny',
       reasons: ['kyc_required'],
-      verify_url: 'https://agentscore.sh/verify/xyz',
+      verify_url: 'https://agentscore.com/verify/xyz',
     });
   });
 
@@ -260,7 +260,7 @@ describe('Hono adapter — createSessionOnMissing', () => {
       error: expect.objectContaining({ code: 'identity_verification_required' }),
       session_id: 'sess_123',
       poll_secret: 'ps_secret',
-      verify_url: 'https://agentscore.sh/verify/new',
+      verify_url: 'https://agentscore.com/verify/new',
     });
     // agent_instructions is the JSON-stringified next_steps from the API response.
     const parsed = JSON.parse(body.agent_instructions as string);
@@ -304,7 +304,7 @@ describe('Hono adapter — createSessionOnMissing', () => {
       error: expect.objectContaining({ code: 'identity_verification_required' }),
       session_id: 'sess_123',
       poll_secret: 'ps_secret',
-      verify_url: 'https://agentscore.sh/verify/new',
+      verify_url: 'https://agentscore.com/verify/new',
     });
     // Confirm the second fetch went to /v1/sessions.
     expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls[1][0]).toContain('/v1/sessions');
@@ -435,7 +435,7 @@ describe('Hono adapter — createSessionOnMissing', () => {
     expect(hook).toHaveBeenCalledOnce();
     const sessionArg = hook.mock.calls[0]![1] as Record<string, unknown>;
     expect(sessionArg.session_id).toBe('sess_123');
-    expect(sessionArg.verify_url).toBe('https://agentscore.sh/verify/new');
+    expect(sessionArg.verify_url).toBe('https://agentscore.com/verify/new');
     expect(sessionArg.poll_secret).toBe('ps_secret');
   });
 

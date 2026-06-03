@@ -18,7 +18,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Checkout, type CheckoutRequest } from '../src/checkout';
 import type { X402BaseRailSpec } from '../src/payment/rail_spec';
 
-const AIP = { trustedIssuers: ['https://issuer.example', 'https://agentscore.sh'] };
+const AIP = { trustedIssuers: ['https://issuer.example', 'https://agentscore.com'] };
 
 function makeCheckout(opts: { aip?: typeof AIP } = {}) {
   return new Checkout({
@@ -177,7 +177,7 @@ describe('Checkout gate × AIP — offline (no apiKey) policy enforcement', () =
 // So "fails closed" = policy was applied to this issuer; "throws at settle" = policy was empty.
 describe('Checkout gate × AIP — issuer-conditional policy', () => {
   const PARTNER = 'https://issuer.example';
-  const OURS = 'https://agentscore.sh';
+  const OURS = 'https://agentscore.com';
   const keys: Record<string, { priv: CryptoKey; pubJwk: JWK; kid: string }> = {};
   let agentPriv: JWK;
   let agentPub: JWK;

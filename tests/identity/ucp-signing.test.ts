@@ -26,8 +26,8 @@ const baseInput = {
       {
         id: 'tempo',
         version: '2026-04-08',
-        spec: 'https://agentscore.sh/specification/payment-handlers/tempo',
-        schema: 'https://agentscore.sh/schemas/payment-handlers/tempo.json',
+        spec: 'https://agentscore.com/specification/payment-handlers/tempo',
+        schema: 'https://agentscore.com/schemas/payment-handlers/tempo.json',
         config: { recipient: '0x1234' },
       },
     ],

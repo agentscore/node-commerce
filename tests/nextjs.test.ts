@@ -12,7 +12,7 @@ const ALLOW_RESPONSE = {
 const DENY_RESPONSE = {
   decision: 'deny',
   decision_reasons: ['kyc_required'],
-  verify_url: 'https://agentscore.sh/verify/xyz',
+  verify_url: 'https://agentscore.com/verify/xyz',
 };
 
 function mockFetchOk(body: unknown): void {
@@ -96,7 +96,7 @@ describe('Next.js adapter — withAgentScoreGate (route handler wrapper)', () =>
     const denyWithPolicy = {
       decision: 'deny',
       decision_reasons: ['kyc_required'],
-      verify_url: 'https://agentscore.sh/verify/xyz',
+      verify_url: 'https://agentscore.com/verify/xyz',
       policy_result: { all_passed: false, checks: [{ rule: 'require_kyc', passed: false }] },
     };
     mockFetchOk(denyWithPolicy);
@@ -253,7 +253,7 @@ describe('Next.js adapter — withAgentScoreGate (route handler wrapper)', () =>
     const SESSION_RESPONSE = {
       session_id: 'sess_nx1',
       poll_secret: 'ps_nx',
-      verify_url: 'https://agentscore.sh/verify/nx',
+      verify_url: 'https://agentscore.com/verify/nx',
       next_steps: { action: 'deliver_verify_url_and_poll', user_message: 'Verify to continue' },
     };
     mockFetchOk(SESSION_RESPONSE);

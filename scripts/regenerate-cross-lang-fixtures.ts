@@ -73,8 +73,8 @@ function tempoHandler(config?: Record<string, unknown>): UCPPaymentHandlerBindin
   const out: UCPPaymentHandlerBinding = {
     id: 'tempo',
     version: '2026-04-08',
-    spec: 'https://agentscore.sh/specification/payment-handlers/tempo',
-    schema: 'https://agentscore.sh/schemas/payment-handlers/tempo.json',
+    spec: 'https://agentscore.com/specification/payment-handlers/tempo',
+    schema: 'https://agentscore.com/schemas/payment-handlers/tempo.json',
   };
   if (config) out.config = config;
   return out;
@@ -84,8 +84,8 @@ function x402Handler(networks: string[]): UCPPaymentHandlerBinding {
   return {
     id: 'x402',
     version: '2026-04-08',
-    spec: 'https://agentscore.sh/specification/payment-handlers/x402',
-    schema: 'https://agentscore.sh/schemas/payment-handlers/x402.json',
+    spec: 'https://agentscore.com/specification/payment-handlers/x402',
+    schema: 'https://agentscore.com/schemas/payment-handlers/x402.json',
     config: { networks },
   };
 }
@@ -94,8 +94,8 @@ function stripeHandler(config: Record<string, unknown>): UCPPaymentHandlerBindin
   return {
     id: 'stripe',
     version: '2026-04-08',
-    spec: 'https://agentscore.sh/specification/payment-handlers/stripe_spt',
-    schema: 'https://agentscore.sh/schemas/payment-handlers/stripe_spt.json',
+    spec: 'https://agentscore.com/specification/payment-handlers/stripe_spt',
+    schema: 'https://agentscore.com/schemas/payment-handlers/stripe_spt.json',
     config,
   };
 }
@@ -184,8 +184,8 @@ async function main(): Promise<void> {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: KID });
     const customCapability: UCPCapabilityBinding = {
       version: '2026-04-08',
-      spec: 'https://agentscore.sh/specification/identity',
-      schema: 'https://agentscore.sh/schemas/ucp/sh-agentscore-identity-v1.json',
+      spec: 'https://agentscore.com/specification/identity',
+      schema: 'https://agentscore.com/schemas/ucp/sh-agentscore-identity-v1.json',
       // `extras` flat on the binding — kyc_required is a vendor field on this binding.
       kyc_required: true,
     };

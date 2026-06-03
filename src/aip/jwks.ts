@@ -40,7 +40,7 @@ type FetchLike = (url: string, init?: { headers?: Record<string, string> }) => P
  *  gate/adapter built on it) without the merchant listing it — this SDK is the AgentScore
  *  verifier, so a merchant can't accidentally fail to trust AgentScore-issued AITs. `trustedIssuers`
  *  only needs to name ADDITIONAL external issuers. */
-export const AGENTSCORE_CANONICAL_ISSUER = 'https://agentscore.sh';
+export const AGENTSCORE_CANONICAL_ISSUER = 'https://agentscore.com';
 
 export interface JwksCacheOptions {
   /** ADDITIONAL external issuer URLs to trust beyond AgentScore's own (compared after

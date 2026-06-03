@@ -122,7 +122,7 @@ export function buildAgentscoreOnboardingSteps(opts: {
     '`opc_...` token returns 403 `wallet_signer_mismatch`; the body lists `linked_wallets[]` and ' +
     '`agent_instructions.action: resign_or_switch_to_operator_token` with three deterministic ' +
     'recoveries (switch to a linked wallet, drop the operator_token to re-KYC the new wallet, ' +
-    'or pre-claim the new wallet via SIWE on agentscore.sh/verify).';
+    'or pre-claim the new wallet via SIWE on agentscore.com/verify).';
   const pickRailStep =
     `Pick the rail your wallet is funded for. The 402 advertises ${acceptedRails.length} rail${acceptedRails.length === 1 ? '' : 's'}. ` +
     '`agentscore-pay balance` (without `--chain`) lists every chain\'s USDC; pay rejects with ' +

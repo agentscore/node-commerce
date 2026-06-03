@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/@agent-score/commerce.svg)](https://www.npmjs.com/package/@agent-score/commerce)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-The full merchant-side SDK for [AgentScore](https://agentscore.sh): agent commerce in one install. Ships identity gating, payment rail helpers, 402 challenge builders, MPP discovery, and Stripe multichain support. Built and maintained by AgentScore; works with any 402/MPP merchant in the ecosystem, AgentScore-gated or not.
+The full merchant-side SDK for [AgentScore](https://agentscore.com): agent commerce in one install. Ships identity gating, payment rail helpers, 402 challenge builders, MPP discovery, and Stripe multichain support. Built and maintained by AgentScore; works with any 402/MPP merchant in the ecosystem, AgentScore-gated or not.
 
 ## Install
 
@@ -493,7 +493,7 @@ The full merchant SDK surface is stable. Helpers are protocol translations + con
 
 ## Documentation
 
-Full integration docs at [docs.agentscore.sh/integrations/node-commerce](https://docs.agentscore.sh/integrations/node-commerce).
+Full integration docs at [docs.agentscore.com/integrations/node-commerce](https://docs.agentscore.com/integrations/node-commerce).
 
 ## License
 

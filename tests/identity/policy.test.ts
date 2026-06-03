@@ -153,10 +153,10 @@ describe('runGateWithEnforcement', () => {
       ok: false,
       status: 403,
       body: { error: { code: 'kyc_required' } },
-      reason: { code: 'kyc_required', verify_url: 'https://agentscore.sh/v/x' },
+      reason: { code: 'kyc_required', verify_url: 'https://agentscore.com/v/x' },
     }));
     expect(result.status).toBe('denied');
-    expect(result.denialReason).toMatchObject({ code: 'kyc_required', verify_url: 'https://agentscore.sh/v/x' });
+    expect(result.denialReason).toMatchObject({ code: 'kyc_required', verify_url: 'https://agentscore.com/v/x' });
   });
 
   it('soft mode carries through the denial reason while staying unverified', async () => {

@@ -15,13 +15,13 @@ const ALLOW_RESPONSE = {
 const DENY_RESPONSE = {
   decision: 'deny',
   decision_reasons: ['kyc_required'],
-  verify_url: 'https://agentscore.sh/verify/xyz',
+  verify_url: 'https://agentscore.com/verify/xyz',
 };
 
 const SESSION_RESPONSE = {
   session_id: 'sess_123',
   poll_secret: 'ps_secret',
-  verify_url: 'https://agentscore.sh/verify/new',
+  verify_url: 'https://agentscore.com/verify/new',
   next_steps: { action: 'deliver_verify_url_and_poll', user_message: 'Ask the user to verify' },
 };
 
@@ -111,7 +111,7 @@ describe('Web Fetch adapter — createAgentScoreGate', () => {
       const body = await result.response.json();
       expect(body).toMatchObject({
         error: expect.objectContaining({ code: 'wallet_not_trusted' }),
-        verify_url: 'https://agentscore.sh/verify/xyz',
+        verify_url: 'https://agentscore.com/verify/xyz',
       });
     }
   });
@@ -253,7 +253,7 @@ describe('Web Fetch adapter — createAgentScoreGate', () => {
     const denyWithPolicy = {
       decision: 'deny',
       decision_reasons: ['kyc_required'],
-      verify_url: 'https://agentscore.sh/verify/xyz',
+      verify_url: 'https://agentscore.com/verify/xyz',
       policy_result: { all_passed: false, checks: [{ rule: 'require_kyc', passed: false }] },
     };
     mockFetchOk(denyWithPolicy);
