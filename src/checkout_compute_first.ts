@@ -42,6 +42,7 @@ import {
 import { createAgentScoreCore } from './core';
 import { buildSuccessNextSteps } from './discovery';
 import { CheckoutValidationError } from './errors';
+import { applyForwardedProto, readForwardedProto } from './forwarded_proto';
 import {
   buildX402AcceptsFor402,
   paymentRequiredHeader,
@@ -365,7 +366,11 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
     for (const [k, v] of Object.entries(mppChallengeHeaders)) headers.set(k, v);
     headers.set(
       'PAYMENT-REQUIRED',
-      paymentRequiredHeader({ x402Version: 2, accepts: accepted as never[], resource: { url: opts.url } }),
+      paymentRequiredHeader({
+        x402Version: 2,
+        accepts: accepted as never[],
+        resource: { url: applyForwardedProto(req.url, readForwardedProto(req.headers)) },
+      }),
     );
 
     return new Response(JSON.stringify(body402), { status: 402, headers });
@@ -451,7 +456,7 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
         maxTimeoutSeconds: 300,
       },
       resourceMeta: {
-        url: req.url,
+        url: applyForwardedProto(req.url, readForwardedProto(req.headers)),
         description: `Agent purchase via x402-exact (${opts.name})`,
         mimeType: 'application/json',
       },

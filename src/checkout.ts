@@ -59,6 +59,7 @@ import {
 } from './core';
 import { enrichBazaarDiscoveryExtensions } from './discovery/bazaar';
 import { CheckoutValidationError } from './errors';
+import { applyForwardedProto, readForwardedProto } from './forwarded_proto';
 import { STRIPE_MIN_CHARGE_USD } from './payment/constants';
 import { lazyMppxServer, lazyX402Server } from './payment/lazy';
 import { classifyMppxFailure } from './payment/mppx_failures';
@@ -2130,18 +2131,7 @@ export function validationResponseWeb(input: ValidationResponseInput): Response 
  * requires `https://`, so honor `X-Forwarded-Proto` (the proxy's original scheme).
  */
 function resolveResourceUrl(request: CheckoutRequest): string {
-  const fwd = request.headers['x-forwarded-proto'] ?? request.headers['X-Forwarded-Proto'];
-  const proto = typeof fwd === 'string' ? fwd.split(',')[0]?.trim() : undefined;
-  if (proto) {
-    try {
-      const u = new URL(request.url);
-      u.protocol = `${proto}:`;
-      return u.toString();
-    } catch {
-      /* malformed url: keep the original */
-    }
-  }
-  return request.url;
+  return applyForwardedProto(request.url, readForwardedProto(request.headers));
 }
 
 function stripContentType(headers: Record<string, string>): Record<string, string> {

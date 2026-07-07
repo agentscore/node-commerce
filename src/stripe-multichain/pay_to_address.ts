@@ -85,6 +85,13 @@ export interface MintMultichainRecipientsResult {
 
 const DEFAULT_NETWORKS = ['tempo', 'base', 'solana'] as const;
 
+// Stripe-minted Solana deposit addresses rotate per PaymentIntent and have no
+// pre-existing USDC ATA. @solana/mpp >=0.6.0 will not create the *primary*
+// recipient's ATA in the charge transaction, so the settle fails simulation
+// (InstructionError [2, InvalidAccountData]). Warn once when a rotating Solana
+// recipient is about to be minted so the merchant isn't blindsided at settle.
+let warnedRotatingSolanaMint = false;
+
 /** Returns the on-chain `pay_to` address the agent should be told to pay.
  *
  *  On the settle leg, when the inbound `Authorization: Payment` credential
@@ -192,6 +199,17 @@ async function mintAndCache(
   const staticRecipients = opts.staticRecipients ?? {};
   const requestedNetworks = opts.networks ?? [...DEFAULT_NETWORKS];
   const stripeNetworks = requestedNetworks.filter((n) => !(n in staticRecipients));
+
+  if (stripeNetworks.includes('solana') && !warnedRotatingSolanaMint) {
+    warnedRotatingSolanaMint = true;
+    console.warn(
+      '[stripe-multichain] Minting a per-PaymentIntent (rotating) Solana recipient. ' +
+        'Solana MPP settle fails on @solana/mpp >=0.6.0 for rotating recipients: the client ' +
+        'does not create the primary recipient ATA, so a fresh deposit address has no token ' +
+        'account to receive into. Use a static Solana recipient with a pre-funded ATA ' +
+        "(staticRecipients: { solana: '<wallet>' }), or drop 'solana' from networks.",
+    );
+  }
 
   const idempotencyKey = opts.orderId ? `pi-${opts.orderId}-${opts.amountCents}` : undefined;
   const { paymentIntentId, depositAddresses } = await createMultichainPaymentIntent({
