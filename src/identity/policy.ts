@@ -4,7 +4,7 @@
  * A *policy* is a small bag of fields describing what identity the merchant wants
  * verified for a given resource:
  *
- * - `enforcement`: `"hard"` (today's wine path — 403 on miss) or `"soft"` (gate
+ * - `enforcement`: `"hard"` (the regulated-goods path — 403 on miss) or `"soft"` (gate
  *   denial is swallowed; the order completes with a degraded `identity_status`).
  *   `null` / absent = no gate at all.
  * - `requireKyc` / `requireSanctionsClear` / `minAge`: passed through to the
@@ -43,6 +43,8 @@ export interface PolicyBlock {
   requireKyc?: boolean;
   requireSanctionsClear?: boolean;
   minAge?: number;
+  /** Buyer-verified country blocklist (`["RU", "KP", ...]`) — these jurisdictions are denied. */
+  blockedJurisdictions?: readonly string[];
   allowedJurisdictions?: readonly string[];
   allowedShippingCountries?: readonly string[];
   allowedShippingStates?: readonly string[];
@@ -89,10 +91,51 @@ export function buildGateFromPolicy(
       requireSanctionsClear: policy.requireSanctionsClear,
     }),
     ...(policy.minAge !== undefined && { minAge: policy.minAge }),
+    ...(policy.blockedJurisdictions !== undefined && {
+      blockedJurisdictions: [...policy.blockedJurisdictions],
+    }),
     ...(policy.allowedJurisdictions !== undefined && {
       allowedJurisdictions: [...policy.allowedJurisdictions],
     }),
   };
+}
+
+/**
+ * OFAC SDN denial reasons. These are strict-liability: soft enforcement may
+ * downgrade KYC / age / jurisdiction misses (the merchant accepts the order with a
+ * degraded `identity_status`), but it must NEVER swallow a sanctions deny — falsely
+ * settling for a sanctioned wallet is an OFAC violation regardless of the merchant's
+ * soft posture. The API emits `sanctions_flagged` in `decision_reasons` for BOTH the
+ * operator/wallet SDN hit and the payment-signer OFAC SDN hit;
+ * `sanctions_check_unavailable` is the fail-closed unavailable-lookup variant (a
+ * missing screen on a strict rail is also a hard deny). Match the canonical strings
+ * from `the AgentScore API`.
+ */
+const SANCTIONS_DENIAL_REASONS: ReadonlySet<string> = new Set([
+  'sanctions_flagged',
+  'sanctions_check_unavailable',
+]);
+
+/**
+ * True when a gate denial body indicates an OFAC SDN sanctions hit (or unavailable screen).
+ *
+ * Inspects the flat denial body emitted by `denialReasonToBody`: a `wallet_not_trusted`
+ * (or signer-sanctions) deny carries the sanctions reason in `reasons` / `decision_reasons`,
+ * or surfaces it as a top-level `error.code`. Used by {@link runGateWithEnforcement} so soft
+ * mode can downgrade non-sanctions denials while leaving a sanctions deny terminal.
+ */
+export function isSanctionsDenial(body: Record<string, unknown> | null | undefined): boolean {
+  if (!body || typeof body !== 'object') return false;
+  for (const key of ['reasons', 'decision_reasons'] as const) {
+    const raw = body[key];
+    if (Array.isArray(raw) && raw.some((r) => typeof r === 'string' && SANCTIONS_DENIAL_REASONS.has(r))) {
+      return true;
+    }
+  }
+  // The signer-sanctions SDN deny may also surface as a top-level error code.
+  const error = body.error;
+  const code = error && typeof error === 'object' ? (error as Record<string, unknown>).code : undefined;
+  return typeof code === 'string' && SANCTIONS_DENIAL_REASONS.has(code);
 }
 
 /**
@@ -112,6 +155,13 @@ export function buildGateFromPolicy(
  * - `enforcement="hard"` + denied: status="denied"; caller propagates denialStatus + denialBody.
  * - `enforcement="soft"` + denied: swallow; status="unverified".
  * - accepted: status="verified".
+ *
+ * **Sanctions are never swallowed.** Soft mode is a commercial knob — it lets a merchant
+ * accept an order from an agent that didn't satisfy KYC / age / jurisdiction (stamping a
+ * degraded `identity_status` for ops). But an OFAC SDN sanctions deny is strict-liability:
+ * settling for a sanctioned wallet is a violation regardless of the merchant's posture. So a
+ * denial whose body indicates sanctions ({@link isSanctionsDenial}) returns `status="denied"`
+ * even under `enforcement="soft"`; soft only downgrades the non-sanctions reasons.
  */
 export async function runGateWithEnforcement(
   enforcement: EnforcementMode | undefined,
@@ -122,7 +172,8 @@ export async function runGateWithEnforcement(
   const outcome = await runGate();
   if (outcome.ok) return { status: 'verified' };
 
-  if (enforcement === 'hard') {
+  // A sanctions deny stays terminal in BOTH modes — soft only downgrades non-sanctions reasons.
+  if (enforcement === 'hard' || isSanctionsDenial(outcome.body)) {
     return {
       status: 'denied',
       denialStatus: outcome.status,

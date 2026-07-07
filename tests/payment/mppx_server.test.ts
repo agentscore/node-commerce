@@ -8,7 +8,7 @@ import type {
 
 describe('createMppxServer', () => {
   it('returns an mppx server with no rails when none configured', async () => {
-    const server = await createMppxServer({ secretKey: 'mpp_secret_xxx' });
+    const server = await createMppxServer({ secretKey: 'mpp_test_secret_key_padded_to_32_bytes' });
     expect(server).toBeDefined();
   });
 
@@ -17,7 +17,7 @@ describe('createMppxServer', () => {
       rails: {
         tempo: { recipient: '0x0000000000000000000000000000000000000001' } as TempoRailSpec,
       },
-      secretKey: 'mpp_secret_xxx',
+      secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
     });
     expect(server).toBeDefined();
   });
@@ -30,7 +30,7 @@ describe('createMppxServer', () => {
           testnet: true,
         } as TempoRailSpec,
       },
-      secretKey: 'mpp_secret_xxx',
+      secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
     });
     expect(server).toBeDefined();
   });
@@ -41,7 +41,7 @@ describe('createMppxServer', () => {
       rails: {
         tempo: { recipient: '0x0000000000000000000000000000000000000001' } as TempoRailSpec,
       },
-      secretKey: 'mpp_secret_xxx',
+      secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
     });
     expect(server).toBeDefined();
   });
@@ -54,7 +54,7 @@ describe('createMppxServer', () => {
           network: networks.solana.mainnet.caip2,
         } as SolanaMppRailSpec,
       },
-      secretKey: 'mpp_secret_xxx',
+      secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
     });
     expect(server).toBeDefined();
   });
@@ -67,7 +67,7 @@ describe('createMppxServer', () => {
           network: networks.solana.devnet.caip2,
         } as SolanaMppRailSpec,
       },
-      secretKey: 'mpp_secret_xxx',
+      secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
     });
     expect(server).toBeDefined();
   });
@@ -81,7 +81,7 @@ describe('createMppxServer', () => {
           tokenProgram: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
         } as SolanaMppRailSpec,
       },
-      secretKey: 'mpp_secret_xxx',
+      secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
     });
     expect(server).toBeDefined();
   });

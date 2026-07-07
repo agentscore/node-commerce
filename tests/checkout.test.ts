@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   Checkout,
   type CheckoutContext,
@@ -653,5 +653,243 @@ describe('Checkout — mintRecipients error handling', () => {
       mintRecipients: () => { throw new Error('upstream boom'); },
     });
     await expect(checkout.handle(req())).rejects.toThrow(/upstream boom/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// x402 settle binding (anti funds-drain) + zero-settle sub-cent guard.
+// These drive a full x402 settle through a fake X402Server; the env stub opts the
+// always-on wallet-OFAC default into its "no API key → log+skip" path so the focus
+// stays on the bind/zero-settle behavior (OFAC default is covered elsewhere).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BIND_NETWORK = 'eip155:84532';
+const BIND_RECIPIENT = '0xc3128D86669e842573306CA82f60A005A41C44D4';
+
+function makeFakeX402Server() {
+  return {
+    buildPaymentRequirements: vi.fn(async () => [
+      {
+        scheme: 'exact',
+        network: BIND_NETWORK,
+        payTo: BIND_RECIPIENT,
+        maxAmountRequired: '10000',
+        asset: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+        resource: 'https://api.example/purchase',
+        description: 'test',
+        mimeType: 'application/json',
+        maxTimeoutSeconds: 300,
+        extra: { name: 'USDC', version: '2' },
+      },
+    ]),
+    enrichExtensions: vi.fn(() => undefined),
+    verifyPayment: vi.fn(async () => ({ isValid: true })),
+    settlePayment: vi.fn(async () => ({ success: true, transaction: '0xdeadbeef', network: BIND_NETWORK })),
+    paymentRequirementsExtraName: vi.fn(() => 'USDC'),
+  };
+}
+
+function x402Header(payTo: string, network = BIND_NETWORK): string {
+  const payload = {
+    x402Version: 2,
+    scheme: 'exact',
+    network,
+    accepted: { network, payTo, scheme: 'exact' },
+    payload: { authorization: { from: '0xeb2Ca790F72787c7e61bC6c861353a1e4ACDFCa5' } },
+  };
+  return Buffer.from(JSON.stringify(payload)).toString('base64');
+}
+
+describe('Checkout — x402 v2 resource metadata + extensions on the 402', () => {
+  beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
+  afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+
+  it('carries resourceInfo + discoveryExtensions in both the body and the PAYMENT-REQUIRED header', async () => {
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: BIND_RECIPIENT, network: BIND_NETWORK } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 0.01 }),
+      x402Server: makeFakeX402Server() as never,
+      resourceInfo: { serviceName: 'Example Enrich', tags: ['data', 'enrichment'], iconUrl: 'https://ex.com/i.png' },
+      discoveryExtensions: { 'com.coinbase.bazaar': { info: {}, schema: {} } },
+    });
+    const result = await checkout.handle(req());
+    expect(result.status).toBe(402);
+    // Body carries resource + extensions.
+    expect((result.body.resource as { serviceName?: string }).serviceName).toBe('Example Enrich');
+    expect(result.body.extensions).toEqual({ 'com.coinbase.bazaar': { info: {}, schema: {} } });
+    // The PAYMENT-REQUIRED header (the canonical x402 transport) carries them too.
+    const decoded = JSON.parse(Buffer.from(result.headers['payment-required'], 'base64').toString('utf-8'));
+    expect(decoded.resource.serviceName).toBe('Example Enrich');
+    expect(decoded.resource.tags).toEqual(['data', 'enrichment']);
+    expect(decoded.resource.iconUrl).toBe('https://ex.com/i.png');
+    expect(decoded.extensions).toEqual({ 'com.coinbase.bazaar': { info: {}, schema: {} } });
+  });
+
+  it('emits an https resource.url behind a TLS-terminating proxy (X-Forwarded-Proto)', async () => {
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: BIND_RECIPIENT, network: BIND_NETWORK } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 0.01 }),
+      x402Server: makeFakeX402Server() as never,
+    });
+    // Behind ALB / CloudFront the inbound URL is http://; the proxy sets X-Forwarded-Proto: https.
+    const result = await checkout.handle(req({
+      url: 'http://api.example/purchase',
+      headers: { 'x-forwarded-proto': 'https' },
+    }));
+    expect(result.status).toBe(402);
+    const decoded = JSON.parse(Buffer.from(result.headers['payment-required'], 'base64').toString('utf-8'));
+    expect(decoded.resource.url).toBe('https://api.example/purchase');
+  });
+
+  it('enriches the Bazaar discovery extension with info.input.method from the request', async () => {
+    const { createBazaarDiscovery } = await import('../src/discovery/bazaar');
+    const bazaar = (await createBazaarDiscovery({
+      bodyType: 'json',
+      input: { domain: { type: 'string' } },
+      output: { matches: { type: 'array' } },
+    })) as Record<string, unknown>;
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: BIND_RECIPIENT, network: BIND_NETWORK } as X402BaseRailSpec },
+      url: 'https://api.example/company/base',
+      computePricing: () => ({ amountUsd: 0.01 }),
+      x402Server: makeFakeX402Server() as never,
+      discoveryExtensions: bazaar,
+    });
+    const result = await checkout.handle(req({ url: 'https://api.example/company/base' }));
+    expect(result.status).toBe(402);
+    const decoded = JSON.parse(Buffer.from(result.headers['payment-required'], 'base64').toString('utf-8'));
+    // info.input.method (required by the v2 discovery schema) is absent at declaration
+    // time and filled by the server enrichment from the request method.
+    expect((decoded.extensions.bazaar.info.input as { method?: string }).method).toBe('POST');
+  });
+});
+
+describe('Checkout — x402 payTo binding to the configured static recipient', () => {
+  beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
+  afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+
+  function buildCheckout(server = makeFakeX402Server()) {
+    return new Checkout({
+      // STATIC recipient, no mintRecipients, no isCachedAddress → Checkout auto-binds payTo to it.
+      rails: { x402_base: { recipient: BIND_RECIPIENT, network: BIND_NETWORK } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 0.01 }),
+      x402Server: server as never,
+    });
+  }
+
+  it('REJECTS a settle whose payTo is NOT the configured recipient (hostile redirect)', async () => {
+    const server = makeFakeX402Server();
+    const checkout = buildCheckout(server);
+    // Agent forges payTo = their own wallet (a VALID EVM address, so it clears the shape check —
+    // the rejection is specifically the recipient bind, not address validation). The permissive
+    // default must NOT apply to a static-recipient merchant: rejected before the facilitator runs.
+    const attacker = '0xbadbadbadbadbadbadbadbadbadbadbadbadbad0';
+    const result = await checkout.handle(req({
+      headers: { 'x-payment': x402Header(attacker) },
+    }));
+    expect(result.status).toBe(400);
+    expect(result.settled).toBe(false);
+    expect((result.body.error as { code: string }).code).toBe('payment_proof_invalid');
+    expect(server.settlePayment).not.toHaveBeenCalled();
+  });
+
+  it('ACCEPTS a settle whose payTo equals the configured recipient (case-insensitive)', async () => {
+    const server = makeFakeX402Server();
+    const checkout = buildCheckout(server);
+    // Honest payTo, hex body case-flipped (keeping the `0x` prefix lowercase so it still passes the
+    // EVM address-shape check) to prove the recipient bind itself is case-insensitive.
+    const flipped = '0x' + BIND_RECIPIENT.slice(2).toLowerCase();
+    const result = await checkout.handle(req({
+      headers: { 'x-payment': x402Header(flipped) },
+    }));
+    expect(result.status).toBe(200);
+    expect(result.settled).toBe(true);
+    expect(server.settlePayment).toHaveBeenCalled();
+  });
+
+  it('a merchant-supplied isCachedAddress still wins (per-order minting path unchanged)', async () => {
+    const server = makeFakeX402Server();
+    const seen = '0xabcdef0000000000000000000000000000000aaa'; // per-order minted deposit address
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: BIND_RECIPIENT, network: BIND_NETWORK } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 0.01 }),
+      x402Server: server as never,
+      // Custom lookup: only the per-order minted address is valid — NOT the static rail recipient.
+      isCachedAddress: (addr) => addr.toLowerCase() === seen.toLowerCase(),
+    });
+    // The static rail recipient is now rejected (custom lookup overrides the static-set bind)...
+    const staticRes = await checkout.handle(req({ headers: { 'x-payment': x402Header(BIND_RECIPIENT) } }));
+    expect(staticRes.status).toBe(400);
+    // ...and the per-order minted address is accepted.
+    const mintedRes = await checkout.handle(req({ headers: { 'x-payment': x402Header(seen) } }));
+    expect(mintedRes.status).toBe(200);
+  });
+
+  it('binds to the per-request minted recipient over the static set (static recipient + mintRecipients)', async () => {
+    // payTo bind regression B: a rail carries BOTH a static recipient AND mintRecipients (static =
+    // discovery default; per-request mint = the real payTo). Binding to the construction-time static
+    // set would reject the legit minted payTo. The fix binds to ctx.recipients['x402_base'] (mirroring
+    // the compute-first path), so the minted payTo settles and the stale static recipient is rejected.
+    const server = makeFakeX402Server();
+    const minted = '0xabcdef0000000000000000000000000000000aaa'; // per-order minted payTo
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: BIND_RECIPIENT, network: BIND_NETWORK } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 0.01 }),
+      x402Server: server as never,
+      mintRecipients: () => ({ x402_base: minted }),
+    });
+    // The per-request minted payTo settles...
+    const mintedRes = await checkout.handle(req({ headers: { 'x-payment': x402Header(minted) } }));
+    expect(mintedRes.status).toBe(200);
+    expect(mintedRes.settled).toBe(true);
+    expect(server.settlePayment).toHaveBeenCalled();
+    // ...and the now-stale construction-time static recipient is rejected.
+    const staticRes = await checkout.handle(req({ headers: { 'x-payment': x402Header(BIND_RECIPIENT) } }));
+    expect(staticRes.status).toBe(400);
+    expect(staticRes.settled).toBe(false);
+  });
+});
+
+describe('Checkout — zero-settle carve-out gates on the real amount (sub-cent guard)', () => {
+  beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
+  afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+
+  it('a $0.002 NON-zero price does NOT take the zero-settle path (it settles on-chain)', async () => {
+    // Math.round(0.002 * 100) === 0, so the old cents-based gate would skip the on-chain settle
+    // and deliver the goods for free. The fixed gate compares the real amount: $0.002 !== 0 → it
+    // falls through to a real x402 settle (the facilitator IS called).
+    const server = makeFakeX402Server();
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: BIND_RECIPIENT, network: BIND_NETWORK } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 0.002, decimals: 4 }),
+      x402Server: server as never,
+      zeroSettleCarveOut: true,
+    });
+    const result = await checkout.handle(req({ headers: { 'x-payment': x402Header(BIND_RECIPIENT) } }));
+    expect(result.status).toBe(200);
+    expect(result.settled).toBe(true);
+    // Real settle ran — NOT the zero-settle carve-out (which never calls the facilitator).
+    expect(server.settlePayment).toHaveBeenCalled();
+  });
+
+  it('a genuine $0 price still takes the zero-settle carve-out (no facilitator call)', async () => {
+    const server = makeFakeX402Server();
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: BIND_RECIPIENT, network: BIND_NETWORK } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 0 }),
+      x402Server: server as never,
+      zeroSettleCarveOut: true,
+    });
+    const result = await checkout.handle(req({ headers: { 'x-payment': x402Header(BIND_RECIPIENT) } }));
+    expect(result.status).toBe(200);
+    // Zero-settle path: the facilitator is NEVER called (CDP rejects value=0).
+    expect(server.settlePayment).not.toHaveBeenCalled();
   });
 });

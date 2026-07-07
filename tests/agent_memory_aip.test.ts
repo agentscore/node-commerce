@@ -25,7 +25,7 @@ describe('buildAgentMemoryHint × AIP', () => {
   });
 
   it('advertises the agent_identity path + issuers when AIP is configured', () => {
-    const issuers = ['https://issuer.example', 'https://agentscore.sh'];
+    const issuers = ['https://issuer.example', 'https://www.agentscore.com'];
     const hint = buildAgentMemoryHint(issuers);
     expect(hint.aip_trusted_issuers).toEqual(issuers);
     expect(hint.identity_paths.agent_identity).toMatch(/Agent-Identity/);

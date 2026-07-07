@@ -1,6 +1,6 @@
 import { denialReasonStatus } from '../_denial';
 import { denialReasonToBody } from '../_response';
-import { buildAipErrorBody, verifyAitParts, type AipGateOptions } from '../aip/gate';
+import { buildAipErrorBody, evaluateAipParts, type AipGateOptions } from '../aip/gate';
 import { hasAgentIdentityHeaderNode } from '../aip/request';
 import { createAgentScoreCore } from '../core';
 import { hasPaymentHeader } from '../payment/payment_header';
@@ -32,6 +32,11 @@ interface GateState {
   infraReason?: FailOpenInfraReason;
   /** Per-account assess quota observability captured from `X-Quota-*` response headers. */
   quota?: GateQuotaInfo;
+  /** Per-REQUEST signer verdicts (signer_match + signer_sanctions) from this request's assess
+   *  call. Request-scoped (lives on the Fastify `request`, not the shared core) so concurrent
+   *  same-wallet/different-signer requests can't read each other's verdict. Read via
+   *  {@link getSignerVerdict}. */
+  signerVerdict?: SignerVerdict;
 }
 
 interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
@@ -108,11 +113,16 @@ const agentscoreGatePlugin: FastifyPluginAsync<AgentScoreGateOptions> = async (f
           state.infraReason = outcome.infraReason;
         }
         if (outcome.quota) state.quota = outcome.quota;
+        if (outcome.signerVerdict) state.signerVerdict = outcome.signerVerdict;
       }
       if (outcome.data) (request as unknown as Record<string, unknown>).agentscore = outcome.data;
       return;
     }
 
+    if (outcome.signerVerdict) {
+      const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+      if (state) state.signerVerdict = outcome.signerVerdict;
+    }
     await onDenied(request, reply, outcome.reason);
   });
 };
@@ -178,8 +188,7 @@ export async function captureWallet(
  */
 export function getSignerVerdict(request: FastifyRequest): SignerVerdict | undefined {
   const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
-  if (!state?.walletAddress) return undefined;
-  return state.core.getSignerVerdict(state.walletAddress);
+  return state?.signerVerdict;
 }
 
 // Escape Fastify's plugin encapsulation so the preHandler hook applies to routes
@@ -223,8 +232,13 @@ const conditionalAgentscoreGatePlugin: FastifyPluginAsync<AgentScoreGateOptions>
           state.infraReason = outcome.infraReason;
         }
         if (outcome.quota) state.quota = outcome.quota;
+        if (outcome.signerVerdict) state.signerVerdict = outcome.signerVerdict;
       }
       return;
+    }
+    if (outcome.signerVerdict) {
+      const state = (request as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+      if (state) state.signerVerdict = outcome.signerVerdict;
     }
     return onDenied(request, reply, outcome.reason);
   });
@@ -263,12 +277,12 @@ function defaultAipOnDenied(_req: FastifyRequest, reply: FastifyReply, body: Ret
 const aipGatePlugin: FastifyPluginAsync<AipGateFastifyOptions> = async (fastify, options) => {
   const { onDenied = defaultAipOnDenied, ...gateOpts } = options;
   fastify.addHook('preHandler', async (request, reply) => {
-    const result = await verifyAitParts(
+    const result = await evaluateAipParts(
       { method: request.method, url: request.url, headers: request.headers as Record<string, string | string[] | undefined> },
       gateOpts,
     );
     if (!result.ok) {
-      await onDenied(request, reply, buildAipErrorBody(result.failure));
+      await onDenied(request, reply, result.body);
       return;
     }
     (request as unknown as Record<string, unknown>)[AIT_STATE_KEY] = result.ait;
@@ -282,12 +296,12 @@ const conditionalAipGatePlugin: FastifyPluginAsync<AipGateFastifyOptions> = asyn
   const { onDenied = defaultAipOnDenied, ...gateOpts } = options;
   fastify.addHook('preHandler', async (request, reply) => {
     if (!hasAgentIdentityHeaderNode(request.headers as Record<string, string | string[] | undefined>)) return;
-    const result = await verifyAitParts(
+    const result = await evaluateAipParts(
       { method: request.method, url: request.url, headers: request.headers as Record<string, string | string[] | undefined> },
       gateOpts,
     );
     if (!result.ok) {
-      await onDenied(request, reply, buildAipErrorBody(result.failure));
+      await onDenied(request, reply, result.body);
       return;
     }
     (request as unknown as Record<string, unknown>)[AIT_STATE_KEY] = result.ait;

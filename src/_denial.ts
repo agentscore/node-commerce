@@ -92,7 +92,7 @@ export function buildSignerMismatchBody({
 }): Record<string, unknown> | null {
   if (result.kind === 'pass') return null;
 
-  const learnMoreUrlResolved = learnMoreUrl ?? 'https://docs.agentscore.sh/guides/agent-identity';
+  const learnMoreUrlResolved = learnMoreUrl ?? 'https://docs.agentscore.com/guides/agent-identity';
 
   if (result.kind === 'wallet_signer_mismatch') {
     const linkedWallets = result.linkedWallets ?? [];
@@ -204,7 +204,7 @@ export function verificationAgentInstructions({
   [key: string]: unknown;
 } {
   const baseSteps = [
-    'Present the verify_url directly to the user — it is a complete, ready-to-open URL with the session token already embedded (e.g. https://agentscore.sh/verify?session=sess_...). Do NOT modify or construct the URL yourself.',
+    'Present the verify_url directly to the user — it is a complete, ready-to-open URL with the session token already embedded (e.g. https://www.agentscore.com/verify?session=sess_...). Do NOT modify or construct the URL yourself.',
     `Immediately begin polling poll_url every ${pollIntervalSeconds} seconds with header X-Poll-Secret set to poll_secret. The user will complete verification in their browser while you poll in the background.`,
     'The user visits the URL, signs in, completes identity verification (photo ID + selfie via Stripe Identity), and closes the tab. They do NOT need to copy or paste anything back to you.',
     'When your poll returns status "verified", extract operator_token from the response. This is a one-time value — save it immediately. Subsequent polls return status "consumed" without the token.',

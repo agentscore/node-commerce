@@ -6,7 +6,7 @@
  * envelope, with `services` / `capabilities` / `payment_handlers` as MAPs keyed by
  * reverse-DNS service / capability / handler name.
  *
- * AgentScore identity claims layer over UCP via the `sh.agentscore.identity` capability
+ * AgentScore identity claims layer over UCP via the `com.agentscore.identity` capability
  * (vendor-namespaced; UCP doesn't define KYC/sanctions/age/jurisdiction natively). The
  * capability extends `dev.ucp.shopping.checkout` AND `dev.ucp.shopping.cart` (multi-parent,
  * the standard pattern UCP allows for capabilities that compose multiple parents).
@@ -204,7 +204,7 @@ interface BuildUCPProfileInput {
   /** Services map, keyed by service name. UCP-shopping merchants typically advertise
    *  bindings under `'dev.ucp.shopping'`. */
   services?: Record<string, UCPServiceBinding[]>;
-  /** Capabilities map, keyed by capability name. The `sh.agentscore.identity` capability
+  /** Capabilities map, keyed by capability name. The `com.agentscore.identity` capability
    *  is auto-added when `agentscore_gate` is provided. */
   capabilities?: Record<string, UCPCapabilityBinding[]>;
   /** Payment handlers map, keyed by handler reverse-DNS name. */
@@ -212,7 +212,7 @@ interface BuildUCPProfileInput {
   /** JWKS — public keys the merchant signs with. REQUIRED by spec. */
   signing_keys: UCPSigningKey[];
   /** Merchant gate policy declaration. When provided, the SDK auto-injects an
-   *  `sh.agentscore.identity` capability binding into `capabilities`, with the
+   *  `com.agentscore.identity` capability binding into `capabilities`, with the
    *  policy as the binding's `config`. Static merchant declaration only — no
    *  per-operator data ever ends up on the public profile. Per-operator identity
    *  attestation lives on the AP2 risk-signal endpoint, not here. */
@@ -234,12 +234,12 @@ interface BuildUCPProfileInput {
 const DEFAULT_VERSION = '2026-04-08';
 // Reverse-DNS namespacing per UCP convention (`^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9_]*)+$`).
 // The bare `agentscore-identity` form fails the spec regex; vendor-namespacing under
-// `sh.agentscore` is honest about the capability being our extension, not UCP-canonical.
-const AGENTSCORE_CAPABILITY_NAME = 'sh.agentscore.identity';
+// `com.agentscore` is honest about the capability being our extension, not UCP-canonical.
+const AGENTSCORE_CAPABILITY_NAME = 'com.agentscore.identity';
 // Date-format version per UCP convention (matches every other binding's version field).
 const AGENTSCORE_CAPABILITY_VERSION = '2026-04-08';
 
-/** Merchant gate policy declared on the UCP profile via `sh.agentscore.identity` capability config.
+/** Merchant gate policy declared on the UCP profile via `com.agentscore.identity` capability config.
  *  All fields optional; merchant declares which AgentScore checks the gate enforces. Snake-case
  *  field names match the AgentScore API's `/v1/assess` policy contract verbatim — no conversion
  *  layer between this declaration and what the gate actually enforces at runtime. */
@@ -257,9 +257,9 @@ export interface AgentScoreGatePolicy {
    *  with `allowed_jurisdictions`. */
   blocked_jurisdictions?: string[];
 }
-const AGENTSCORE_DEFAULT_SPEC_URL = 'https://agentscore.sh/specification/identity';
-const AGENTSCORE_DEFAULT_SCHEMA_URL = 'https://agentscore.sh/schemas/ucp/sh-agentscore-identity-v1.json';
-// Multi-parent extension — `sh.agentscore.identity` declares merchant policy relevant at
+const AGENTSCORE_DEFAULT_SPEC_URL = 'https://www.agentscore.com/specification/identity';
+const AGENTSCORE_DEFAULT_SCHEMA_URL = 'https://www.agentscore.com/schemas/ucp/com-agentscore-identity-v1.json';
+// Multi-parent extension — `com.agentscore.identity` declares merchant policy relevant at
 // both checkout-build (compliance gate) and cart-build (price-gate eligibility, jurisdiction-
 // restricted items in cart) time, so an agent reading either parent capability picks up the
 // policy contract. Mirrors the multi-parent convention in the live ecosystem
@@ -293,7 +293,7 @@ const RESERVED_UCP_FIELDS = new Set([
  * signing_keys: [...] }`. Pass through `signUCPProfile` to attach a JWS signature for
  * trust-mode verifiers.
  *
- * Auto-injects `sh.agentscore.identity` as a vendor capability extending both
+ * Auto-injects `com.agentscore.identity` as a vendor capability extending both
  * `dev.ucp.shopping.checkout` and `dev.ucp.shopping.cart` when `agentscore_gate`
  * is provided. The capability's `config` carries the merchant's static gate
  * policy declaration (require_kyc / require_sanctions_clear / min_age /
@@ -360,7 +360,7 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
     capabilities[name] = [...bindings];
   }
 
-  // Auto-inject `sh.agentscore.identity` capability when the merchant declares a gate
+  // Auto-inject `com.agentscore.identity` capability when the merchant declares a gate
   // policy. Static merchant-policy declaration only — no per-operator data on the public
   // profile. Per-operator identity attestation flows through the AP2 risk-signal endpoint
   // or per-request 4xx response bodies, not here.
@@ -417,8 +417,8 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
 export const AGENTSCORE_UCP_CAPABILITY = AGENTSCORE_CAPABILITY_NAME;
 
 const HANDLER_VERSION = '2026-04-08';
-const SPEC_BASE = 'https://agentscore.sh/specification/payment-handlers';
-const SCHEMA_BASE = 'https://agentscore.sh/schemas/payment-handlers';
+const SPEC_BASE = 'https://www.agentscore.com/specification/payment-handlers';
+const SCHEMA_BASE = 'https://www.agentscore.com/schemas/payment-handlers';
 
 // CAIP-2 → UCP-namespace network-name mapping. UCP payment_handler bindings publish
 // network strings in the UCP namespace (`base-8453`, `solana-mainnet-beta`); RailSpecs
@@ -498,7 +498,7 @@ function mppRailToNetworkEntry(spec: MppRailSpec): Record<string, unknown> {
 }
 
 /**
- * Build the `sh.agentscore.payment.mpp` payment handler block for a UCP profile.
+ * Build the `com.agentscore.payment.mpp` payment handler block for a UCP profile.
  *
  * Pass any mix of `TempoRailSpec`, `SolanaMppRailSpec`, and `TempoSessionRailSpec`.
  *
@@ -523,7 +523,7 @@ export function mppPaymentHandler({
   networks: MppRailSpec[];
 }): Record<string, UCPPaymentHandlerBinding[]> {
   return {
-    'sh.agentscore.payment.mpp': [{
+    'com.agentscore.payment.mpp': [{
       id: 'mpp',
       version: HANDLER_VERSION,
       spec: `${SPEC_BASE}/mpp`,
@@ -543,7 +543,7 @@ function x402RailToNetworkEntry(spec: X402BaseRailSpec): Record<string, unknown>
 }
 
 /**
- * Build the `sh.agentscore.payment.x402` payment handler block for a UCP profile.
+ * Build the `com.agentscore.payment.x402` payment handler block for a UCP profile.
  *
  * @example
  * ```ts
@@ -561,7 +561,7 @@ export function x402PaymentHandler({
   networks: X402BaseRailSpec[];
 }): Record<string, UCPPaymentHandlerBinding[]> {
   return {
-    'sh.agentscore.payment.x402': [{
+    'com.agentscore.payment.x402': [{
       id: 'x402',
       version: HANDLER_VERSION,
       spec: `${SPEC_BASE}/x402`,
@@ -572,7 +572,7 @@ export function x402PaymentHandler({
 }
 
 /**
- * Build the `sh.agentscore.payment.stripe_spt` payment handler block for a UCP profile.
+ * Build the `com.agentscore.payment.stripe_spt` payment handler block for a UCP profile.
  *
  * @example
  * ```ts
@@ -590,7 +590,7 @@ export function stripeSptPaymentHandler({
   spec: StripeRailSpec;
 }): Record<string, UCPPaymentHandlerBinding[]> {
   return {
-    'sh.agentscore.payment.stripe_spt': [{
+    'com.agentscore.payment.stripe_spt': [{
       id: 'stripe-spt',
       version: HANDLER_VERSION,
       spec: `${SPEC_BASE}/stripe_spt`,

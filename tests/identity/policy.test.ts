@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { CheckoutValidationError } from '../../src/errors.js';
 import {
   buildGateFromPolicy,
+  isSanctionsDenial,
   runGateWithEnforcement,
   shippingCountryAllowed,
   shippingStateAllowed,
@@ -80,6 +81,7 @@ describe('buildGateFromPolicy', () => {
         requireKyc: true,
         requireSanctionsClear: true,
         minAge: 21,
+        blockedJurisdictions: ['RU', 'KP'],
         allowedJurisdictions: ['US'],
       },
       { apiKey: 'as_test' },
@@ -88,7 +90,16 @@ describe('buildGateFromPolicy', () => {
     expect(opts!.apiKey).toBe('as_test');
     expect(opts!.requireKyc).toBe(true);
     expect(opts!.minAge).toBe(21);
+    expect(opts!.blockedJurisdictions).toEqual(['RU', 'KP']);
     expect(opts!.allowedJurisdictions).toEqual(['US']);
+  });
+
+  it('forwards blockedJurisdictions independently of allowedJurisdictions (fresh array copy)', () => {
+    const blocked = ['RU'];
+    const opts = buildGateFromPolicy({ enforcement: 'hard', blockedJurisdictions: blocked }, { apiKey: 'as_test' });
+    expect(opts!.blockedJurisdictions).toEqual(['RU']);
+    expect(opts!.blockedJurisdictions).not.toBe(blocked); // spread copy, not the caller's ref
+    expect(Object.prototype.hasOwnProperty.call(opts, 'allowedJurisdictions')).toBe(false);
   });
 
   it('passes baseUrl through when given', () => {
@@ -153,10 +164,10 @@ describe('runGateWithEnforcement', () => {
       ok: false,
       status: 403,
       body: { error: { code: 'kyc_required' } },
-      reason: { code: 'kyc_required', verify_url: 'https://agentscore.sh/v/x' },
+      reason: { code: 'kyc_required', verify_url: 'https://www.agentscore.com/v/x' },
     }));
     expect(result.status).toBe('denied');
-    expect(result.denialReason).toMatchObject({ code: 'kyc_required', verify_url: 'https://agentscore.sh/v/x' });
+    expect(result.denialReason).toMatchObject({ code: 'kyc_required', verify_url: 'https://www.agentscore.com/v/x' });
   });
 
   it('soft mode carries through the denial reason while staying unverified', async () => {
@@ -168,6 +179,77 @@ describe('runGateWithEnforcement', () => {
     }));
     expect(result.status).toBe('unverified');
     expect(result.denialReason).toMatchObject({ code: 'kyc_required' });
+  });
+
+  it('soft mode swallows a wallet_not_trusted deny carrying only fixable reasons', async () => {
+    // KYC/age/jurisdiction misses downgrade to unverified under soft so the order completes
+    // with a degraded identity_status. (Sanctions are the sole exception — see below.)
+    const body = { error: { code: 'wallet_not_trusted' }, reasons: ['kyc_required'] };
+    const result = await runGateWithEnforcement('soft', async () => ({ ok: false, status: 403, body }));
+    expect(result.status).toBe('unverified');
+    expect(result.denialStatus).toBe(403);
+    expect(result.denialBody).toEqual(body);
+  });
+
+  it('soft mode does NOT swallow a sanctions deny (reasons: sanctions_flagged) — stays terminal', async () => {
+    // CRITICAL strict-liability floor: soft enforcement must NEVER swallow an OFAC SDN deny. A
+    // wallet_not_trusted deny whose reasons carry `sanctions_flagged` stays denied even under
+    // soft, so a sanctioned wallet is never settled.
+    const body = { error: { code: 'wallet_not_trusted' }, reasons: ['sanctions_flagged'] };
+    const result = await runGateWithEnforcement('soft', async () => ({ ok: false, status: 403, body }));
+    expect(result.status).toBe('denied');
+    expect(result.denialStatus).toBe(403);
+    expect(result.denialBody).toEqual(body);
+  });
+
+  it('soft mode does NOT swallow the fail-closed sanctions_check_unavailable variant', async () => {
+    const body = { error: { code: 'wallet_not_trusted' }, reasons: ['sanctions_check_unavailable'] };
+    const result = await runGateWithEnforcement('soft', async () => ({ ok: false, status: 403, body }));
+    expect(result.status).toBe('denied');
+    expect(result.denialBody).toEqual(body);
+  });
+
+  it('soft mode does NOT swallow a sanctions deny surfaced via decision_reasons', async () => {
+    const body = { error: { code: 'wallet_not_trusted' }, decision_reasons: ['sanctions_flagged'] };
+    const result = await runGateWithEnforcement('soft', async () => ({ ok: false, status: 403, body }));
+    expect(result.status).toBe('denied');
+  });
+
+  it('soft mode does NOT swallow a signer-sanctions deny surfaced via top-level error.code', async () => {
+    // A signer-sanctions SDN deny may surface as a top-level error.code (not in reasons); it is
+    // still recognised as a sanctions deny and stays terminal under soft.
+    const body = { error: { code: 'sanctions_flagged', message: 'signer on SDN list' } };
+    const result = await runGateWithEnforcement('soft', async () => ({ ok: false, status: 403, body }));
+    expect(result.status).toBe('denied');
+  });
+});
+
+// ── isSanctionsDenial ────────────────────────────────────────────────────────
+
+describe('isSanctionsDenial', () => {
+  it('false for null / undefined body', () => {
+    expect(isSanctionsDenial(null)).toBe(false);
+    expect(isSanctionsDenial(undefined)).toBe(false);
+  });
+
+  it('false for a non-sanctions deny', () => {
+    expect(isSanctionsDenial({ error: { code: 'wallet_not_trusted' }, reasons: ['kyc_required'] })).toBe(false);
+  });
+
+  it('true when reasons carries sanctions_flagged', () => {
+    expect(isSanctionsDenial({ reasons: ['sanctions_flagged'] })).toBe(true);
+  });
+
+  it('true when reasons carries sanctions_check_unavailable', () => {
+    expect(isSanctionsDenial({ reasons: ['sanctions_check_unavailable'] })).toBe(true);
+  });
+
+  it('true when decision_reasons carries a sanctions reason', () => {
+    expect(isSanctionsDenial({ decision_reasons: ['sanctions_flagged'] })).toBe(true);
+  });
+
+  it('true when the top-level error.code is a sanctions reason', () => {
+    expect(isSanctionsDenial({ error: { code: 'sanctions_flagged' } })).toBe(true);
   });
 });
 

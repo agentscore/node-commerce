@@ -6,6 +6,26 @@ import type { PricingBlock as _PricingBlock } from './pricing';
 export type { PricingBlock } from './pricing';
 
 /**
+ * x402 v2 `ResourceInfo`: resource metadata surfaced on the 402 body (and the
+ * PAYMENT-REQUIRED header) so spec-compliant crawlers and discovery clients can
+ * read what the paid resource is. Mirrors `@x402/core`'s `ResourceInfoSchema`.
+ */
+export interface X402ResourceInfo {
+  /** Canonical URL of the paid resource. */
+  url: string;
+  /** Human-readable description of what the resource returns. */
+  description?: string;
+  /** MIME type of the response (e.g. 'application/json'). */
+  mimeType?: string;
+  /** Short service name (max 32 printable-ASCII chars). */
+  serviceName?: string;
+  /** Up to 5 capability tags (max 32 printable-ASCII chars each). */
+  tags?: string[];
+  /** Icon URL (max 2048 chars). */
+  iconUrl?: string;
+}
+
+/**
  * Assemble the full enriched 402 response body. Combines accepted_methods, agent_instructions,
  * identity metadata, pricing, x402 compliance fields, and any vendor-specific extras into a
  * single object suitable for `JSON.stringify`. Vendors pass only what they have; the builder
@@ -57,6 +77,10 @@ export function build402Body({
   x402?: {
     accepts: unknown[];
     version?: 1 | 2;
+    /** x402 v2 `resource` field: resource metadata (url + serviceName / tags /
+     *  description / mimeType / iconUrl). Surfaces on the 402 body as `resource`
+     *  so spec-compliant crawlers and discovery clients can read what's sold. */
+    resource?: X402ResourceInfo;
     /** x402 spec `extensions` field. Per-endpoint declared extensions (e.g.
      *  `bazaar` discovery schema from `createBazaarDiscovery({...})`). Surfaces
      *  on the 402 body as `extensions` so spec-compliant crawlers can read it. */
@@ -73,6 +97,7 @@ export function build402Body({
   if (x402) {
     body.x402Version = x402.version ?? 2;
     body.accepts = x402.accepts;
+    if (x402.resource !== undefined) body.resource = x402.resource;
     if (x402.extensions !== undefined && Object.keys(x402.extensions).length > 0) {
       body.extensions = x402.extensions;
     }

@@ -46,7 +46,7 @@ describe('lazyMppxServer', () => {
   it('returns an async getter', () => {
     const getter = lazyMppxServer({
       rails: {},
-      secretKey: 'test-secret',
+      secretKey: 'lazy_test_secret_padded_to_32_bytes_a',
     });
     expect(typeof getter).toBe('function');
   });
@@ -57,7 +57,7 @@ describe('lazyMppxServer', () => {
     // same shape (memoization is internal).
     const getter = lazyMppxServer({
       rails: {},
-      secretKey: 'test-mppx',
+      secretKey: 'lazy_test_mppx_padded_to_32_bytes_bbbb',
     });
     const a = getter();
     const b = getter();
@@ -66,7 +66,7 @@ describe('lazyMppxServer', () => {
   });
 
   it('returns the cached instance on a subsequent (post-settle) call', async () => {
-    const getter = lazyMppxServer({ rails: {}, secretKey: 'test-mppx-cached' });
+    const getter = lazyMppxServer({ rails: {}, secretKey: 'lazy_test_mppx_cached_padded_to_32b_cc' });
     const first = await getter();
     const second = await getter();
     expect(second).toBe(first);

@@ -29,6 +29,18 @@ export const HARD_MAX_CACHE_SECONDS = 86_400; // 24h
 /** Floor used when the IdP sends no usable cache directive. */
 export const DEFAULT_CACHE_SECONDS = 300; // 5m
 
+/**
+ * After a fetch ATTEMPT (initial, kid-miss-triggered, success OR failure), suppress further
+ * upstream fetches for this issuer for this many ms. Mirrors the API verifier's
+ * `cooldownDuration: 30_000` (jose `createRemoteJWKSet`, `the AgentScore API verifier`). Without
+ * it, an unauthenticated attacker who sends a stream of tokens with unknown `kid`s (the `kid`/`iss`
+ * are decoded BEFORE signature verification, and the canonical issuer is always trusted) forces one
+ * upstream JWKS GET per request — a refetch-amplification / DoS vector against the issuer. Stamping
+ * the cooldown on FAILURE too (a negative cache) closes the cold/erroring-issuer variant: a stream
+ * of tokens against an issuer whose JWKS is down would otherwise retry the GET on every request.
+ */
+export const REFETCH_COOLDOWN_MS = 30_000; // 30s — matches the API verifier
+
 type FetchLike = (url: string, init?: { headers?: Record<string, string> }) => Promise<{
   ok: boolean;
   status: number;
@@ -40,7 +52,7 @@ type FetchLike = (url: string, init?: { headers?: Record<string, string> }) => P
  *  gate/adapter built on it) without the merchant listing it — this SDK is the AgentScore
  *  verifier, so a merchant can't accidentally fail to trust AgentScore-issued AITs. `trustedIssuers`
  *  only needs to name ADDITIONAL external issuers. */
-export const AGENTSCORE_CANONICAL_ISSUER = 'https://agentscore.sh';
+export const AGENTSCORE_CANONICAL_ISSUER = 'https://www.agentscore.com';
 
 export interface JwksCacheOptions {
   /** ADDITIONAL external issuer URLs to trust beyond AgentScore's own (compared after
@@ -69,6 +81,15 @@ export type JwksLookupResult =
 interface CachedKeys {
   keys: JWK[];
   expiresAt: number; // ms
+  /** Until this timestamp (ms), no lookup will hit upstream — a kid-miss within a fresh cache
+   *  returns `key_not_found`, and a cold/expired cache returns `lastFailure` without fetching.
+   *  Stamped to `now + REFETCH_COOLDOWN_MS` on every fetch ATTEMPT (success or failure). This is
+   *  the refetch-amplification / DoS guard (see {@link REFETCH_COOLDOWN_MS}). */
+  cooldownUntil: number; // ms
+  /** Why the last fetch attempt failed, when it did. Served (without refetching) to lookups that
+   *  land within the cooldown with no usable cached keys — the negative-cache entry for a
+   *  cold/erroring issuer. Absent after a successful fetch. */
+  lastFailure?: JwksLookupFailure;
 }
 
 /**
@@ -122,6 +143,12 @@ export class JwksCache {
   private readonly now: () => number;
   private readonly userAgent: string;
   private readonly cache = new Map<string, CachedKeys>();
+  /** Per-issuer in-flight refresh promise — coalesces concurrent refreshes to ONE upstream fetch.
+   *  Without it, a concurrent burst of distinct-kid lookups on a cold/expired cache each call
+   *  `refresh()` before any has populated the cache → N parallel JWKS GETs (refetch amplification).
+   *  The cooldown only suppresses SEQUENTIAL refetches; single-flight suppresses CONCURRENT ones.
+   *  Entry is cleared in a `finally` once the fetch settles. */
+  private readonly inflight = new Map<string, Promise<{ ok: true; keys: JWK[] } | { ok: false; reason: JwksLookupFailure }>>();
 
   constructor(opts: JwksCacheOptions) {
     // AgentScore's own issuer is always trusted, plus any additional external issuers. Canonicalize
@@ -160,14 +187,29 @@ export class JwksCache {
     if (cached && this.now() < cached.expiresAt) {
       const hit = this.select(cached.keys, kid);
       if (hit) { return { ok: true, key: hit }; }
-      // kid miss within window → one forced refetch (rotation may have added a key).
+      // kid miss within the cache window. Normally we'd force one refetch (rotation may have
+      // published a new key) — but only once the refetch cooldown has elapsed. WITHIN the
+      // cooldown we return key_not_found WITHOUT refetching. This caps JWKS GETs at ~1 per issuer
+      // per cooldown regardless of how many unknown-kid tokens an attacker streams (the DoS
+      // guard). Once the cooldown passes we fall through to a single refetch, because rotation
+      // may have published the kid since.
+      if (this.now() < cached.cooldownUntil) {
+        return { ok: false, reason: 'key_not_found' };
+      }
+      // Past the cooldown: fall through to a single forced refetch below.
+    } else if (cached && this.now() < cached.cooldownUntil) {
+      // No usable cached keys (cold fetch failed, or the cache expired) and still inside the
+      // refetch cooldown — fail WITHOUT an upstream GET. This is the negative cache for a
+      // cold/erroring issuer: sequential lookups within the cooldown cost zero fetches.
+      return { ok: false, reason: cached.lastFailure ?? 'key_not_found' };
     }
 
     const refreshed = await this.refresh(canon);
     if (!refreshed.ok) { return refreshed; }
 
     const hit = this.select(refreshed.keys, kid);
-    return hit ? { ok: true, key: hit } : { ok: false, reason: 'key_not_found' };
+    if (hit) { return { ok: true, key: hit }; }
+    return { ok: false, reason: 'key_not_found' };
   }
 
   private select(keys: JWK[], kid: string | undefined): JWK | undefined {
@@ -181,29 +223,68 @@ export class JwksCache {
     return candidates.length === 1 ? candidates[0] : undefined;
   }
 
+  /**
+   * Refresh the cached key set for `canonIssuer`, coalescing concurrent callers onto a single
+   * upstream fetch (single-flight). The first caller for an issuer with no in-flight refresh kicks
+   * off the fetch and registers the promise; concurrent callers await that same promise instead of
+   * issuing their own GET. The entry is cleared once the fetch settles so the NEXT cold/expired
+   * lookup can refresh again.
+   */
   private async refresh(canonIssuer: string): Promise<{ ok: true; keys: JWK[] } | { ok: false; reason: JwksLookupFailure }> {
+    const existing = this.inflight.get(canonIssuer);
+    if (existing !== undefined) { return existing; }
+    const promise = this.fetchAndCache(canonIssuer).finally(() => {
+      this.inflight.delete(canonIssuer);
+    });
+    this.inflight.set(canonIssuer, promise);
+    return promise;
+  }
+
+  private async fetchAndCache(canonIssuer: string): Promise<{ ok: true; keys: JWK[] } | { ok: false; reason: JwksLookupFailure }> {
     const url = `${canonIssuer}${JWKS_WELL_KNOWN_PATH}`;
     let res: Awaited<ReturnType<FetchLike>>;
     try {
       res = await this.fetchImpl(url, { headers: { 'User-Agent': this.userAgent, Accept: 'application/jwk-set+json, application/json' } });
     } catch {
-      return { ok: false, reason: 'fetch_failed' };
+      return this.stampFailure(canonIssuer, 'fetch_failed');
     }
-    if (!res.ok) { return { ok: false, reason: 'fetch_failed' }; }
+    if (!res.ok) { return this.stampFailure(canonIssuer, 'fetch_failed'); }
 
     let body: unknown;
     try {
       body = await res.json();
     } catch {
-      return { ok: false, reason: 'malformed_jwks' };
+      return this.stampFailure(canonIssuer, 'malformed_jwks');
     }
     if (typeof body !== 'object' || body === null || !Array.isArray((body as { keys?: unknown }).keys)) {
-      return { ok: false, reason: 'malformed_jwks' };
+      return this.stampFailure(canonIssuer, 'malformed_jwks');
     }
     const keys = (body as { keys: JWK[] }).keys;
 
     const ttlSeconds = resolveCacheSeconds(res.headers.get('cache-control'));
-    this.cache.set(canonIssuer, { keys, expiresAt: this.now() + ttlSeconds * 1000 });
+    const now = this.now();
+    // Stamp the cooldown window on every fetch so a kid-miss can't trigger another refetch for
+    // REFETCH_COOLDOWN_MS.
+    this.cache.set(canonIssuer, {
+      keys,
+      expiresAt: now + ttlSeconds * 1000,
+      cooldownUntil: now + REFETCH_COOLDOWN_MS,
+    });
     return { ok: true, keys };
+  }
+
+  /** Stamp the per-issuer refetch cooldown on a FAILED fetch attempt (the negative cache). Any
+   *  previously cached keys + expiry are preserved — a failed kid-miss refetch must not nuke a
+   *  still-fresh key set; only the cooldown and failure reason are updated. */
+  private stampFailure(canonIssuer: string, reason: JwksLookupFailure): { ok: false; reason: JwksLookupFailure } {
+    const now = this.now();
+    const prev = this.cache.get(canonIssuer);
+    this.cache.set(canonIssuer, {
+      keys: prev?.keys ?? [],
+      expiresAt: prev?.expiresAt ?? now,
+      cooldownUntil: now + REFETCH_COOLDOWN_MS,
+      lastFailure: reason,
+    });
+    return { ok: false, reason };
   }
 }

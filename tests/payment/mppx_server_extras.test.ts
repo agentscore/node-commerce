@@ -14,18 +14,20 @@ import type {
 
 describe('createMppxServer — additional rail branches', () => {
   it('routes tempo_session config through mppx.tempo.session', async () => {
-    await expect(
-      createMppxServer({
-        rails: {
-          tempo_session: {
-            recipient: '0x0000000000000000000000000000000000000001',
-            escrowContract: '0x0000000000000000000000000000000000000002',
-            store: {},
-          } as TempoSessionRailSpec,
-        },
-        secretKey: 'mpp_secret_xxx',
-      }),
-    ).rejects.toThrow(/requires an `account`/);
+    // mppx >=0.7.0 builds a session without a construction-time account
+    // (the account is required later for channel close / settlement; the old
+    // throw-at-construction guard moved to the legacy session path).
+    const server = await createMppxServer({
+      rails: {
+        tempo_session: {
+          recipient: '0x0000000000000000000000000000000000000001',
+          escrowContract: '0x0000000000000000000000000000000000000002',
+          store: {},
+        } as TempoSessionRailSpec,
+      },
+      secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
+    });
+    expect(server).toBeDefined();
   });
 
   it('registers stripe via createMppxStripe when stripe rail is configured', async () => {
@@ -33,7 +35,7 @@ describe('createMppxServer — additional rail branches', () => {
       rails: {
         stripe: { profileId: 'acct_test', secretKey: 'sk_test_xxx' } as StripeRailSpec,
       },
-      secretKey: 'mpp_secret_xxx',
+      secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
     });
     expect(server).toBeDefined();
   });
@@ -42,7 +44,7 @@ describe('createMppxServer — additional rail branches', () => {
     await expect(
       createMppxServer({
         rails: { stripe: { profileId: 'acct_test' } as StripeRailSpec },
-        secretKey: 'mpp_secret_xxx',
+        secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
       }),
     ).rejects.toThrow(/profileId and secretKey/);
   });
@@ -55,7 +57,7 @@ describe('createMppxServer — additional rail branches', () => {
           token: '0xCustomCurrencyAddress',
         } as TempoRailSpec,
       },
-      secretKey: 'mpp_secret_xxx',
+      secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
     });
     expect(server).toBeDefined();
   });
@@ -69,7 +71,7 @@ describe('createMppxServer — additional rail branches', () => {
           rpcUrl: 'http://localhost:9999',
         } as SolanaMppRailSpec,
       },
-      secretKey: 'mpp_secret_xxx',
+      secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
     });
     expect(server).toBeDefined();
   });
@@ -83,7 +85,7 @@ describe('createMppxServer — additional rail branches', () => {
           tokenProgram: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
         } as SolanaMppRailSpec,
       },
-      secretKey: 'mpp_secret_xxx',
+      secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
     });
     expect(server).toBeDefined();
   });
@@ -100,7 +102,7 @@ describe('createMppxServer — additional rail branches', () => {
           tokenProgram: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
         } as SolanaMppRailSpec,
       },
-      secretKey: 'mpp_secret_xxx',
+      secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
     });
     expect(server).toBeDefined();
   });
@@ -114,7 +116,7 @@ describe('createMppxServer — additional rail branches', () => {
           ataCreationRequired: false,
         } as SolanaMppRailSpec,
       },
-      secretKey: 'mpp_secret_xxx',
+      secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
     });
     expect(server).toBeDefined();
   });
@@ -125,7 +127,7 @@ describe('createMppxServer — additional rail branches', () => {
         rails: {
           tempo: { recipient: () => '0x0000000000000000000000000000000000000001' } as unknown as TempoRailSpec,
         },
-        secretKey: 'mpp_secret_xxx',
+        secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
       }),
     ).rejects.toThrow(/requires a string recipient/);
   });
@@ -139,7 +141,7 @@ describe('createMppxServer — additional rail branches', () => {
             network: networks.solana.devnet.caip2,
           } as unknown as SolanaMppRailSpec,
         },
-        secretKey: 'mpp_secret_xxx',
+        secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
       }),
     ).rejects.toThrow(/requires a string recipient/);
   });

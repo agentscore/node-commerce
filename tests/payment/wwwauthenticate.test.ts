@@ -26,6 +26,36 @@ describe('paymentRequiredHeader', () => {
     expect(decoded.resource.url).toBe('https://merchant.example/api');
   });
 
+  it('carries x402 v2 extensions and full ResourceInfo in the header per spec', () => {
+    const header = paymentRequiredHeader({
+      x402Version: 2,
+      accepts: [{ scheme: 'exact', network: 'eip155:8453' }],
+      resource: {
+        url: 'https://merchant.example/api',
+        mimeType: 'application/json',
+        serviceName: 'Example API',
+        tags: ['data', 'enrichment'],
+        iconUrl: 'https://merchant.example/icon.png',
+      },
+      extensions: { 'com.coinbase.bazaar': { info: {}, schema: {} } },
+    });
+    const decoded = JSON.parse(Buffer.from(header, 'base64').toString('utf-8'));
+    expect(decoded.resource.serviceName).toBe('Example API');
+    expect(decoded.resource.tags).toEqual(['data', 'enrichment']);
+    expect(decoded.resource.iconUrl).toBe('https://merchant.example/icon.png');
+    expect(decoded.extensions).toEqual({ 'com.coinbase.bazaar': { info: {}, schema: {} } });
+  });
+
+  it('omits extensions from the header when empty', () => {
+    const header = paymentRequiredHeader({
+      x402Version: 2,
+      accepts: [{ scheme: 'exact' }],
+      extensions: {},
+    });
+    const decoded = JSON.parse(Buffer.from(header, 'base64').toString('utf-8'));
+    expect('extensions' in decoded).toBe(false);
+  });
+
   it('emits accepts entries verbatim (no amount-field aliasing) so deepEqual matchers pass', () => {
     // @x402/core's findMatchingRequirements deep-equals the agent's signed `accepted`
     // payload against the merchant's accepts array — any extra alias field on the wire

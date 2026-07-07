@@ -31,12 +31,13 @@ const readAgentIdentityHeaders = (headers: Headers): string[] => {
  */
 const deriveAuthority = (req: Request, url: URL): string => req.headers.get('host') ?? url.host;
 
-/** Build the framework-agnostic verify context from a standard `Request`. */
-export const buildVerifyContextFromRequest = (req: Request): VerifyRequestContext => {
+/** Build the framework-agnostic verify context from a standard `Request`. A configured
+ *  `authority` pin (e.g. `AipGateOptions.authority`) wins over the inbound `Host` header. */
+export const buildVerifyContextFromRequest = (req: Request, authority?: string): VerifyRequestContext => {
   const url = new URL(req.url);
   return {
     method: req.method,
-    authority: deriveAuthority(req, url),
+    authority: authority ?? deriveAuthority(req, url),
     path: url.pathname,
     agentIdentityHeaders: readAgentIdentityHeaders(req.headers),
     signatureInput: req.headers.get('signature-input'),
@@ -84,11 +85,19 @@ export const buildVerifyContextFromParts = (parts: {
     ? agentIdentityRaw.split(',').map((s) => s.trim()).filter((s) => s.length > 0)
     : [];
   const host = parts.authority ?? readNodeHeader(parts.headers, 'host') ?? '';
-  // url may be a bare path ("/checkout") or absolute; derive the pathname either way.
+  // url may be an absolute URL or an origin-form target ("/checkout?...", possibly "//x"). Build
+  // the URL by APPENDING the target to the origin (not resolving it as a reference) so a leading
+  // "//" is treated as PATH — `new URL('//x', base)` would mis-read "//x" as a protocol-relative
+  // authority and drop it, diverging from the signer's `URL.pathname` and failing PoP.
   // Always assigned in both branches below, so no initializer (avoids a dead assignment).
   let path: string;
   try {
-    path = new URL(parts.url, host ? `http://${host}` : 'http://localhost').pathname;
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(parts.url)) {
+      path = new URL(parts.url).pathname;
+    } else {
+      const target = parts.url.startsWith('/') ? parts.url : `/${parts.url}`;
+      path = new URL(`http://${host || 'localhost'}${target}`).pathname;
+    }
   } catch {
     const q = parts.url.indexOf('?');
     path = q === -1 ? parts.url : parts.url.slice(0, q);

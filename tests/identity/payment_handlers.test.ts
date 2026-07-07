@@ -14,12 +14,12 @@ import type {
 } from '../../src/payment/rail_spec';
 
 const mppConfig = (out: ReturnType<typeof mppPaymentHandler>): { networks: Record<string, unknown>[] } => {
-  const binding = out['sh.agentscore.payment.mpp']?.[0];
+  const binding = out['com.agentscore.payment.mpp']?.[0];
   return binding!.config as { networks: Record<string, unknown>[] };
 };
 
 const x402Config = (out: ReturnType<typeof x402PaymentHandler>): { networks: Record<string, unknown>[] } => {
-  const binding = out['sh.agentscore.payment.x402']?.[0];
+  const binding = out['com.agentscore.payment.x402']?.[0];
   return binding!.config as { networks: Record<string, unknown>[] };
 };
 
@@ -171,13 +171,13 @@ describe('stripeSptPaymentHandler', () => {
     const out = stripeSptPaymentHandler({
       spec: { profileId: 'profile_5xKvNqM9BaH' } as StripeRailSpec,
     });
-    const binding = out['sh.agentscore.payment.stripe_spt']?.[0];
+    const binding = out['com.agentscore.payment.stripe_spt']?.[0];
     expect(binding!.config).toEqual({ rail: 'stripe-spt', profile_id: 'profile_5xKvNqM9BaH' });
   });
 
   it('emits profile_id: null when caller omits profileId', () => {
     const out = stripeSptPaymentHandler({ spec: {} as StripeRailSpec });
-    const binding = out['sh.agentscore.payment.stripe_spt']?.[0];
+    const binding = out['com.agentscore.payment.stripe_spt']?.[0];
     expect((binding!.config as Record<string, unknown>).profile_id).toBeNull();
   });
 });
@@ -191,13 +191,13 @@ describe('payment-handler metadata', () => {
       networks: [{ recipient: '0xb' } as X402BaseRailSpec],
     });
     const stripe = stripeSptPaymentHandler({ spec: { profileId: 'profile_x' } as StripeRailSpec });
-    const mppBinding = mpp['sh.agentscore.payment.mpp']![0]!;
-    const x402Binding = x402['sh.agentscore.payment.x402']![0]!;
-    const stripeBinding = stripe['sh.agentscore.payment.stripe_spt']![0]!;
+    const mppBinding = mpp['com.agentscore.payment.mpp']![0]!;
+    const x402Binding = x402['com.agentscore.payment.x402']![0]!;
+    const stripeBinding = stripe['com.agentscore.payment.stripe_spt']![0]!;
     expect(mppBinding.version).toBe(x402Binding.version);
     expect(x402Binding.version).toBe(stripeBinding.version);
     for (const b of [mppBinding, x402Binding, stripeBinding]) {
-      expect(b.spec.startsWith('https://agentscore.sh/specification/payment-handlers/')).toBe(true);
+      expect(b.spec.startsWith('https://www.agentscore.com/specification/payment-handlers/')).toBe(true);
     }
   });
 });

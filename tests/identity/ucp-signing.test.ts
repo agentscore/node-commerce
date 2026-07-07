@@ -22,12 +22,12 @@ const baseInput = {
     ],
   },
   payment_handlers: {
-    'sh.agentscore.payment.tempo': [
+    'com.agentscore.payment.tempo': [
       {
         id: 'tempo',
         version: '2026-04-08',
-        spec: 'https://agentscore.sh/specification/payment-handlers/tempo',
-        schema: 'https://agentscore.sh/schemas/payment-handlers/tempo.json',
+        spec: 'https://www.agentscore.com/specification/payment-handlers/tempo',
+        schema: 'https://www.agentscore.com/schemas/payment-handlers/tempo.json',
         config: { recipient: '0x1234' },
       },
     ],

@@ -1,6 +1,6 @@
 import { denialReasonStatus } from '../_denial';
 import { denialReasonToBody } from '../_response';
-import { buildAipErrorBody, verifyAitRequest, type AipGateOptions } from '../aip/gate';
+import { buildAipErrorBody, evaluateAipRequest, type AipGateOptions } from '../aip/gate';
 import { hasAgentIdentityHeader } from '../aip/request';
 import { createAgentScoreCore } from '../core';
 import { hasPaymentHeader } from '../payment/payment_header';
@@ -36,6 +36,11 @@ interface GateState {
    *  on the success path. Absent on Enterprise / unlimited tiers, or when the gate didn't
    *  call assess. */
   quota?: GateQuotaInfo;
+  /** Per-REQUEST signer verdicts (signer_match + signer_sanctions) from this request's assess
+   *  call. Request-scoped (lives on the Hono context, not the shared core) so concurrent
+   *  same-wallet/different-signer requests can't read each other's verdict. Read via
+   *  {@link getSignerVerdict}. */
+  signerVerdict?: SignerVerdict;
 }
 
 interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
@@ -95,12 +100,13 @@ export function agentscoreGate(options: AgentScoreGateOptions): MiddlewareHandle
     const outcome = await core.evaluate(identity, c, signer);
 
     if (outcome.kind === 'allow') {
-      if (outcome.degraded || outcome.quota) {
+      if (outcome.degraded || outcome.quota || outcome.signerVerdict) {
         const prev = c.get(GATE_STATE_KEY) as GateState;
         c.set(GATE_STATE_KEY, {
           ...prev,
           ...(outcome.degraded && { degraded: true, infraReason: outcome.infraReason }),
           ...(outcome.quota && { quota: outcome.quota }),
+          ...(outcome.signerVerdict && { signerVerdict: outcome.signerVerdict }),
         } satisfies GateState);
       }
       if (outcome.data) c.set(CONTEXT_KEY, outcome.data);
@@ -108,6 +114,10 @@ export function agentscoreGate(options: AgentScoreGateOptions): MiddlewareHandle
       return;
     }
 
+    if (outcome.signerVerdict) {
+      const prev = c.get(GATE_STATE_KEY) as GateState;
+      c.set(GATE_STATE_KEY, { ...prev, signerVerdict: outcome.signerVerdict } satisfies GateState);
+    }
     return onDenied(c, outcome.reason);
   };
 }
@@ -190,8 +200,7 @@ export async function captureWallet(
  */
 export function getSignerVerdict(c: Context): SignerVerdict | undefined {
   const state = c.get(GATE_STATE_KEY) as GateState | undefined;
-  if (!state?.walletAddress) return undefined;
-  return state.core.getSignerVerdict(state.walletAddress);
+  return state?.signerVerdict;
 }
 
 
@@ -253,9 +262,9 @@ function defaultAipOnDenied(_c: Context, body: ReturnType<typeof buildAipErrorBo
 export function aipGate(options: AipGateHonoOptions): MiddlewareHandler {
   const { onDenied = defaultAipOnDenied, ...gateOpts } = options;
   return async (c, next) => {
-    const result = await verifyAitRequest(c.req.raw, gateOpts);
+    const result = await evaluateAipRequest(c.req.raw, gateOpts);
     if (!result.ok) {
-      return onDenied(c, buildAipErrorBody(result.failure));
+      return onDenied(c, result.body);
     }
     c.set(AIT_CONTEXT_KEY, result.ait);
     await next();
