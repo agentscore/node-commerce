@@ -46,7 +46,7 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     expect(AGENTSCORE_UCP_CAPABILITY in profile.ucp.capabilities).toBe(false);
   });
 
-  it('appends sh.agentscore.identity capability when agentscore_gate is provided', () => {
+  it('appends com.agentscore.identity capability when agentscore_gate is provided', () => {
     const gate: AgentScoreGatePolicy = {
       require_kyc: true,
       require_sanctions_clear: true,
@@ -58,8 +58,8 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     expect(cap).toBeDefined();
     // Date-format version (UCP convention; matches every other binding's version field).
     expect(cap?.version).toBe('2026-04-08');
-    expect(cap?.spec).toContain('agentscore.sh');
-    expect(cap?.schema).toContain('sh-agentscore-identity-v1.json');
+    expect(cap?.spec).toContain('agentscore.com');
+    expect(cap?.schema).toContain('com-agentscore-identity-v1.json');
     // Multi-parent extends — matches Shopify's dev.shopify.catalog.storefront pattern
     // and UCP-canonical dev.ucp.shopping.discount (extends [checkout, cart]).
     expect(cap?.extends).toEqual(['dev.ucp.shopping.checkout', 'dev.ucp.shopping.cart']);
@@ -114,19 +114,19 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     const tempoHandler: UCPPaymentHandlerBinding = {
       id: 'tempo',
       version: '2026-04-08',
-      spec: 'https://agentscore.sh/specification/payment-handlers/tempo',
-      schema: 'https://agentscore.sh/schemas/payment-handlers/tempo.json',
+      spec: 'https://www.agentscore.com/specification/payment-handlers/tempo',
+      schema: 'https://www.agentscore.com/schemas/payment-handlers/tempo.json',
       config: { recipient: '0xtempo' },
     };
     const profile = buildUCPProfile({
       ...baseInput,
       name: 'Example Merchant',
-      payment_handlers: { 'sh.agentscore.payment.tempo': [tempoHandler] },
+      payment_handlers: { 'com.agentscore.payment.tempo': [tempoHandler] },
       extras: { custom_top_level: 'top_value' },
       ucp_extras: { custom_ucp_field: 'ucp_value' },
     });
     expect(profile.ucp.name).toBe('Example Merchant');
-    expect(profile.ucp.payment_handlers['sh.agentscore.payment.tempo']?.[0]?.id).toBe('tempo');
+    expect(profile.ucp.payment_handlers['com.agentscore.payment.tempo']?.[0]?.id).toBe('tempo');
     expect((profile as Record<string, unknown>).custom_top_level).toBe('top_value');
     expect((profile.ucp as Record<string, unknown>).custom_ucp_field).toBe('ucp_value');
   });
@@ -135,14 +135,14 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     const tempoHandlerNoConfig: UCPPaymentHandlerBinding = {
       id: 'tempo',
       version: '2026-04-08',
-      spec: 'https://agentscore.sh/specification/payment-handlers/tempo',
-      schema: 'https://agentscore.sh/schemas/payment-handlers/tempo.json',
+      spec: 'https://www.agentscore.com/specification/payment-handlers/tempo',
+      schema: 'https://www.agentscore.com/schemas/payment-handlers/tempo.json',
     };
     const profile = buildUCPProfile({
       ...baseInput,
-      payment_handlers: { 'sh.agentscore.payment.tempo': [tempoHandlerNoConfig] },
+      payment_handlers: { 'com.agentscore.payment.tempo': [tempoHandlerNoConfig] },
     });
-    const handler = profile.ucp.payment_handlers['sh.agentscore.payment.tempo']?.[0];
+    const handler = profile.ucp.payment_handlers['com.agentscore.payment.tempo']?.[0];
     expect(handler).toBeDefined();
     expect('config' in (handler as object)).toBe(false);
   });
@@ -248,7 +248,7 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     const profile = buildUCPProfile({
       ...baseInput,
       payment_handlers: {
-        'sh.agentscore.payment.tempo': [{
+        'com.agentscore.payment.tempo': [{
           id: 'tempo',
           version: '2026-04-08',
           spec: 'https://x',
@@ -257,7 +257,7 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
         }],
       },
     });
-    const handler = profile.ucp.payment_handlers['sh.agentscore.payment.tempo']?.[0];
+    const handler = profile.ucp.payment_handlers['com.agentscore.payment.tempo']?.[0];
     expect(handler).toBeDefined();
     expect('available_instruments' in (handler as object)).toBe(false);
   });

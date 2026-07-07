@@ -420,9 +420,16 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
     priceCents: number,
     recipients: MintedRecipients,
   ): Promise<Response> {
+    // Bind the agent-supplied `payTo` to the recipient this request actually advertised in its
+    // 402 (`recipients.x402_base` — static rail recipient OR per-order mint). The agent controls
+    // `payTo` in the x402 payload, so accepting any address would let a hostile agent redirect the
+    // USDC to their own wallet while still receiving the goods (funds drain). When no x402 recipient
+    // was advertised (shouldn't happen on the x402 settle path), fall back to permissive so a
+    // misconfig fails downstream at settle rather than here.
+    const expectedPayTo = recipients.x402_base?.toLowerCase();
     const verified = await verifyX402Request({
       request: req,
-      isCachedAddress: async () => true,
+      isCachedAddress: async (addr) => expectedPayTo === undefined || addr.toLowerCase() === expectedPayTo,
       acceptedNetwork: opts.rails.x402_base?.network ?? 'eip155:8453',
     });
     if (!verified.ok) {

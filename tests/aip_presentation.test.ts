@@ -18,10 +18,10 @@ describe('buildAipTrustedIssuers', () => {
     expect(buildAipTrustedIssuers([])).toEqual([AGENTSCORE_CANONICAL_ISSUER]);
   });
   it('appends externals and de-dupes the canonical issuer', () => {
-    const out = buildAipTrustedIssuers(['https://issuer.example', 'https://agentscore.sh/']);
+    const out = buildAipTrustedIssuers(['https://issuer.example', 'https://www.agentscore.com/']);
     expect(out).toContain(AGENTSCORE_CANONICAL_ISSUER);
     expect(out).toContain('https://issuer.example');
-    expect(out.filter((i) => i.includes('agentscore.sh'))).toHaveLength(1);
+    expect(out.filter((i) => i === AGENTSCORE_CANONICAL_ISSUER)).toHaveLength(1);
   });
 });
 

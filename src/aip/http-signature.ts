@@ -54,6 +54,16 @@ export const AIP_SIGNATURE_TAG = 'agent-identity';
  *  recommended 60s window (and to the JWT iat/exp tolerance) so the whole AIP check uses one value. */
 const DEFAULT_MAX_SKEW_SECONDS = 60;
 
+/** Hard ceiling on the PoP signature's own declared lifetime (`expires - created`), in seconds.
+ *  Requiring `created`+`expires` bounds replay to the declared window — but with no ceiling a
+ *  malicious trusted-issuer agent could set `expires = created + (AIT lifetime)` and replay for the
+ *  full window. Cap it tightly so every accepted PoP is short-lived. First-party `pay` signs a 60s
+ *  window, so it passes; this only bites a signer that declares an over-long PoP. Matches the
+ *  authoritative API verifier's `MAX_POP_WINDOW_SECONDS` (the AgentScore API verifier) so the
+ *  edge (standalone `aipGate`) and the API can't drift. (Distinct from the AIT JWT's `exp - iat`
+ *  ceiling in verify.ts — this is the HTTP-signature layer.) */
+export const MAX_POP_WINDOW_SECONDS = 120;
+
 /** Parameters parsed from (or used to build) a `Signature-Input` member. */
 export interface SignatureParams {
   components: string[];
@@ -95,6 +105,9 @@ export type VerifyFailureReason =
   | 'missing_keyid'
   | 'keyid_mismatch'
   | 'missing_covered_component'
+  | 'created_missing'
+  | 'expires_missing'
+  | 'pop_window_too_long'
   | 'created_in_future'
   | 'expired'
   | 'unsupported_cnf_key'
@@ -158,10 +171,17 @@ const serializeParams = (p: SignatureParams): string => {
  * Build the RFC 9421 signature base: one line per covered component, then the
  * `@signature-params` line. Components are joined by `\n` with no trailing newline.
  * Throws if a covered component has no available value.
+ *
+ * On the VERIFY path, pass `rawSignatureParams` — the member value exactly as received from
+ * `Signature-Input` — so the base reproduces the signer's serialization byte-for-byte regardless
+ * of the order they emitted the params in (RFC 9421 §2.3 puts no order on them). Without it the
+ * line is re-serialized in our canonical order (the SIGN path), which would wrongly reject a
+ * spec-legal signer that ordered params differently.
  */
 export const buildSignatureBase = (
   params: SignatureParams,
   input: { method: string; authority: string; path: string; agentIdentity: string; extra?: Record<string, string> },
+  rawSignatureParams?: string,
 ): string => {
   const lines: string[] = [];
   for (const name of params.components) {
@@ -171,7 +191,7 @@ export const buildSignatureBase = (
     }
     lines.push(`"${name}": ${value}`);
   }
-  const paramsValue = serializeComponentList(params.components) + serializeParams(params);
+  const paramsValue = rawSignatureParams ?? serializeComponentList(params.components) + serializeParams(params);
   lines.push(`"@signature-params": ${paramsValue}`);
   return lines.join('\n');
 };
@@ -184,30 +204,27 @@ class MissingComponentError extends Error {
 }
 
 /**
- * Parse a `Signature-Input` dictionary and return the member tagged `tag`, or — when no
- * member carries a tag — the sole member (single-signature requests commonly omit it).
+ * Parse a `Signature-Input` dictionary and return the member tagged `tag`. The tag is REQUIRED
+ * (the AIP spec mandates `tag="agent-identity"`): an untagged member is skipped like any
+ * wrong-tagged member. `rawParams` is the member's value exactly as received (the inner list +
+ * its parameters, byte-for-byte, trimmed of surrounding OWS only) — the verifier echoes it into
+ * the `"@signature-params"` base line so the signer's param order is preserved.
  * Returns null if no AIP member is found or the member is malformed.
  */
-export const parseSignatureInput = (header: string, tag = AIP_SIGNATURE_TAG): { label: string; params: SignatureParams } | null => {
+export const parseSignatureInput = (header: string, tag = AIP_SIGNATURE_TAG): { label: string; params: SignatureParams; rawParams: string } | null => {
   const members = splitDictionary(header);
   if (members.length === 0) { return null; }
 
   const parsed = members
     .map((m) => {
       const params = parseInnerListMember(m.value);
-      return params ? { label: m.label, params } : null;
+      return params ? { label: m.label, params, rawParams: m.value } : null;
     })
-    .filter((x): x is { label: string; params: SignatureParams } => x !== null);
+    .filter((x): x is { label: string; params: SignatureParams; rawParams: string } => x !== null);
 
   if (parsed.length === 0) { return null; }
 
-  const tagged = parsed.find((p) => p.params.tag === tag);
-  if (tagged) { return tagged; }
-
-  // No tagged member. If exactly one member and it has no tag at all, accept it.
-  if (parsed.length === 1 && parsed[0].params.tag === undefined) { return parsed[0]; }
-
-  return null;
+  return parsed.find((p) => p.params.tag === tag) ?? null;
 };
 
 /**
@@ -306,16 +323,28 @@ const parseInnerListMember = (value: string): SignatureParams | null => {
  * Verify an AIP HTTP Message Signature. Performs the full check:
  *   1. select the AIP-tagged member of `Signature-Input`
  *   2. confirm the AIP minimum covered components are present
- *   3. enforce `created`/`expires` against `now` with skew tolerance
+ *   3. REQUIRE both `created` and `expires`, reject an over-long declared window
+ *      (`expires - created` > MAX_POP_WINDOW_SECONDS → `pop_window_too_long`), then enforce them
+ *      against `now` with skew tolerance. Both are mandatory: an optional time bound is no time
+ *      bound — without `expires` a captured `(token, Signature-Input, Signature)` triple is
+ *      replayable for the whole AIT lifetime. A signature omitting either is rejected
+ *      (`created_missing` / `expires_missing`). This matches the authoritative API verifier
+ *      (the AgentScore API verifier) so a merchant running `aipGate` STANDALONE (the
+ *      crypto-identity-only deployment with no `/v1/assess`) gets the same replay defense.
  *   4. confirm `keyid` equals the RFC 7638 thumbprint of `cnf.jwk`
  *   5. reconstruct the signature base and verify Ed25519 over it
+ *
+ * NOTE: this is a STATELESS verifier — it bounds the replay WINDOW but does not dedupe within it.
+ * A captured triple can still be replayed until `expires` (≤ MAX_POP_WINDOW_SECONDS + skew from
+ * `created`). A stateful seen-signature cache (as in the authoritative API) is out of scope for the
+ * SDK edge; the tight window bound is the meaningful mitigation here.
  */
 export const verifyMessageSignature = async (
   input: VerifyMessageSignatureInput,
 ): Promise<VerifyMessageSignatureResult> => {
   const selected = parseSignatureInput(input.signatureInput);
   if (!selected) { return { ok: false, reason: 'no_aip_signature' }; }
-  const { label, params } = selected;
+  const { label, params, rawParams } = selected;
 
   // The `alg` param is optional in RFC 9421 (the verifier derives the algorithm from the key);
   // when a signer does include it, the registered HTTP-sig label is `ed25519`. Accept that plus the
@@ -332,12 +361,29 @@ export const verifyMessageSignature = async (
     }
   }
 
+  // REQUIRE both `created` and `expires`. Treating them as optional leaves an unbounded replay
+  // window — a captured signature with no `expires` is valid for the AIT's full lifetime. Reject
+  // when either is absent so every accepted PoP carries an explicit, enforceable time bound. (Our
+  // pay signer always emits both with a 60s window; this only rejects spec-loose external signers.)
+  if (params.created === undefined) { return { ok: false, reason: 'created_missing' }; }
+  if (params.expires === undefined) { return { ok: false, reason: 'expires_missing' }; }
+
+  // Bound the PoP's own declared lifetime. created+expires alone only bound replay to whatever
+  // window the SIGNER chose — a malicious trusted-issuer agent could declare a window as wide as the
+  // AIT lifetime and replay for all of it. Reject an over-long window so every accepted PoP is
+  // short-lived. (pay signs 60s; this only bites a signer declaring > MAX_POP_WINDOW_SECONDS.)
+  // A NEGATIVE window (expires before created) is equally malformed — without the explicit check
+  // it would slip under the cap (negative < 120).
+  if (params.expires < params.created || params.expires - params.created > MAX_POP_WINDOW_SECONDS) {
+    return { ok: false, reason: 'pop_window_too_long' };
+  }
+
   const now = input.now ?? Math.floor(Date.now() / 1000);
   const skew = input.maxSkewSeconds ?? DEFAULT_MAX_SKEW_SECONDS;
-  if (params.created !== undefined && params.created > now + skew) {
+  if (params.created > now + skew) {
     return { ok: false, reason: 'created_in_future' };
   }
-  if (params.expires !== undefined && params.expires < now - skew) {
+  if (params.expires < now - skew) {
     return { ok: false, reason: 'expired' };
   }
 
@@ -373,7 +419,7 @@ export const verifyMessageSignature = async (
       path: input.path,
       agentIdentity: input.agentIdentity,
       extra: input.extraComponents,
-    });
+    }, rawParams);
   } catch (err) {
     if (err instanceof MissingComponentError) { return { ok: false, reason: 'missing_covered_component' }; }
     throw err;

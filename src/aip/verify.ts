@@ -44,6 +44,12 @@ export interface VerifyAitOptions {
   jwks: JwksCache;
   now?: number;
   maxSkewSeconds?: number;
+  /** Max accepted AIT lifetime (`exp - iat`) in seconds. Defense-in-depth vs an external issuer
+   *  minting a long-lived bearer credential. The spec recommends a 60–300s window; default 300 so a
+   *  stolen AIT's usable window stays short even at the edge (standalone `aipGate`, no `/v1/assess`).
+   *  Our own mint is 300s, so first-party tokens sit exactly at the ceiling. Matches the
+   *  authoritative API verifier's default (the AgentScore API verifier), lowered from 3600. */
+  maxLifetimeSeconds?: number;
 }
 
 /**
@@ -71,6 +77,16 @@ export interface VerifiedAit {
   /** The raw JWT string that verified (the winning `Agent-Identity` header value, Bearer
    *  prefix stripped). Lets a gate forward the exact token to `/v1/assess` as `aip_token`. */
   token: string;
+  /** The RFC 9421 signature material for this request — forwarded to `/v1/assess` as
+   *  `aip_signature` so the API re-verifies proof-of-possession authoritatively (the edge
+   *  check here is only a fail-fast filter; the API is the source of truth). */
+  signatureMaterial: {
+    method: string;
+    authority: string;
+    path: string;
+    signature_input: string;
+    signature: string;
+  };
 }
 
 export type VerifyAitResult =
@@ -93,6 +109,10 @@ export const verifyAit = async (
   if (!ctx.signatureInput || !ctx.signature) {
     return { ok: false, reason: 'pop_signature_missing' };
   }
+  // Captured post-guard (string, not string|null) — reused for the local fail-fast PoP check and
+  // forwarded to /v1/assess so the API can re-verify the same proof-of-possession authoritatively.
+  const signatureInput = ctx.signatureInput;
+  const signature = ctx.signature;
 
   let lastFailure: VerifyAitFailure = 'malformed_token';
 
@@ -149,7 +169,7 @@ export const verifyAit = async (
         // Pin the signature algorithm allowlist (RFC 8725 §3.1) — also rejects `alg:none`. Without
         // this, jose accepts whatever alg the resolved JWK supports, so a trusted IdP publishing a
         // non-Ed25519 (e.g. RSA/EC) `use:sig` key would let an attacker present an RS256/ES256
-        // token that verifies. Matches the server-side allowlist in core/api aip-verify.
+        // token that verifies. Matches the server-side allowlist in the AgentScore API verifier.
         algorithms: AIT_SIGNING_ALGS,
         clockTolerance: jwtClockTolerance,
         currentDate: opts.now !== undefined ? new Date(opts.now * 1000) : undefined,
@@ -167,14 +187,26 @@ export const verifyAit = async (
       continue;
     }
 
+    // Defense-in-depth: reject a long-lived AIT (spec recommends 60–300s). Own mint is exactly 300s,
+    // so first-party tokens pass at the ceiling; this bites a trusted EXTERNAL issuer minting a
+    // longer-lived bearer credential. Lowered 3600 → 300 (matching the authoritative API verifier)
+    // to keep a stolen token's usable window short, complementing the now-mandatory PoP time bound.
+    if (claims.exp - claims.iat > (opts.maxLifetimeSeconds ?? 300)) {
+      lastFailure = 'expired_token';
+      continue;
+    }
+
     // Step 6 + 7 + 8: PoP — verify the RFC 9421 signature against cnf.jwk.
     const popResult = await verifyMessageSignature({
       method: ctx.method,
       authority: ctx.authority,
       path: ctx.path,
-      agentIdentity: raw,
-      signatureInput: ctx.signatureInput,
-      signature: ctx.signature,
+      // The agent-identity covered component is the BARE AIT (a Bearer prefix, if present, is
+      // transport that `stripBearer` removed above). Verify over `token`, not `raw`, so the edge and
+      // the API — which verifies over the forwarded bare aip_token — reconstruct the identical base.
+      agentIdentity: token,
+      signatureInput,
+      signature,
       cnfJwk: claims.cnf.jwk,
       now: opts.now,
       maxSkewSeconds: opts.maxSkewSeconds,
@@ -184,7 +216,22 @@ export const verifyAit = async (
       continue;
     }
 
-    return { ok: true, ait: { payload: claims, iss: claims.iss, cnfJwk: claims.cnf.jwk, token } };
+    return {
+      ok: true,
+      ait: {
+        payload: claims,
+        iss: claims.iss,
+        cnfJwk: claims.cnf.jwk,
+        token,
+        signatureMaterial: {
+          method: ctx.method,
+          authority: ctx.authority,
+          path: ctx.path,
+          signature_input: signatureInput,
+          signature,
+        },
+      },
+    };
   }
 
   return { ok: false, reason: lastFailure };

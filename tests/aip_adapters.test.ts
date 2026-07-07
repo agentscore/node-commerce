@@ -61,17 +61,19 @@ const AUTHORITY = 'wine-merchant.com';
 const PATH = '/checkout';
 const NOW = 1715400020;
 
-const sigHeaders = async (token: string): Promise<Record<string, string>> => {
+const sigHeaders = async (token: string, opts: { signedAuthority?: string; hostHeader?: string } = {}): Promise<Record<string, string>> => {
   const { signatureInput, signature } = await signMessage({
     method: 'POST',
-    authority: AUTHORITY,
+    authority: opts.signedAuthority ?? AUTHORITY,
     path: PATH,
     agentIdentity: token,
     privateJwk: agentPrivateJwk,
     publicJwk: agentPublicJwk,
     created: 1715400010,
+    // PoP verifier requires `expires` (replay-window hardening); 60s window like pay.
+    expires: 1715400070,
   });
-  return { host: AUTHORITY, 'agent-identity': token, 'signature-input': signatureInput, signature };
+  return { host: opts.hostHeader ?? AUTHORITY, 'agent-identity': token, 'signature-input': signatureInput, signature };
 };
 
 describe('buildVerifyContextFromParts', () => {
@@ -105,6 +107,55 @@ describe('verifyAitParts', () => {
   it('fails with no_token when the header is absent', async () => {
     const r = await verifyAitParts({ method: 'POST', url: PATH, headers: { host: AUTHORITY } }, { jwks: jwks(), now: NOW });
     expect(r).toEqual({ ok: false, failure: 'no_token' });
+  });
+});
+
+describe('authority pinning (AipGateOptions.authority)', () => {
+  // Behind a proxy / multi-vhost listener the inbound Host can't be trusted: the merchant pins
+  // the expected public host and the verifier binds the signature to the PIN, not Host.
+  const PINNED = 'public.example';
+  const INBOUND = 'internal.local';
+
+  it('parts path: a signature over the pinned host verifies even when Host differs', async () => {
+    const headers = await sigHeaders(await mintAit(), { signedAuthority: PINNED, hostHeader: INBOUND });
+    const denied = await verifyAitParts({ method: 'POST', url: PATH, headers }, { jwks: jwks(), now: NOW });
+    expect(denied).toEqual({ ok: false, failure: 'pop_signature_invalid' }); // unpinned trusts Host → mismatch
+    const r = await verifyAitParts({ method: 'POST', url: PATH, headers }, { jwks: jwks(), now: NOW, authority: PINNED });
+    expect(r.ok).toBe(true);
+  });
+
+  it('parts path: rejects a signature over the (different) inbound Host when pinned', async () => {
+    const headers = await sigHeaders(await mintAit(), { signedAuthority: INBOUND, hostHeader: INBOUND });
+    const unpinned = await verifyAitParts({ method: 'POST', url: PATH, headers }, { jwks: jwks(), now: NOW });
+    expect(unpinned.ok).toBe(true); // sanity: the signature itself is valid for the inbound host
+    const pinned = await verifyAitParts({ method: 'POST', url: PATH, headers }, { jwks: jwks(), now: NOW, authority: PINNED });
+    expect(pinned).toEqual({ ok: false, failure: 'pop_signature_invalid' });
+  });
+
+  it('request path: the pin overrides the Fetch Request Host/URL authority', async () => {
+    const { createAipGate } = await import('../src/identity/web');
+    const headers = await sigHeaders(await mintAit(), { signedAuthority: PINNED, hostHeader: INBOUND });
+    const req = () => new Request(`https://${INBOUND}${PATH}`, { method: 'POST', headers });
+
+    const unpinned = createAipGate({ jwks: jwks(), now: NOW });
+    const denied = await unpinned(req());
+    expect(denied.allowed).toBe(false);
+
+    const pinnedGate = createAipGate({ jwks: jwks(), now: NOW, authority: PINNED });
+    const allowed = await pinnedGate(req());
+    expect(allowed.allowed).toBe(true);
+  });
+
+  it('express aipGate honors the pin', async () => {
+    const { aipGate, getVerifiedAit } = await import('../src/identity/express');
+    const headers = await sigHeaders(await mintAit(), { signedAuthority: PINNED, hostHeader: INBOUND });
+    const mw = aipGate({ jwks: jwks(), now: NOW, authority: PINNED });
+    const req = { method: 'POST', url: PATH, headers } as unknown as ExpressRequest;
+    const res = mockRes();
+    let nextCalled = false;
+    await mw(req, res as unknown as ExpressResponse, (() => { nextCalled = true; }) as NextFunction);
+    expect(nextCalled).toBe(true);
+    expect(getVerifiedAit(req)?.payload.identity?.email).toBe('b@example.com');
   });
 });
 

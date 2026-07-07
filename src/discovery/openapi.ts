@@ -28,7 +28,7 @@ export function agentscoreSecuritySchemes(): Record<string, unknown> {
       in: 'header',
       name: 'X-Wallet-Address',
       description:
-        'Wallet-path identity (0x... or base58). Only works on rails that carry a wallet signature (Tempo MPP, x402 EIP-3009, x402 SPL Token). The wallet you claim MUST sign the payment.',
+        'Wallet-path identity (0x... or base58). Only works on rails that carry a wallet signature (Tempo MPP, x402 EIP-3009 on Base, Solana MPP). The wallet you claim MUST sign the payment.',
     },
     AgentIdentity: {
       type: 'apiKey',

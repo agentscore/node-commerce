@@ -116,7 +116,7 @@ describe('lazyMppxServer', () => {
       },
     }));
     const { lazyMppxServer: fresh } = await import('../src/payment/lazy?mppx-fresh');
-    const getter = fresh({ rails: { tempo: spec }, secretKey: 'secret' });
+    const getter = fresh({ rails: { tempo: spec }, secretKey: 'seamless_test_secret_padded_to_32_byte' });
     const [a, b] = await Promise.all([getter(), getter()]);
     expect(a).toBe(sentinel);
     expect(b).toBe(sentinel);
@@ -521,7 +521,7 @@ describe('Checkout framework adapters', () => {
     expect(resp.status).toBe(402);
   });
 
-  it('handleHono returns invalid_body envelope when json() throws', async () => {
+  it('handleHono treats an unparseable body as empty and falls through to the 402 paywall', async () => {
     const checkout = minimalCheckout();
     const c = {
       req: {
@@ -535,8 +535,10 @@ describe('Checkout framework adapters', () => {
       json: (body: unknown, status?: number) => new Response(JSON.stringify(body), { status }),
       body: (body: string, status?: number) => new Response(body, { status }),
     };
+    // x402 discovery probes POST an empty/unparseable body with no payment header
+    // and must get the 402 challenge, not a 400.
     const resp = await checkout.handleHono(c);
-    expect(resp.status).toBe(400);
+    expect(resp.status).toBe(402);
   });
 
   it('handleHono accepts a pre-parsed body (skipping req.json())', async () => {
@@ -626,13 +628,11 @@ describe('Checkout framework adapters', () => {
     expect(resp.status).toBe(402);
   });
 
-  it('handleNextjs returns invalid_body envelope when request.json() throws', async () => {
+  it('handleNextjs treats an empty body as a probe and falls through to the 402 paywall', async () => {
     const checkout = minimalCheckout();
     const request = new Request('https://api.example/purchase', { method: 'POST' });
     const resp = await checkout.handleNextjs(request);
-    expect(resp.status).toBe(400);
-    const body = await resp.json() as { error?: { code?: string } };
-    expect(body.error?.code).toBe('invalid_body');
+    expect(resp.status).toBe(402);
   });
 
   it('handleWeb is an alias for handleNextjs', async () => {
@@ -1402,7 +1402,12 @@ describe('Checkout gate hooks', () => {
       }),
     ).rejects.toThrow();
   });
-  it('perRequestPolicy returning null skips the gate entirely', async () => {
+  it('perRequestPolicy returning null routes to the wallet-OFAC floor (no-op with no extractable signer → settle proceeds)', async () => {
+    // null override no longer fully skips the gate — it falls through to the
+    // always-on wallet OFAC floor. With an opaque MPP auth header (no
+    // extractable signer), the floor is a no-op and settle proceeds. The
+    // SDN-deny / clean-allow floor verdicts are covered in the core-mocked
+    // test below.
     const checkout = await _checkoutWithGate({
       apiKey: 'k',
       perRequestPolicy: async () => null,
@@ -1519,12 +1524,13 @@ function _mockCore(opts: {
   captureWalletCalls?: Array<Record<string, unknown>>;
 }) {
   return {
+    // The signer verdict now rides on the evaluate OUTCOME (request-scoped), not a separate
+    // core.getSignerVerdict slot.
     evaluate: async () => (
       opts.outcome === 'deny'
-        ? { kind: 'deny', reason: opts.reason ?? { code: 'kyc_required' } }
-        : { kind: 'allow' }
+        ? { kind: 'deny', reason: opts.reason ?? { code: 'kyc_required' }, ...(opts.signerVerdict && { signerVerdict: opts.signerVerdict }) }
+        : { kind: 'allow', ...(opts.signerVerdict && { signerVerdict: opts.signerVerdict }) }
     ),
-    getSignerVerdict: () => opts.signerVerdict,
     captureWallet: async (o: Record<string, unknown>) => {
       opts.captureWalletCalls?.push(o);
     },
@@ -1618,17 +1624,19 @@ describe('Checkout SDK gate path', () => {
       return {
         ...real,
         createAgentScoreCore: () => ({
-          evaluate: async () => ({ kind: 'allow' }),
-          getSignerVerdict: () => ({
-            signer_match: {
-              kind: 'wallet_signer_mismatch',
-              claimedOperator: 'op_a',
-              actualSignerOperator: 'op_b',
-              expectedSigner: '0xclaimed',
-              actualSigner: '0xactual',
-              linkedWallets: ['0xlinked'],
-              agentInstructions: { action: 'resign_or_switch_to_operator_token' },
-              claimedWallet: '0xclaimed',
+          evaluate: async () => ({
+            kind: 'allow',
+            signerVerdict: {
+              signer_match: {
+                kind: 'wallet_signer_mismatch',
+                claimedOperator: 'op_a',
+                actualSignerOperator: 'op_b',
+                expectedSigner: '0xclaimed',
+                actualSigner: '0xactual',
+                linkedWallets: ['0xlinked'],
+                agentInstructions: { action: 'resign_or_switch_to_operator_token' },
+                claimedWallet: '0xclaimed',
+              },
             },
           }),
           captureWallet: async () => {},
@@ -1662,12 +1670,14 @@ describe('Checkout SDK gate path', () => {
       return {
         ...real,
         createAgentScoreCore: () => ({
-          evaluate: async () => ({ kind: 'allow' }),
-          getSignerVerdict: () => ({
-            signer_match: {
-              kind: 'wallet_auth_requires_wallet_signing',
-              claimedWallet: '0xclaimed',
-              agentInstructions: { action: 'switch_to_operator_token' },
+          evaluate: async () => ({
+            kind: 'allow',
+            signerVerdict: {
+              signer_match: {
+                kind: 'wallet_auth_requires_wallet_signing',
+                claimedWallet: '0xclaimed',
+                agentInstructions: { action: 'switch_to_operator_token' },
+              },
             },
           }),
           captureWallet: async () => {},
@@ -1785,33 +1795,77 @@ describe('Checkout SDK gate path — fully-populated gate config', () => {
     vi.doUnmock('../src/core');
   });
 
-  it('perRequestPolicy returning null short-circuits the gate (skips assess)', async () => {
+  it('perRequestPolicy returning null routes to the wallet-OFAC floor → DENIES an SDN signer', async () => {
+    // null override no longer skips the gate. It falls through to the always-on
+    // wallet OFAC floor (same floor the no-gate dispatch uses). With an apiKey +
+    // a wallet-signed payment, the floor screens the signer and denies an SDN hit.
     vi.doMock('../src/core', async () => {
       const real = await vi.importActual<typeof import('../src/core')>('../src/core');
-      return { ...real, createAgentScoreCore: () => _mockCore({ outcome: 'deny', reason: { code: 'kyc_required' } }) };
+      return {
+        ...real,
+        createAgentScoreCore: () => _mockCore({
+          outcome: 'deny',
+          reason: { code: 'wallet_not_trusted', reasons: ['sanctions_flagged'] },
+        }),
+      };
     });
-    const { Checkout: ScopedCheckout } = await import('../src/checkout?gate-policy-null');
+    vi.stubEnv('AGENTSCORE_API_KEY', 'as_test_key');
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?gate-policy-null-sdn');
     const checkout = new ScopedCheckout({
-      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } as TempoRailSpec },
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
       url: 'https://api.example/purchase',
       computePricing: async () => ({ amountUsd: 1.0 }),
-      composeMppx: async () => ({ status: 200, railKey: 'tempo', txHash: '0xtx', signerAddress: '0xabc', signerNetwork: 'evm' }),
+      x402Server: _mockX402Server() as never,
+      isCachedAddress: () => true,
       onSettled: async () => ({ order_id: 'o-null' }),
       gate: {
         apiKey: 'k',
         requireKyc: true,
-        // null → bypass the gate entirely for this request
+        // null → no per-product identity policy, but the wallet-OFAC floor still fires
         perRequestPolicy: async () => null,
       },
     });
     const result = await checkout.handle({
       method: 'POST',
       url: 'https://api.example/purchase',
-      headers: { authorization: 'Payment <cred>' },
+      headers: { 'x-payment': _x402PaymentHeader('0xdead000000000000000000000000000000000bad') },
       body: {},
     });
-    // Gate skipped → settle proceeds (the deny mock would otherwise have blocked).
+    expect(result.status).toBe(403);
+    expect(result.settled).toBe(false);
+    vi.unstubAllEnvs();
+    vi.doUnmock('../src/core');
+  });
+
+  it('perRequestPolicy returning null routes to the wallet-OFAC floor → ALLOWS a clean signer', async () => {
+    vi.doMock('../src/core', async () => {
+      const real = await vi.importActual<typeof import('../src/core')>('../src/core');
+      return { ...real, createAgentScoreCore: () => _mockCore({ outcome: 'allow' }) };
+    });
+    vi.stubEnv('AGENTSCORE_API_KEY', 'as_test_key');
+    const { Checkout: ScopedCheckout } = await import('../src/checkout?gate-policy-null-clean');
+    const checkout = new ScopedCheckout({
+      rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      x402Server: _mockX402Server() as never,
+      isCachedAddress: () => true,
+      onSettled: async () => ({ order_id: 'o-null' }),
+      gate: {
+        apiKey: 'k',
+        requireKyc: true,
+        perRequestPolicy: async () => null,
+      },
+    });
+    const result = await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { 'x-payment': _x402PaymentHeader('0xAbC0000000000000000000000000000000000099') },
+      body: {},
+    });
+    // Floor allowed the clean signer → settle proceeds.
     expect(result.status).toBe(200);
+    vi.unstubAllEnvs();
     vi.doUnmock('../src/core');
   });
 });
@@ -2457,7 +2511,7 @@ describe('Framework adapter SETTLE leg', () => {
     expect(captured.status).toBe(200);
   });
 
-  it('handleExpress 400 invalid_body envelope when body is non-object', async () => {
+  it('handleExpress treats a non-object body as empty and falls through to the 402 paywall', async () => {
     const checkout = _settleCheckout();
     const captured: { status?: number; body?: unknown } = {};
     const req = {
@@ -2476,11 +2530,10 @@ describe('Framework adapter SETTLE leg', () => {
       json: function (b: unknown) { captured.body = b; return this; },
     };
     await checkout.handleExpress(req as never, res as never);
-    expect(captured.status).toBe(400);
-    expect(((captured.body as { error?: { code: string } })?.error?.code)).toBe('invalid_body');
+    expect(captured.status).toBe(402);
   });
 
-  it('handleFastify handles array-valued headers + body null returns 400', async () => {
+  it('handleFastify handles array-valued headers + a non-object body falls through to 402', async () => {
     const checkout = _settleCheckout();
     let captured: { status?: number; body?: unknown } = {};
     const reply = {
@@ -2496,7 +2549,7 @@ describe('Framework adapter SETTLE leg', () => {
       url: '/purchase',
     } as never, reply as never);
     expect(captured.status).toBe(200);
-    // Null body branch
+    // Non-object body with no payment header now reaches the 402 paywall.
     captured = {};
     await checkout.handleFastify({
       headers: { 'content-type': 'application/json' },
@@ -2504,7 +2557,7 @@ describe('Framework adapter SETTLE leg', () => {
       method: 'POST',
       url: '/purchase',
     } as never, reply as never);
-    expect(captured.status).toBe(400);
+    expect(captured.status).toBe(402);
   });
 
   it('handleFastify writes a 200 on settle leg', async () => {

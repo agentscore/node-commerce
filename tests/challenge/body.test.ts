@@ -47,6 +47,29 @@ describe('build402Body', () => {
     expect(body.accepts).toEqual([{ scheme: 'exact' }]);
   });
 
+  it('emits x402 v2 resource metadata on the body when provided', () => {
+    const resource = {
+      url: 'https://api.example.com/enrich',
+      description: 'Company enrichment',
+      mimeType: 'application/json',
+      serviceName: 'Example Enrich',
+      tags: ['enrichment', 'company'],
+    };
+    const body = build402Body({
+      acceptedMethods: [],
+      x402: { accepts: [{ scheme: 'exact' }], version: 2, resource },
+    });
+    expect(body.resource).toEqual(resource);
+  });
+
+  it('omits resource from the body when not provided', () => {
+    const body = build402Body({
+      acceptedMethods: [],
+      x402: { accepts: [{ scheme: 'exact' }], version: 2 },
+    });
+    expect(body.resource).toBeUndefined();
+  });
+
   it('emits accepts entries verbatim (no amount-field aliasing) so settle-time matcher passes', () => {
     // build402Body intentionally does not apply aliasAmountFields. @x402/core's
     // findMatchingRequirements deep-equals the agent's signed accepted payload against

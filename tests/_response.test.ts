@@ -23,12 +23,12 @@ describe('denialReasonToBody', () => {
       code: 'wallet_not_trusted',
       decision: 'deny',
       reasons: ['kyc_required', 'age_insufficient'],
-      verify_url: 'https://agentscore.sh/verify?x=1',
+      verify_url: 'https://www.agentscore.com/verify?x=1',
     }));
     expect((body.error as { code: string }).code).toBe('wallet_not_trusted');
     expect(body.decision).toBe('deny');
     expect(body.reasons).toEqual(['kyc_required', 'age_insufficient']);
-    expect(body.verify_url).toBe('https://agentscore.sh/verify?x=1');
+    expect(body.verify_url).toBe('https://www.agentscore.com/verify?x=1');
   });
 
   it('uses an explicit reason.message when provided, not the per-code default', () => {
@@ -41,11 +41,11 @@ describe('denialReasonToBody', () => {
       code: 'identity_verification_required',
       session_id: 'sess_abc',
       poll_secret: 'poll_xyz',
-      poll_url: 'https://api.agentscore.sh/v1/sessions/sess_abc',
+      poll_url: 'https://api.agentscore.com/v1/sessions/sess_abc',
     }));
     expect(body.session_id).toBe('sess_abc');
     expect(body.poll_secret).toBe('poll_xyz');
-    expect(body.poll_url).toBe('https://api.agentscore.sh/v1/sessions/sess_abc');
+    expect(body.poll_url).toBe('https://api.agentscore.com/v1/sessions/sess_abc');
   });
 
   it('propagates agent_instructions and agent_memory when present', () => {
@@ -56,7 +56,7 @@ describe('denialReasonToBody', () => {
         save_for_future_agentscore_gates: true,
         pattern_summary: 'test',
         quickstart: 'https://docs/agent-identity',
-        identity_check_endpoint: 'https://api.agentscore.sh/v1/credentials',
+        identity_check_endpoint: 'https://api.agentscore.com/v1/credentials',
         identity_paths: { wallet: 'X-Wallet-Address', operator_token: 'X-Operator-Token' },
         bootstrap: 'Follow verify_url',
         do_not_persist_in_memory: ['operator_token'],
@@ -123,7 +123,7 @@ describe('denialReasonToBody', () => {
     const body = denialReasonToBody(reason({
       code: 'wallet_not_trusted',
       reasons: ['sanctions_flagged'],
-      verify_url: 'https://agentscore.sh/dashboard/verify?address=0xabc&chain=base',
+      verify_url: 'https://www.agentscore.com/dashboard/verify?address=0xabc&chain=base',
     }));
     const instructions = JSON.parse(body.agent_instructions as string);
     expect(instructions.action).toBe('contact_support');
@@ -140,7 +140,7 @@ describe('denialReasonToBody', () => {
   it('injects fallback identity_verification_required instructions when reason has none', () => {
     const body = denialReasonToBody(reason({
       code: 'identity_verification_required',
-      verify_url: 'https://agentscore.sh/verify?session=sess_abc',
+      verify_url: 'https://www.agentscore.com/verify?session=sess_abc',
     }));
     const instructions = JSON.parse(body.agent_instructions as string);
     expect(instructions.action).toBe('deliver_verify_url_and_poll');

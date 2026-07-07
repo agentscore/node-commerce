@@ -44,10 +44,31 @@ export function paymentRequiredHeader({
   x402Version,
   accepts,
   resource,
+  extensions,
 }: {
   x402Version: 1 | 2;
   accepts: unknown[];
-  resource?: { url: string; mimeType?: string };
+  /** x402 v2 ResourceInfo. Per spec the full resource (incl. serviceName / tags /
+   *  iconUrl, used by Bazaar search/filtering) rides in the header, not just url. */
+  resource?: {
+    url: string;
+    description?: string;
+    mimeType?: string;
+    serviceName?: string;
+    tags?: string[];
+    iconUrl?: string;
+  };
+  /** x402 v2 `extensions`. Per the v2 HTTP transport spec the PaymentRequired
+   *  object, INCLUDING extensions, must travel in the base64 PAYMENT-REQUIRED
+   *  header (where Bazaar validators read it), not only in the response body. */
+  extensions?: Record<string, unknown>;
 }): string {
-  return Buffer.from(JSON.stringify({ x402Version, accepts, ...(resource ? { resource } : {}) })).toString('base64');
+  return Buffer.from(
+    JSON.stringify({
+      x402Version,
+      accepts,
+      ...(resource ? { resource } : {}),
+      ...(extensions && Object.keys(extensions).length > 0 ? { extensions } : {}),
+    }),
+  ).toString('base64');
 }

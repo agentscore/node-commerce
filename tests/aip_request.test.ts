@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildVerifyContextFromRequest, hasAgentIdentityHeader } from '../src/aip/request';
+import { buildVerifyContextFromParts, buildVerifyContextFromRequest, hasAgentIdentityHeader } from '../src/aip/request';
 
 const make = (headers: Record<string, string>, url = 'https://wine-merchant.com/checkout', method = 'POST'): Request =>
   new Request(url, { method, headers });
@@ -56,5 +56,30 @@ describe('hasAgentIdentityHeader', () => {
 
   it('is false for an empty header value', () => {
     expect(hasAgentIdentityHeader(make({ 'agent-identity': '' }))).toBe(false);
+  });
+});
+
+describe('buildVerifyContextFromParts — @path derivation matches the signer', () => {
+  const parts = (url: string, host = 'wine.example') => buildVerifyContextFromParts({
+    method: 'POST', url, headers: { host, 'agent-identity': 'a.b.c', 'signature-input': 'si', signature: 'sig' },
+  });
+
+  it('derives the path from an origin-form target and drops the query', () => {
+    expect(parts('/checkout?order=42').path).toBe('/checkout');
+  });
+
+  it('preserves a leading // in the path (regression: must equal URL.pathname, not protocol-relative)', () => {
+    // The signer signs `new URL('https://wine.example//promo//x').pathname` === '//promo//x';
+    // the old `new URL('//promo//x', base)` mis-read it as authority and produced '//x'.
+    expect(parts('//promo//x').path).toBe('//promo//x');
+    expect(new URL('https://wine.example//promo//x').pathname).toBe('//promo//x'); // pin the contract
+  });
+
+  it('normalizes dot-segments identically to the signer', () => {
+    expect(parts('/a/../b').path).toBe(new URL('https://wine.example/a/../b').pathname);
+  });
+
+  it('handles an absolute URL target', () => {
+    expect(parts('https://wine.example/wines/pinot?x=1').path).toBe('/wines/pinot');
   });
 });

@@ -184,6 +184,78 @@ describe('computeFirstCheckout — x402 settle path', () => {
     const errBody = await settleRes.json() as { error: { code: string } };
     expect(errBody.error.code).toBe('settle_failed');
   });
+
+  it('REJECTS an x402 settle whose payTo is NOT the advertised recipient (funds-drain guard)', async () => {
+    // The x402 `payTo` is agent-controlled (read from the signed X-Payment payload). A hostile
+    // agent forges `payTo` = their OWN wallet so the USDC settles to them while they still receive
+    // the goods. The settle must bind `payTo` to the recipient advertised in THIS request's 402
+    // (`recipients.x402_base`) and reject the mismatch BEFORE processX402Settle runs.
+    const cache = createQuoteCache();
+    const fakeServer = makeFakeX402Server();
+    const handler = computeFirstCheckout({
+      ...baseOpts,
+      name: 'payto_bind',
+      unitPriceCents: 1,
+      x402Server: fakeServer,
+      cache,
+      runWork: async () => ({ resultCount: 1, body: { matches: ['a'] } }),
+    });
+
+    const body = { q: 'drain' };
+    // Probe → caches the quote with the configured recipient (X402_PAY_TO).
+    await handler.handleWeb(new Request('https://api.example.com/search', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
+    // Settle with a payload that signs over the ATTACKER's payTo, not the advertised one.
+    const attackerPayTo = '0xAttACker00000000000000000000000000000bAd';
+    const settleRes = await handler.handleWeb(new Request('https://api.example.com/search', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-payment': makeX402PaymentHeader(X402_NETWORK, attackerPayTo),
+      },
+      body: JSON.stringify(body),
+    }));
+    // Bound at the verify step → 400 payment_proof_invalid, and the facilitator is never called.
+    expect(settleRes.status).toBe(400);
+    const errBody = await settleRes.json() as { error: { code: string } };
+    expect(errBody.error.code).toBe('payment_proof_invalid');
+    expect(fakeServer.settlePayment).not.toHaveBeenCalled();
+    expect(fakeServer.verifyPayment).not.toHaveBeenCalled();
+  });
+
+  it('ACCEPTS an x402 settle whose payTo equals the advertised recipient', async () => {
+    // Control case: the same flow with the honest payTo settles normally — the bind is exact-match,
+    // not a blanket rejection.
+    const cache = createQuoteCache();
+    const fakeServer = makeFakeX402Server();
+    const handler = computeFirstCheckout({
+      ...baseOpts,
+      name: 'payto_bind_ok',
+      unitPriceCents: 1,
+      x402Server: fakeServer,
+      cache,
+      runWork: async () => ({ resultCount: 1, body: { matches: ['a'] } }),
+    });
+    const body = { q: 'honest' };
+    await handler.handleWeb(new Request('https://api.example.com/search', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }));
+    const settleRes = await handler.handleWeb(new Request('https://api.example.com/search', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-payment': makeX402PaymentHeader(X402_NETWORK, X402_PAY_TO),
+      },
+      body: JSON.stringify(body),
+    }));
+    expect(settleRes.status).toBe(200);
+    expect(fakeServer.settlePayment).toHaveBeenCalled();
+  });
 });
 
 describe('computeFirstCheckout — MPP settle path', () => {

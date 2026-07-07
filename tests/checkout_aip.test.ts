@@ -18,7 +18,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Checkout, type CheckoutRequest } from '../src/checkout';
 import type { X402BaseRailSpec } from '../src/payment/rail_spec';
 
-const AIP = { trustedIssuers: ['https://issuer.example', 'https://agentscore.sh'] };
+const AIP = { trustedIssuers: ['https://issuer.example', 'https://www.agentscore.com'] };
 
 function makeCheckout(opts: { aip?: typeof AIP } = {}) {
   return new Checkout({
@@ -92,6 +92,38 @@ describe('Checkout gate × AIP', () => {
     const res = await makeCheckout().handle(req({ 'agent-identity': 'eyJhbGciOiJFZERTQSJ9.e30.sig' }));
     expect(res.headers['content-type']).not.toBe('application/problem+json');
   });
+
+  it('renders the edge-deny as problem+json THROUGH a framework adapter (not only raw handle)', async () => {
+    // Regression: the framework renderers used to strip the content-type + force application/json,
+    // silently downgrading the AIP edge-deny problem+json. The Web/Next adapter must now surface it.
+    const checkout = makeCheckout({ aip: AIP });
+    const request = new Request('https://wine.example/purchase', {
+      method: 'POST',
+      headers: { 'x-payment': 'stub-x402-payload', 'agent-identity': 'eyJhbGciOiJFZERTQSJ9.e30.sig' },
+      body: JSON.stringify({ product_id: 'p1', quantity: 1 }),
+    });
+    const res = await checkout.handleNextjs(request);
+    expect(res.status).toBe(401);
+    expect(res.headers.get('content-type')).toBe('application/problem+json');
+    const body = (await res.json()) as { type?: string };
+    expect(body.type).toBe('urn:aip:error:agent_identity_required');
+  });
+
+  it('keeps application/json for a NON-AIP denial through a framework adapter', async () => {
+    // The content-type override is AIP-only: a missing-identity (no Agent-Identity header) denial
+    // through the same renderer must stay on the application/json default, untouched.
+    const checkout = makeCheckout({ aip: AIP });
+    const request = new Request('https://wine.example/purchase', {
+      method: 'POST',
+      // No identity header at all → missing_identity (the gate's no-AIP path), application/json.
+      headers: { 'x-payment': 'stub-x402-payload' },
+      body: JSON.stringify({ product_id: 'p1', quantity: 1 }),
+    });
+    const res = await checkout.handleNextjs(request);
+    expect(res.headers.get('content-type')).toBe('application/json');
+    const body = (await res.json()) as { type?: string };
+    expect(body.type).toBeUndefined();
+  });
 });
 
 // A *valid* signed AIT (real issuer sig + RFC 9421 PoP) requires minting + a live JWKS, so this
@@ -118,11 +150,15 @@ describe('Checkout gate × AIP — offline (no apiKey) policy enforcement', () =
   afterEach(() => vi.unstubAllGlobals());
 
   // Mint a real AIT + sign the request, real timestamps (Checkout's verify uses the live clock).
-  async function signedReq(identity: Record<string, unknown>): Promise<CheckoutRequest> {
+  async function signedReq(
+    identity: Record<string, unknown>,
+    opts: { trustLevel?: string; auth?: Record<string, unknown> } = {},
+  ): Promise<CheckoutRequest> {
     const nowSec = Math.floor(Date.now() / 1000);
     const token = await new SignJWT({
       aip_version: '0.1', sub: 'user_x', cnf: { jwk: agentPublicJwk },
-      agent: { provider: 'anthropic' }, trust_level: 'human_present', identity,
+      agent: { provider: 'anthropic' }, trust_level: opts.trustLevel ?? 'human_present',
+      ...(opts.auth ? { auth: opts.auth } : {}), identity,
     })
       .setProtectedHeader({ alg: 'EdDSA', typ: 'jwt', kid: KID })
       .setIssuer(ISS).setIssuedAt(nowSec).setExpirationTime(nowSec + 300).sign(idpPrivate);
@@ -132,7 +168,8 @@ describe('Checkout gate × AIP — offline (no apiKey) policy enforcement', () =
     const { signMessage } = await import('../src/aip/http-signature');
     const { signatureInput, signature } = await signMessage({
       method: 'POST', authority, path: '/purchase', agentIdentity: token,
-      privateJwk: agentPrivateJwk, publicJwk: agentPublicJwk, created: nowSec,
+      // PoP verifier requires `expires` (replay-window hardening); 60s window like pay.
+      privateJwk: agentPrivateJwk, publicJwk: agentPublicJwk, created: nowSec, expires: nowSec + 60,
     });
     // Stub the JWKS fetch the Checkout-internal JwksCache will make for ISS.
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ keys: [idpPublicJwk] }), {
@@ -167,6 +204,37 @@ describe('Checkout gate × AIP — offline (no apiKey) policy enforcement', () =
     await expect(offlineGate({}).handle(await signedReq({ id_verified: true })))
       .rejects.toThrow(/facilitator|payment kinds/i);
   });
+
+  const trustGate = (aipExtra: Record<string, unknown>) => new Checkout({
+    rails: { x402_base: { recipient: '0xT', network: 'eip155:8453' } as X402BaseRailSpec },
+    url: 'https://wine.example/purchase',
+    computePricing: () => ({ amountUsd: 50 }),
+    gate: { aip: { trustedIssuers: [ISS], ...aipExtra } }, // NO apiKey — trust check runs pre-policy
+  });
+
+  it('denies weak_auth (403 + required_trust_level) when trust_level is below the gate requirement', async () => {
+    const res = await trustGate({ requireTrustLevel: 'human_confirmed' })
+      .handle(await signedReq({ id_verified: true }, { trustLevel: 'human_present' }));
+    expect(res.status).toBe(403);
+    expect(res.headers['content-type']).toBe('application/problem+json');
+    expect((res.body as { type?: string }).type).toBe('urn:aip:error:weak_auth');
+    expect((res.body as { required_trust_level?: string }).required_trust_level).toBe('human_confirmed');
+  });
+
+  it('denies weak_auth (403 + required_amr) when no auth.amr matches the gate requirement', async () => {
+    const res = await trustGate({ requireAmr: ['face', 'fpt', 'hwk'] })
+      .handle(await signedReq({ id_verified: true }, { trustLevel: 'human_confirmed', auth: { amr: ['pwd'] } }));
+    expect(res.status).toBe(403);
+    expect((res.body as { type?: string }).type).toBe('urn:aip:error:weak_auth');
+    expect((res.body as { required_amr?: string[] }).required_amr).toEqual(['face', 'fpt', 'hwk']);
+  });
+
+  it('passes the trust gate when trust_level + amr satisfy it (reaches settle)', async () => {
+    await expect(
+      trustGate({ requireTrustLevel: 'human_confirmed', requireAmr: ['face'] })
+        .handle(await signedReq({ id_verified: true }, { trustLevel: 'human_confirmed', auth: { amr: ['face'] } })),
+    ).rejects.toThrow(/facilitator|payment kinds/i);
+  });
 });
 
 // Issuer-conditional policy: a gate keeps its full default compliance policy for its own AITs,
@@ -177,7 +245,7 @@ describe('Checkout gate × AIP — offline (no apiKey) policy enforcement', () =
 // So "fails closed" = policy was applied to this issuer; "throws at settle" = policy was empty.
 describe('Checkout gate × AIP — issuer-conditional policy', () => {
   const PARTNER = 'https://issuer.example';
-  const OURS = 'https://agentscore.sh';
+  const OURS = 'https://www.agentscore.com';
   const keys: Record<string, { priv: CryptoKey; pubJwk: JWK; kid: string }> = {};
   let agentPriv: JWK;
   let agentPub: JWK;
@@ -207,7 +275,8 @@ describe('Checkout gate × AIP — issuer-conditional policy', () => {
     const { signMessage } = await import('../src/aip/http-signature');
     const { signatureInput, signature } = await signMessage({
       method: 'POST', authority, path: '/purchase', agentIdentity: token,
-      privateJwk: agentPriv, publicJwk: agentPub, created: nowSec,
+      // PoP verifier requires `expires` (replay-window hardening); 60s window like pay.
+      privateJwk: agentPriv, publicJwk: agentPub, created: nowSec, expires: nowSec + 60,
     });
     // Serve whichever issuer's JWKS is being fetched (keyed by request URL host).
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {

@@ -8,6 +8,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { normalizeAddress } from '../address';
 import { asHeaders, readHeader, type HeadersLike } from '../payment/payment_header';
 
 /**
@@ -29,8 +30,13 @@ export type OwnerScope = {
 /**
  * Pull the canonical owner identity from request headers so caller-scoped
  * lookups never see the plaintext operator token. Reads `X-Wallet-Address` and
- * `X-Operator-Token`; returns the wallet address verbatim and the
+ * `X-Operator-Token`; returns the network-normalized wallet address and the
  * sha256 hash of the token. Either or both may be undefined.
+ *
+ * The wallet address is normalized via `normalizeAddress` (EVM lowercased,
+ * Solana base58 preserved) so it matches the stored `orders.wallet_address`
+ * column, which persists the lowercased signer. Without normalization, a
+ * checksummed (EIP-55) `X-Wallet-Address` would miss its own order rows (404).
  *
  * Use at owner-scoped resource queries (`GET /orders/:id`, `GET /receipts/:id`,
  * ...) so persistence + lookup agree on the hashed column shape and plaintext
@@ -41,7 +47,7 @@ export function extractOwnerScope(input: Request | HeadersLike): OwnerScope {
   const walletAddress = readHeader(headers, 'x-wallet-address');
   const operatorToken = readHeader(headers, 'x-operator-token');
   return {
-    ...(walletAddress ? { walletAddress } : {}),
+    ...(walletAddress ? { walletAddress: normalizeAddress(walletAddress) } : {}),
     ...(operatorToken ? { operatorTokenHash: hashOperatorToken(operatorToken) } : {}),
   };
 }

@@ -74,6 +74,8 @@ const signedCtx = async (token: string, signWith = agentPrivateJwk, signPub = ag
     privateJwk: signWith,
     publicJwk: signPub,
     created,
+    // The PoP verifier now REQUIRES `expires` (replay-window hardening); sign a 60s window like pay.
+    expires: created + 60,
   });
   return { ...REQ, agentIdentityHeaders: [token], signatureInput, signature };
 };
@@ -118,9 +120,11 @@ describe('verifyAit — token presence', () => {
     expect(r).toEqual({ ok: false, reason: 'pop_signature_missing' });
   });
 
-  it('strips a Bearer prefix on the Agent-Identity header', async () => {
+  it('accepts a Bearer-prefixed Agent-Identity header — the signed component is the bare JWT', async () => {
     const token = await mintAit();
-    const { signatureInput, signature } = await signMessage({ ...REQ, agentIdentity: `Bearer ${token}`, privateJwk: agentPrivateJwk, publicJwk: agentPublicJwk, created: 1715400010 });
+    // Sign over the BARE AIT (Bearer is transport the verifier strips before the crypto), then
+    // present it WITH a Bearer prefix; edge and API both reconstruct over the bare JWT.
+    const { signatureInput, signature } = await signMessage({ ...REQ, agentIdentity: token, privateJwk: agentPrivateJwk, publicJwk: agentPublicJwk, created: 1715400010, expires: 1715400070 });
     const r = await verifyAit({ ...REQ, agentIdentityHeaders: [`Bearer ${token}`], signatureInput, signature }, { jwks: jwksFor(idpPublicJwk), now: NOW });
     expect(r.ok).toBe(true);
   });
@@ -166,6 +170,31 @@ describe('verifyAit — signature + expiry', () => {
     const ctx = await signedCtx(token);
     const r = await verifyAit(ctx, { jwks: jwksFor(idpPublicJwk), now: NOW });
     expect(r).toEqual({ ok: false, reason: 'expired_token' });
+  });
+
+  it('rejects an AIT with an absurdly long lifetime (defense-in-depth, exp-iat > max)', async () => {
+    // Valid window around NOW but a ~2h lifetime, well over the 300s default ceiling.
+    const token = await mintAit({ iat: NOW - 100, exp: NOW + 7200 });
+    const ctx = await signedCtx(token);
+    const r = await verifyAit(ctx, { jwks: jwksFor(idpPublicJwk), now: NOW });
+    expect(r).toEqual({ ok: false, reason: 'expired_token' });
+  });
+
+  it('rejects an AIT whose lifetime exceeds the 300s edge ceiling (lowered from 3600)', async () => {
+    // A 600s-lifetime AIT (under the old 3600 default, over the new 300) is now rejected at the edge,
+    // matching the authoritative API verifier. The PoP is fresh and exp is ahead of now — only the
+    // exp-iat span is the problem.
+    const token = await mintAit({ iat: NOW - 10, exp: NOW + 590 }); // 600s lifetime > 300s
+    const ctx = await signedCtx(token);
+    const r = await verifyAit(ctx, { jwks: jwksFor(idpPublicJwk), now: NOW });
+    expect(r).toEqual({ ok: false, reason: 'expired_token' });
+  });
+
+  it('accepts an AIT at exactly the 300s lifetime ceiling (our own mint sits here)', async () => {
+    const token = await mintAit({ iat: NOW - 10, exp: NOW + 290 }); // exactly 300s
+    const ctx = await signedCtx(token);
+    const r = await verifyAit(ctx, { jwks: jwksFor(idpPublicJwk), now: NOW });
+    expect(r.ok).toBe(true);
   });
 
   it('rejects an RS256-signed AIT even when the trusted IdP publishes the matching RSA key (alg allowlist, RFC 8725 §3.1)', async () => {
@@ -251,8 +280,8 @@ describe('verifyAit — multiple AITs', () => {
   it('verifies when one of several Agent-Identity headers is valid and matches the request signature', async () => {
     const good = await mintAit();
     const badIssuer = await mintAit({ iss: 'https://evil.com' });
-    // request signed by the agent key (which `good` binds via cnf)
-    const { signatureInput, signature } = await signMessage({ ...REQ, agentIdentity: good, privateJwk: agentPrivateJwk, publicJwk: agentPublicJwk, created: 1715400010 });
+    // request signed by the agent key (which `good` binds via cnf); 60s window for the PoP time bound
+    const { signatureInput, signature } = await signMessage({ ...REQ, agentIdentity: good, privateJwk: agentPrivateJwk, publicJwk: agentPublicJwk, created: 1715400010, expires: 1715400070 });
     // present the bad-issuer one first, then the good one
     const ctx: VerifyRequestContext = { ...REQ, agentIdentityHeaders: [badIssuer, good], signatureInput, signature };
     const r = await verifyAit(ctx, { jwks: jwksFor(idpPublicJwk), now: NOW });

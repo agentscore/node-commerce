@@ -605,7 +605,7 @@ describe('verify_url in DenialReason', () => {
   it('passes verify_url to defaultOnDenied on fresh deny', async () => {
     const denyWithVerifyUrl = {
       ...DENY_RESPONSE,
-      verify_url: 'https://agentscore.sh/verify/test123',
+      verify_url: 'https://www.agentscore.com/verify/test123',
     };
     mockFetchOk(denyWithVerifyUrl);
     const mw = agentscoreGate({ apiKey: API_KEY });
@@ -619,14 +619,14 @@ describe('verify_url in DenialReason', () => {
     expect(status).toHaveBeenCalledWith(403);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({
       error: expect.objectContaining({ code: 'wallet_not_trusted' }),
-      verify_url: 'https://agentscore.sh/verify/test123',
+      verify_url: 'https://www.agentscore.com/verify/test123',
     }));
   });
 
   it('passes verify_url to custom onDenied on fresh deny', async () => {
     const denyWithVerifyUrl = {
       ...DENY_RESPONSE,
-      verify_url: 'https://agentscore.sh/verify/custom123',
+      verify_url: 'https://www.agentscore.com/verify/custom123',
     };
     mockFetchOk(denyWithVerifyUrl);
     const onDenied = vi.fn();
@@ -642,7 +642,7 @@ describe('verify_url in DenialReason', () => {
       res,
       expect.objectContaining({
         code: 'wallet_not_trusted',
-        verify_url: 'https://agentscore.sh/verify/custom123',
+        verify_url: 'https://www.agentscore.com/verify/custom123',
       }),
     );
   });
@@ -650,7 +650,7 @@ describe('verify_url in DenialReason', () => {
   it('passes verify_url through cache on repeated deny', async () => {
     const denyWithVerifyUrl = {
       ...DENY_RESPONSE,
-      verify_url: 'https://agentscore.sh/verify/cached123',
+      verify_url: 'https://www.agentscore.com/verify/cached123',
     };
     mockFetchOk(denyWithVerifyUrl);
     const onDenied = vi.fn();
@@ -672,7 +672,7 @@ describe('verify_url in DenialReason', () => {
       req2,
       res2,
       expect.objectContaining({
-        verify_url: 'https://agentscore.sh/verify/cached123',
+        verify_url: 'https://www.agentscore.com/verify/cached123',
       }),
     );
   });
@@ -784,8 +784,8 @@ describe('evaluate() — 401 passthrough edge cases', () => {
       error: { code: 'token_expired', message: 'invalid' },
       session_id: 'sess_auto',
       poll_secret: 'poll_auto',
-      verify_url: 'https://agentscore.sh/verify?session=sess_auto',
-      poll_url: 'https://api.agentscore.sh/v1/sessions/sess_auto',
+      verify_url: 'https://www.agentscore.com/verify?session=sess_auto',
+      poll_url: 'https://api.agentscore.com/v1/sessions/sess_auto',
       next_steps: { action: 'deliver_verify_url_and_poll' },
     };
     global.fetch = vi.fn().mockResolvedValue({
@@ -807,7 +807,7 @@ describe('evaluate() — 401 passthrough edge cases', () => {
       error: expect.objectContaining({ code: 'token_expired' }),
       session_id: 'sess_auto',
       poll_secret: 'poll_auto',
-      verify_url: 'https://agentscore.sh/verify?session=sess_auto',
+      verify_url: 'https://www.agentscore.com/verify?session=sess_auto',
       agent_instructions: expect.stringContaining('deliver_verify_url_and_poll'),
     }));
     expect(next).not.toHaveBeenCalled();

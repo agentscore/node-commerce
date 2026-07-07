@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   A2A_DEFAULT_TRANSPORT,
   A2A_PROTOCOL_VERSION,
+  AIP_A2A_EXTENSION_URI,
   UCP_A2A_EXTENSION_URI,
+  aipA2AExtension,
   buildA2AAgentCard,
   ucpA2AExtension,
   type A2AAgentCardExtension,
@@ -17,6 +19,34 @@ const DEFAULT_SKILL: A2AAgentSkill = {
   description: 'Buy products via agent payments.',
   tags: ['commerce', 'payment'],
 };
+
+describe('aipA2AExtension', () => {
+  it('advertises AIP with the canonical URI, header, RFC 9421, and trusted issuers', () => {
+    const ext = aipA2AExtension({ trustedIssuers: ['https://www.agentscore.com', 'https://issuer.example'] });
+    expect(ext.uri).toBe(AIP_A2A_EXTENSION_URI);
+    expect(ext.required).toBe(false);
+    expect(ext.params).toMatchObject({
+      header: 'Agent-Identity',
+      signature: 'RFC 9421',
+      trusted_issuers: ['https://www.agentscore.com', 'https://issuer.example'],
+    });
+  });
+
+  it('surfaces required_trust_level / required_amr when set; omits them otherwise', () => {
+    expect(aipA2AExtension().params).not.toHaveProperty('required_trust_level');
+    const ext = aipA2AExtension({ requiredTrustLevel: 'human_confirmed', requiredAmr: ['face', 'hwk'] });
+    expect(ext.params).toMatchObject({ required_trust_level: 'human_confirmed', required_amr: ['face', 'hwk'] });
+  });
+
+  it('appears in a built card\'s capabilities.extensions[]', () => {
+    const card = buildA2AAgentCard({
+      name: 'M', description: 'd', url: 'https://m.example', skills: [DEFAULT_SKILL],
+      extensions: [aipA2AExtension({ trustedIssuers: ['https://www.agentscore.com'] })],
+    });
+    const uris = (card.capabilities.extensions ?? []).map((e: A2AAgentCardExtension) => e.uri);
+    expect(uris).toContain(AIP_A2A_EXTENSION_URI);
+  });
+});
 
 describe('buildA2AAgentCard (A2A v1.0 wire format)', () => {
   it('emits the minimum required spec fields', () => {

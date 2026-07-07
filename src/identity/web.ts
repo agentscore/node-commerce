@@ -1,6 +1,6 @@
 import { denialReasonStatus } from '../_denial';
 import { denialReasonToBody } from '../_response';
-import { buildAipErrorBody, verifyAitRequest, type AipGateOptions } from '../aip/gate';
+import { buildAipErrorBody, evaluateAipRequest, type AipGateOptions } from '../aip/gate';
 import { hasAgentIdentityHeader } from '../aip/request';
 import { createAgentScoreCore } from '../core';
 import { hasPaymentHeader } from '../payment/payment_header';
@@ -111,11 +111,14 @@ export function createAgentScoreGate(options: AgentScoreGateOptions): (req: Requ
         ? (opts: { walletAddress: string; network: 'evm' | 'solana'; idempotencyKey?: string }) =>
             core.captureWallet({ operatorToken: identity.operatorToken!, ...opts })
         : undefined;
-      // Synchronous getter — reads the cached verdicts (signer_match + signer_sanctions)
-      // composed by the primary assess call above. Returns undefined for operator-token
-      // paths or discovery legs where no signer was extractable.
+      // Synchronous getter — returns THIS request's signer verdicts (signer_match +
+      // signer_sanctions), captured on the per-request `outcome` (NOT a shared core slot) so
+      // concurrent same-wallet/different-signer requests can't read each other's verdict. Bound
+      // on strict wallet-auth requests (the getter itself returns `undefined` when no signer was
+      // in the request); absent for operator-token / AIT paths.
+      const signerVerdict = outcome.signerVerdict;
       const getSignerVerdictBound = identity?.address && !identity?.operatorToken
-        ? () => core.getSignerVerdict(identity.address!)
+        ? () => signerVerdict
         : undefined;
       return {
         allowed: true,
@@ -234,9 +237,9 @@ const defaultAipResponse = (body: ReturnType<typeof buildAipErrorBody>): Respons
 export function createAipGate(options: AipGateWebOptions): (req: Request) => Promise<AipGuardResult> {
   const { onDenied, ...gateOpts } = options;
   return async (req: Request): Promise<AipGuardResult> => {
-    const result = await verifyAitRequest(req, gateOpts);
+    const result = await evaluateAipRequest(req, gateOpts);
     if (result.ok) { return { allowed: true, ait: result.ait }; }
-    const body = buildAipErrorBody(result.failure);
+    const body = result.body;
     const response = onDenied ? await onDenied(req, body) : defaultAipResponse(body);
     return { allowed: false, response };
   };

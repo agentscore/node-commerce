@@ -1,4 +1,4 @@
-import { generateKeyPair, exportJWK, calculateJwkThumbprint, type JWK } from 'jose';
+import { generateKeyPair, exportJWK, calculateJwkThumbprint, importJWK, type JWK } from 'jose';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   AIP_COVERED_COMPONENTS,
@@ -31,10 +31,15 @@ const baseReq = {
 };
 
 const roundTrip = async (overrides: Partial<SignMessageInput> = {}) => {
+  // The verifier now REQUIRES `expires` (replay-window hardening), so default to a 60s window
+  // (matching pay's signer) unless a test overrides it. `signMessage` itself omits `expires` by
+  // default — that's only the serialization-format default, exercised explicitly below.
+  const created = overrides.created ?? Math.floor(Date.now() / 1000);
   const { signatureInput, signature } = await signMessage({
     ...baseReq,
     privateJwk,
     publicJwk,
+    expires: created + 60,
     ...overrides,
   });
   return { signatureInput, signature };
@@ -101,10 +106,17 @@ describe('parseSignatureInput', () => {
     expect(parsed?.params.created).toBe(2);
   });
 
-  it('accepts a sole untagged member', () => {
+  it('rejects a sole untagged member (tag="agent-identity" is required)', () => {
     const header = 'sig1=("@method" "@path");created=5;keyid="k"';
-    const parsed = parseSignatureInput(header);
-    expect(parsed?.label).toBe('sig1');
+    expect(parseSignatureInput(header)).toBeNull();
+  });
+
+  it('preserves the raw member value (rawParams) byte-for-byte', () => {
+    // The verifier echoes this into the "@signature-params" base line, so it must be the member
+    // value exactly as received — including a non-canonical param order.
+    const raw = '("@method" "@authority" "@path" "agent-identity");keyid="abc";created=1715400000;expires=1715400060;tag="agent-identity"';
+    const parsed = parseSignatureInput(`ait=${raw}`);
+    expect(parsed?.rawParams).toBe(raw);
   });
 
   it('returns null when only non-AIP tagged members are present', () => {
@@ -159,6 +171,36 @@ describe('signMessage + verifyMessageSignature round trip', () => {
     const parsed = parseSignatureInput(signatureInput);
     expect(parsed?.params.components).toEqual([...AIP_COVERED_COMPONENTS]);
   });
+
+  it('verifies a signer that declared params in a NON-canonical order (raw @signature-params)', async () => {
+    // RFC 9421 puts no order on signature params. A spec-legal signer that emits keyid BEFORE
+    // created/expires signs over THAT serialization; the verifier must rebuild the base from the
+    // raw received member value, not a re-serialization in our canonical order.
+    const created = 1715400000;
+    const rawParams = `("@method" "@authority" "@path" "agent-identity");keyid="${thumbprint}";created=${created};expires=${created + 60};tag="agent-identity"`;
+    const base = [
+      '"@method": POST',
+      '"@authority": wine-merchant.com',
+      '"@path": /checkout',
+      `"agent-identity": ${baseReq.agentIdentity}`,
+      `"@signature-params": ${rawParams}`,
+    ].join('\n');
+    const key = await importJWK(privateJwk, 'EdDSA');
+    const sigBytes = await globalThis.crypto.subtle.sign(
+      'Ed25519',
+      key as CryptoKey,
+      new TextEncoder().encode(base) as unknown as ArrayBuffer,
+    );
+    const signature = `ait=:${Buffer.from(new Uint8Array(sigBytes)).toString('base64')}:`;
+    const r = await verifyMessageSignature({
+      ...baseReq,
+      signatureInput: `ait=${rawParams}`,
+      signature,
+      cnfJwk: publicJwk,
+      now: created + 10,
+    });
+    expect(r.ok).toBe(true);
+  });
 });
 
 describe('verifyMessageSignature failure modes', () => {
@@ -198,7 +240,7 @@ describe('verifyMessageSignature failure modes', () => {
     const { privateKey, publicKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
     const otherPriv = await exportJWK(privateKey);
     const otherPub = await exportJWK(publicKey);
-    const s = await signMessage({ ...baseReq, privateJwk: otherPriv, publicJwk: otherPub, created: 1715400000 });
+    const s = await signMessage({ ...baseReq, privateJwk: otherPriv, publicJwk: otherPub, created: 1715400000, expires: 1715400060 });
     // present the wrong cnf (our original key) — keyid in the sig won't match its thumbprint
     const r = await verifyMessageSignature({
       ...baseReq,
@@ -234,6 +276,59 @@ describe('verifyMessageSignature failure modes', () => {
     expect(r).toEqual({ ok: false, reason: 'missing_covered_component' });
   });
 
+  it('rejects a signature missing created (no enforceable time bound)', async () => {
+    // Hand-build a Signature-Input with neither created nor expires, signed over that exact base, so
+    // the missing-created branch fires before the byte verification. An unbounded PoP is replayable.
+    const { signature } = await signMessage({ ...baseReq, privateJwk, publicJwk, created: 1715400000 });
+    const header = `ait=${'("@method" "@authority" "@path" "agent-identity")'};keyid="${thumbprint}";tag="agent-identity"`;
+    const r = await verify({ signatureInput: header }, { signatureInput: header, signature });
+    expect(r).toEqual({ ok: false, reason: 'created_missing' });
+  });
+
+  it('rejects a signature missing expires (replayable for the full AIT lifetime)', async () => {
+    // signMessage omits `expires` by default — exactly the spec-loose shape the hardening rejects.
+    const s = await signMessage({ ...baseReq, privateJwk, publicJwk, created: 1715400000 });
+    const r = await verify({}, s);
+    expect(r).toEqual({ ok: false, reason: 'expires_missing' });
+  });
+
+  it('rejects a signature whose declared window (expires - created) exceeds the 120s ceiling', async () => {
+    // created+expires alone only bound replay to whatever window the SIGNER chose; the HTTP-sig layer
+    // caps it at 120s. A 300s window (an attacker matching the AIT's 300s ceiling) is rejected even
+    // though created/expires are present and `now` sits inside the window.
+    const s = await roundTrip({ created: 1715400000, expires: 1715400300 }); // 300s > 120s
+    const r = await verify({ now: 1715400005 }, s); // well inside the declared window
+    expect(r).toEqual({ ok: false, reason: 'pop_window_too_long' });
+  });
+
+  it('accepts a signature whose declared window equals the 120s ceiling (boundary)', async () => {
+    const s = await roundTrip({ created: 1715400000, expires: 1715400120 }); // exactly 120s
+    const r = await verify({ now: 1715400005 }, s);
+    expect(r.ok).toBe(true);
+  });
+
+  it('rejects a NEGATIVE window (expires before created)', async () => {
+    // A negative window would slip under the 120s cap (negative < 120) and, within skew, pass the
+    // created/expires clock checks — it must be rejected as a window violation.
+    const s = await roundTrip({ created: 1715400000, expires: 1715399990 });
+    const r = await verify({ now: 1715400005 }, s);
+    expect(r).toEqual({ ok: false, reason: 'pop_window_too_long' });
+  });
+
+  it('rejects an untagged sole member at verify (tag is required)', async () => {
+    const s = await roundTrip({ created: 1715400000 });
+    const stripped = s.signatureInput.replace(';tag="agent-identity"', '');
+    const r = await verify({ signatureInput: stripped }, { signatureInput: stripped, signature: s.signature });
+    expect(r).toEqual({ ok: false, reason: 'no_aip_signature' });
+  });
+
+  it('verifies a valid 60s-window PoP (the first-party pay signer shape)', async () => {
+    // pay signs created + expires = created + 60. This must still verify post-hardening.
+    const s = await roundTrip({ created: 1715400000, expires: 1715400060 });
+    const r = await verify({ now: 1715400010 }, s);
+    expect(r.ok).toBe(true);
+  });
+
   it('rejects a non-ed25519 alg param', async () => {
     const header = 'ait=("@method" "@authority" "@path" "agent-identity");created=1715400000;keyid="k";alg="rsa";tag="agent-identity"';
     const r = await verify({ signatureInput: header }, { signatureInput: header, signature: 'ait=:AA:' });
@@ -243,7 +338,8 @@ describe('verifyMessageSignature failure modes', () => {
   it('accepts the JWS alg spelling "EdDSA" at the alg gate (case-insensitive)', async () => {
     // ed25519 is the RFC 9421 label; EdDSA is the JWS label. We accept both, so an external signer
     // that emits alg="EdDSA" must pass the alg gate and fail later for a real reason, not unsupported_alg.
-    const header = 'ait=("@method" "@authority" "@path" "agent-identity");created=1715400000;keyid="k";alg="EdDSA";tag="agent-identity"';
+    // (created+expires present so the alg-spelling reaches the keyid check, not the time-bound gates.)
+    const header = 'ait=("@method" "@authority" "@path" "agent-identity");created=1715400000;expires=1715400060;keyid="k";alg="EdDSA";tag="agent-identity"';
     const r = await verify({ signatureInput: header }, { signatureInput: header, signature: 'ait=:AA:' });
     expect(r).toEqual({ ok: false, reason: 'keyid_mismatch' });
   });

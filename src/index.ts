@@ -33,9 +33,11 @@ export {
 export { buildVerificationRequiredBody, denialReasonToBody } from './_response';
 export {
   buildA2AAgentCard,
+  aipA2AExtension,
   ucpA2AExtension,
   A2A_DEFAULT_TRANSPORT,
   A2A_PROTOCOL_VERSION,
+  AIP_A2A_EXTENSION_URI,
   UCP_A2A_EXTENSION_URI,
   type A2AAgentCard,
   type A2AAgentCardCapabilities,
@@ -81,6 +83,10 @@ export {
   shippingStateAllowed,
   validateShippingAgainstPolicy,
 } from './identity/policy';
+// Network-aware address normalization (EVM lowercased, Solana base58 preserved). Exported so
+// consumers can normalize an X-Wallet-Address the SAME way extractOwnerScope + the gate + the
+// AgentScore API do before keying owner-scoped DB lookups (e.g. orders.wallet_address).
+export { normalizeAddress } from './address';
 export { extractOwnerScope, hashOperatorToken, type OwnerScope } from './identity/tokens';
 export { CheckoutValidationError } from './errors';
 export {
@@ -159,6 +165,7 @@ export {
 export {
   AIP_COVERED_COMPONENTS,
   AIP_SIGNATURE_TAG,
+  MAX_POP_WINDOW_SECONDS,
   signMessage,
   verifyMessageSignature,
   type SignMessageInput,
@@ -191,7 +198,13 @@ export {
   aipErrorCode,
   aipErrorStatus,
   buildAipErrorBody,
+  buildAipWeakAuthBody,
+  checkTrustRequirements,
+  evaluateAipParts,
+  evaluateAipRequest,
   verifyAitRequest,
+  type AipErrorRequirements,
+  type AipGateEvaluation,
   type AipGateOptions,
   type AipGateResult,
 } from './aip/gate';

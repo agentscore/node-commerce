@@ -26,6 +26,10 @@ const DEFAULT_OUTPUT_MODE = 'application/json';
  *  to the 2026-04-08 spec snapshot. */
 export const UCP_A2A_EXTENSION_URI = 'https://ucp.dev/2026-04-08/specification/reference';
 
+/** Canonical URI for the AIP (Agentic Identity Protocol) A2A agent-card extension — points at the
+ *  issuer-discovery well-known so a reader can resolve the protocol. */
+export const AIP_A2A_EXTENSION_URI = 'https://www.agentscore.com/.well-known/agent-identity';
+
 /** One transport+URL combination the agent exposes. Lives in `AgentCard.additionalInterfaces[]`
  *  for multi-binding agents; the PRIMARY transport+URL pair lives on `AgentCard.url` +
  *  `AgentCard.preferredTransport`. */
@@ -89,6 +93,36 @@ export function ucpA2AExtension(
     description: 'UCP support: this agent serves Universal Commerce Protocol bindings via the A2A transport.',
     required: options.required ?? false,
     params: { capabilities },
+  };
+}
+
+/** Build the AIP entry for an A2A agent card's `capabilities.extensions[]`. Advertises that the
+ *  agent accepts an Agent Identity Token (JWT) in an `Agent-Identity` header plus an RFC 9421
+ *  proof-of-possession signature — so an agent discovering via the agent-card learns it can present
+ *  an AIT (matching what the merchant's mpp.json / llms.txt / skill.md already advertise). Optional
+ *  `requiredTrustLevel` / `requiredAmr` surface a gate's human-presence requirement. */
+export function aipA2AExtension(
+  opts: {
+    trustedIssuers?: string[];
+    requiredTrustLevel?: 'autonomous' | 'human_present' | 'human_confirmed';
+    requiredAmr?: string[];
+    required?: boolean;
+  } = {},
+): A2AAgentCardExtension {
+  return {
+    uri: AIP_A2A_EXTENSION_URI,
+    description:
+      'AIP support: present an Agent Identity Token (JWT) in an Agent-Identity header plus an RFC 9421 ' +
+      'HTTP Message Signature (over @method @authority @path agent-identity) proving possession of the ' +
+      'token-bound cnf key. `agentscore-pay pay --identity aip` attaches it automatically.',
+    required: opts.required ?? false,
+    params: {
+      header: 'Agent-Identity',
+      signature: 'RFC 9421',
+      ...(opts.trustedIssuers !== undefined && opts.trustedIssuers.length > 0 && { trusted_issuers: opts.trustedIssuers }),
+      ...(opts.requiredTrustLevel !== undefined && { required_trust_level: opts.requiredTrustLevel }),
+      ...(opts.requiredAmr !== undefined && opts.requiredAmr.length > 0 && { required_amr: opts.requiredAmr }),
+    },
   };
 }
 

@@ -75,7 +75,7 @@ checkout.mountUcpRoutesHono(app, {
     agentCardUrl: 'https://agents.example.com/.well-known/agent-card.json',
   }),
   signingKid: SIGNING_KID,
-  // Optional: declare merchant gate policy as an `sh.agentscore.identity`
+  // Optional: declare merchant gate policy as an `com.agentscore.identity`
   // capability binding inside the public profile. Static policy declaration
   // only; per-operator identity attestation flows through the AP2
   // risk-signal endpoint.

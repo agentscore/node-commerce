@@ -65,7 +65,7 @@ const IDENTITY_VERIFICATION_REQUIRED_FALLBACK_INSTRUCTIONS = JSON.stringify({
 const API_ERROR_INSTRUCTIONS = JSON.stringify({
   action: 'retry_with_backoff',
   steps: [
-    'Verification is temporarily unavailable. Retry the request after 5–30 seconds with exponential backoff.',
+    'Verification is temporarily unavailable. Retry the request after 5-30 seconds with exponential backoff.',
     'This is NOT a compliance denial — the user does not need to re-verify their identity. Send the same identity headers (X-Wallet-Address or X-Operator-Token) on retry.',
     'If the request continues to fail after 3+ retries (~60 seconds total), surface the error to the user with the merchant\'s support contact.',
   ],

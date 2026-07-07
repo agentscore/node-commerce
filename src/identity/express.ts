@@ -1,6 +1,6 @@
 import { denialReasonStatus } from '../_denial';
 import { denialReasonToBody } from '../_response';
-import { buildAipErrorBody, verifyAitParts, type AipGateOptions } from '../aip/gate';
+import { buildAipErrorBody, evaluateAipParts, type AipGateOptions } from '../aip/gate';
 import { hasAgentIdentityHeaderNode } from '../aip/request';
 import { createAgentScoreCore } from '../core';
 import { hasPaymentHeader } from '../payment/payment_header';
@@ -34,6 +34,11 @@ interface GateState {
    *  on the success path. Absent on Enterprise / unlimited tiers, or when the gate didn't
    *  call assess (failOpen + missing identity). */
   quota?: GateQuotaInfo;
+  /** Per-REQUEST signer verdicts (signer_match + signer_sanctions) from this request's assess
+   *  call. Request-scoped (lives on the Express `req`, not the shared core) so concurrent
+   *  same-wallet/different-signer requests can't read each other's verdict. Read via
+   *  {@link getSignerVerdict}. */
+  signerVerdict?: SignerVerdict;
 }
 
 interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
@@ -96,12 +101,17 @@ export function agentscoreGate(options: AgentScoreGateOptions) {
           state.infraReason = outcome.infraReason;
         }
         if (outcome.quota) state.quota = outcome.quota;
+        if (outcome.signerVerdict) state.signerVerdict = outcome.signerVerdict;
       }
       if (outcome.data) (req as unknown as Record<string, unknown>).agentscore = outcome.data;
       next();
       return;
     }
 
+    if (outcome.signerVerdict) {
+      const state = (req as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
+      if (state) state.signerVerdict = outcome.signerVerdict;
+    }
     onDenied(req, res, outcome.reason);
   };
 }
@@ -170,8 +180,7 @@ export async function captureWallet(
  */
 export function getSignerVerdict(req: Request): SignerVerdict | undefined {
   const state = (req as unknown as Record<string, GateState | undefined>)[GATE_STATE_KEY];
-  if (!state?.walletAddress) return undefined;
-  return state.core.getSignerVerdict(state.walletAddress);
+  return state?.signerVerdict;
 }
 
 /** Wrap `agentscoreGate(...)` so it only fires when a payment credential is
@@ -223,12 +232,12 @@ function defaultAipOnDenied(_req: Request, res: Response, body: ReturnType<typeo
 export function aipGate(options: AipGateExpressOptions) {
   const { onDenied = defaultAipOnDenied, ...gateOpts } = options;
   return async function aipGateMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
-    const result = await verifyAitParts(
+    const result = await evaluateAipParts(
       { method: req.method, url: req.url, headers: req.headers as Record<string, string | string[] | undefined> },
       gateOpts,
     );
     if (!result.ok) {
-      onDenied(req, res, buildAipErrorBody(result.failure));
+      onDenied(req, res, result.body);
       return;
     }
     (req as unknown as Record<string, unknown>)[AIT_STATE_KEY] = result.ait;

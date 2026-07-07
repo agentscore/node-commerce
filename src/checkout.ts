@@ -37,13 +37,13 @@ import { normalizeHeadersToLowercase } from './_headers';
 import { extractMppxReceiptHeaderFromRaw, extractMppxReceiptMethod } from './_mppx_receipt';
 import { denialReasonToBody } from './_response';
 import { warnMissingApiKeyOnce } from './_warnings';
-import { buildAipErrorBody, verifyAitParts } from './aip/gate';
+import { buildAipErrorBody, buildAipPolicyDenyBody, buildAipWeakAuthBody, checkTrustRequirements, verifyAitParts } from './aip/gate';
 import { AGENTSCORE_CANONICAL_ISSUER, canonicalizeIssuer, JwksCache } from './aip/jwks';
 import { hasAgentIdentityHeaderNode } from './aip/request';
 import { buildAcceptedMethods } from './challenge/accepted_methods';
 import { type RailKey, buildAgentInstructions } from './challenge/agent_instructions';
 import { firstEncounterAgentMemory } from './challenge/agent_memory';
-import { build402Body } from './challenge/body';
+import { build402Body, type X402ResourceInfo } from './challenge/body';
 import { buildHowToPay } from './challenge/how_to_pay';
 import { type IdentityMetadataBlock, buildIdentityMetadata } from './challenge/identity';
 import { buildPricingBlock, type PricingBlock } from './challenge/pricing';
@@ -57,6 +57,7 @@ import {
   type EvaluateOutcome,
   createAgentScoreCore,
 } from './core';
+import { enrichBazaarDiscoveryExtensions } from './discovery/bazaar';
 import { CheckoutValidationError } from './errors';
 import { STRIPE_MIN_CHARGE_USD } from './payment/constants';
 import { lazyMppxServer, lazyX402Server } from './payment/lazy';
@@ -78,6 +79,7 @@ import { classifyX402SettleResult, processX402Settle } from './payment/x402_sett
 import { verifyX402Request } from './payment/x402_validation';
 import { zeroAmountCarveOut, type ZeroSettleRail } from './payment/zero-settle';
 import { extractPaymentSignerFromAuth } from './signer';
+import type { TrustLevel } from './aip/types';
 import type { SignedDiscoveryResponse } from './discovery/well_known';
 
 
@@ -345,7 +347,7 @@ export type RunGateFn = (ctx: CheckoutContext) => Promise<GateDenial | null>;
 export interface CheckoutGateConfig {
   /** AgentScore API key. Required when `runGate` is omitted. */
   apiKey?: string;
-  /** Override the default `https://api.agentscore.sh` base URL. */
+  /** Override the default `https://api.agentscore.com` base URL. */
   baseUrl?: string;
   /** Prepended to the default User-Agent on API calls. */
   userAgent?: string;
@@ -406,7 +408,7 @@ export interface AipGateConfig {
    *  Omit/empty to accept only AgentScore-issued AITs. */
   trustedIssuers?: string[];
   /** Clock-skew tolerance in seconds for the RFC 9421 signature window (and, as an override,
-   *  the AIT JWT `exp`/`iat`). Defaults to 30s for the signature / 60s for the JWT. */
+   *  the AIT JWT `exp`/`iat`). Defaults to 60s for both. */
   maxSkewSeconds?: number;
   /** Expected `@authority` (public hostname) the RFC 9421 signature must cover. When set, the
    *  verifier binds the signature to this value instead of trusting the inbound `Host` header —
@@ -414,6 +416,15 @@ export interface AipGateConfig {
    *  not normalize `Host`, to prevent a captured AIT+signature from being replayed to a
    *  different virtual host on the same origin. */
   authority?: string;
+  /** Minimum `trust_level` an AIT must assert to pass this gate (autonomous < human_present <
+   *  human_confirmed) — the spec's human-presence gate (e.g. require `human_confirmed` for
+   *  checkout). Enforced at the edge from the verified token; insufficient → 403 weak_auth with
+   *  `required_trust_level`. Unset = any trust level accepted. */
+  requireTrustLevel?: TrustLevel;
+  /** Acceptable `auth.amr` methods (RFC 8176); the AIT must carry at least one (e.g.
+   *  `['face','fpt','hwk']` to require strong human auth). Insufficient → 403 weak_auth with
+   *  `required_amr`. Unset = not enforced. */
+  requireAmr?: string[];
   /** Per-issuer compliance policy override, keyed by issuer URL (canonicalized before lookup).
    *  When a request's AIT is verified and its `iss` matches a key here, that block REPLACES the
    *  gate's default policy fields (`requireKyc` / `requireSanctionsClear` / `minAge` /
@@ -553,6 +564,39 @@ function isStripeRailSpec(s: CheckoutRailSpec): s is StripeRailSpec {
 
 function isTempoSessionRailSpec(s: CheckoutRailSpec): s is TempoSessionRailSpec {
   return 'escrowContract' in s && 'store' in s;
+}
+
+/** A recipient is STATIC when it's a non-empty string literal (not a factory callable, not an
+ *  empty-string per-order sentinel). Factory/empty recipients signal that the authoritative
+ *  `payTo` is minted per request and shipped in the 402 body, so they can't be bound at
+ *  construction time. Mirrors the reference `_static_recipient`. */
+function staticRecipient(r: RecipientLike): string | null {
+  return typeof r === 'string' && r.length > 0 ? r : null;
+}
+
+/**
+ * Collect the lowercased static recipient address(es) for the EVM/x402-base rail(s) in `rails`.
+ *
+ * Used to bind the agent-supplied x402 `payTo` to the merchant's CONFIGURED recipient: the
+ * x402 `payTo` is read from the agent's signed payload, and the only sanity check is
+ * `isCachedAddress`. For a static-recipient merchant (one address, no per-order minting and no
+ * custom `isCachedAddress`), the gate must reject any `payTo` that isn't the configured address —
+ * otherwise a hostile agent points `payTo` at their own wallet and drains the settle. This set is
+ * the allow-list the auto-supplied `isCachedAddress` checks against.
+ *
+ * Empty when every x402-base recipient is a factory/empty sentinel (pure per-order minting) — in
+ * that case there's nothing static to bind, and the merchant is expected to supply `isCachedAddress`
+ * (e.g. `piCache.hasAddress`) themselves.
+ */
+function collectStaticX402Recipients(rails: Record<string, CheckoutRailSpec>): Set<string> {
+  const out = new Set<string>();
+  for (const spec of Object.values(rails)) {
+    if (isStripeRailSpec(spec) || isTempoSessionRailSpec(spec)) continue;
+    if (!isEvmNetwork(spec)) continue;
+    const recipient = staticRecipient((spec as X402BaseRailSpec).recipient);
+    if (recipient !== null) out.add(recipient.toLowerCase());
+  }
+  return out;
 }
 
 /** Map a `*RailSpec` instance to its canonical `RailKey` slug. Tempo charge
@@ -705,7 +749,7 @@ function pickRail<T>(rails: Record<string, CheckoutRailSpec>, key: string): T | 
  *  canonical issuer independently. */
 export function buildAipTrustedIssuers(externalIssuers?: string[]): string[] {
   const out = [AGENTSCORE_CANONICAL_ISSUER, ...(externalIssuers ?? [])];
-  // De-dupe on canonical form so an explicit `https://agentscore.sh` (or trailing-slash variant)
+  // De-dupe on canonical form so an explicit `https://www.agentscore.com` (or trailing-slash variant)
   // doesn't double up; keep the first-seen original string for each canonical key.
   const seen = new Set<string>();
   const deduped: string[] = [];
@@ -718,6 +762,21 @@ export function buildAipTrustedIssuers(externalIssuers?: string[]): string[] {
 
 function aipTrustedIssuerSet(cfg: AipGateConfig): string[] {
   return buildAipTrustedIssuers(cfg.trustedIssuers);
+}
+
+/** Project the gate's effective compliance policy onto the AIT identity claims it requires, for
+ *  the `required_claims` escalation hint on an `insufficient_claims` AIP denial. Mirrors the
+ *  claim names the API checks an AIT against (`id_verified` / `sanctions_clear` / `age_over_<N>` /
+ *  `jurisdiction`). Empty when the policy is identity-only. */
+function aipRequiredClaims(policy: AipIssuerPolicy): string[] {
+  const claims: string[] = [];
+  if (policy.requireKyc) claims.push('id_verified');
+  if (policy.requireSanctionsClear) claims.push('sanctions_clear');
+  if (policy.minAge != null) claims.push(`age_over_${policy.minAge}`);
+  if (policy.blockedJurisdictions !== undefined || policy.allowedJurisdictions !== undefined) {
+    claims.push('jurisdiction');
+  }
+  return claims;
 }
 
 function resolveIssuerPolicy(
@@ -763,9 +822,14 @@ export class Checkout {
   readonly mintReferenceId: ReferenceIdFn | undefined;
   readonly onSettled: OnSettledFn | undefined;
   readonly isCachedAddress: IsCachedAddressFn | undefined;
+  /** Lowercased static recipient addresses for the x402-base rail(s). When the merchant
+   *  configured a static recipient and supplied no `isCachedAddress`, the gate binds the
+   *  agent-supplied `payTo` to this set (anti funds-drain). Empty for pure per-order minting. */
+  private readonly x402StaticRecipients: Set<string>;
   readonly zeroSettleCarveOut: boolean;
   readonly gate: CheckoutGateConfig | undefined;
   readonly discoveryExtensions: Record<string, unknown> | undefined;
+  readonly resourceInfo: { serviceName?: string; tags?: string[]; iconUrl?: string; description?: string } | undefined;
   readonly discoveryProbe: DiscoveryProbeConfig | undefined;
   private _x402ServerGetter: (() => Promise<X402Server>) | undefined;
 
@@ -837,7 +901,10 @@ export class Checkout {
     /** Runs after a settle lands; can return an inline response body for API sellers. */
     onSettled?: OnSettledFn;
     /** Pass when the merchant mints per-order addresses so `verifyX402Request` can
-     *  confirm the `payTo` was minted by this merchant. Defaults to permissive. */
+     *  confirm the `payTo` was minted by this merchant (e.g. `piCache.hasAddress`).
+     *  When omitted, Checkout auto-binds the agent-supplied `payTo` to the rail's
+     *  configured STATIC recipient(s) — the permissive default applies ONLY when no
+     *  static recipient exists (pure per-order minting). */
     isCachedAddress?: IsCachedAddressFn;
     /** Engage the EIP-3009 value=0 + pympp `proof` carve-out when pricing
      *  resolves to $0. Goods merchants offering free redemption codes set this
@@ -853,6 +920,11 @@ export class Checkout {
      *  `extensions` field so Bazaar crawlers and other spec-compliant clients
      *  read the route's declared input/output schema. */
     discoveryExtensions?: Record<string, unknown>;
+    /** Optional x402 v2 ResourceInfo metadata advertised on the 402 (both the
+     *  body and the PAYMENT-REQUIRED header): `serviceName` / `tags` (max 5) /
+     *  `iconUrl` / `description`, used by Bazaar search + filtering. `url` and
+     *  `mimeType` are filled automatically from the request. */
+    resourceInfo?: { serviceName?: string; tags?: string[]; iconUrl?: string; description?: string };
     /** Optional discovery-probe config: auto-route empty-body POSTs without a
      *  payment header to a sample 402 advertising the merchant's shape for
      *  crawlers (`awal x402 details`, x402-proxy, x402scan, ...). */
@@ -910,9 +982,11 @@ export class Checkout {
     this.mintReferenceId = opts.mintReferenceId;
     this.onSettled = opts.onSettled;
     this.isCachedAddress = opts.isCachedAddress;
+    this.x402StaticRecipients = collectStaticX402Recipients(opts.rails);
     this.zeroSettleCarveOut = opts.zeroSettleCarveOut ?? false;
     this.gate = opts.gate;
     this.discoveryExtensions = opts.discoveryExtensions;
+    this.resourceInfo = opts.resourceInfo;
     this.discoveryProbe = opts.discoveryProbe;
   }
 
@@ -1209,6 +1283,7 @@ export class Checkout {
     const operatorToken = headers['x-operator-token'];
     let aipToken: string | undefined;
     let aipIssuer: string | undefined;
+    let aipSignature: AgentIdentity['aipSignature'];
     if (gate.aip !== undefined && hasAgentIdentityHeaderNode(headers)) {
       const aipResult = await verifyAitParts(
         {
@@ -1223,7 +1298,11 @@ export class Checkout {
         },
       );
       if (!aipResult.ok) {
-        const body = buildAipErrorBody(aipResult.failure);
+        const body = buildAipErrorBody(aipResult.failure, {
+          trustedIssuers: aipTrustedIssuerSet(gate.aip),
+          ...(gate.aip.requireTrustLevel !== undefined && { requiredTrustLevel: gate.aip.requireTrustLevel }),
+          ...(gate.aip.requireAmr !== undefined && { requiredAmr: gate.aip.requireAmr }),
+        });
         return {
           status: body.status,
           body: body as unknown as Record<string, unknown>,
@@ -1237,6 +1316,22 @@ export class Checkout {
       }
       aipToken = aipResult.ait.token;
       aipIssuer = aipResult.ait.iss;
+      aipSignature = aipResult.ait.signatureMaterial;
+
+      // Enforce the merchant's trust_level / auth.amr requirement (the spec's human-presence gate).
+      // Verification-derived (carried in the verified token), so enforced here at the edge —
+      // insufficient → weak_auth (403) with required_* so the agent can step up (re-mint a
+      // higher-trust AIT) rather than guess.
+      const weakAuthDetail = checkTrustRequirements(aipResult.ait.payload, gate.aip.requireTrustLevel, gate.aip.requireAmr);
+      if (weakAuthDetail) {
+        const body = buildAipWeakAuthBody({
+          detail: weakAuthDetail,
+          ...(gate.aip.requireTrustLevel !== undefined && { requiredTrustLevel: gate.aip.requireTrustLevel }),
+          ...(gate.aip.requireAmr !== undefined && { requiredAmr: gate.aip.requireAmr }),
+          trustedIssuers: aipTrustedIssuerSet(gate.aip),
+        });
+        return { status: 403, body: body as unknown as Record<string, unknown>, headers: { 'content-type': 'application/problem+json' } };
+      }
     }
 
     // Resolve the per-issuer policy override (if any) for the verified AIT's issuer. Matched on
@@ -1289,7 +1384,13 @@ export class Checkout {
     let policyOverride: Partial<AgentScoreCoreOptions> | null | undefined;
     if (gate.perRequestPolicy !== undefined) {
       policyOverride = await gate.perRequestPolicy(ctx);
-      if (policyOverride === null) return null;
+      // A null override means "no per-request *identity* policy for this product"
+      // — but it must NOT skip the always-on wallet OFAC SDN floor. Route to
+      // runWalletSanctionsOnly so a NULL-enforcement product still screens its
+      // payment signer (identical to the no-gate dispatch above). The floor is a
+      // no-op for non-wallet flows (no apiKey, or no extractable signer on Stripe
+      // SPT / card), so this never forces a wallet onto a free/card/no-signer settle.
+      if (policyOverride === null) return this.runWalletSanctionsOnly(ctx);
     }
     const coreOpts: AgentScoreCoreOptions = {
       apiKey: gate.apiKey,
@@ -1329,7 +1430,7 @@ export class Checkout {
     // above (which runs before the no-apiKey fallback). AIT wins when present; else wallet/operator.
     const identity: AgentIdentity | undefined =
       aipToken !== undefined
-        ? { aipToken }
+        ? { aipToken, ...(aipSignature !== undefined && { aipSignature }) }
         : walletAddress !== undefined || operatorToken !== undefined
           ? {
               ...(walletAddress !== undefined && { address: walletAddress }),
@@ -1365,8 +1466,7 @@ export class Checkout {
       // `payment.signer` claim, enforced server-side. Guarding on aipToken===undefined keeps
       // this from being dead code that silently no-ops on a cache miss.
       if (aipToken === undefined && walletAddress !== undefined) {
-        const verdict = core.getSignerVerdict(walletAddress);
-        const sm = verdict?.signer_match;
+        const sm = outcome.signerVerdict?.signer_match;
         if (sm && sm.kind !== 'pass') {
           const reason: DenialReason = sm.kind === 'wallet_auth_requires_wallet_signing'
             ? {
@@ -1400,6 +1500,25 @@ export class Checkout {
       if (custom !== null) return custom;
     }
     const body = denialReasonToBody(reason);
+    // AIT-input denial (a verified AIT that /v1/assess then denied): emit the AgentScore body as
+    // an RFC 9457 + AIP-spec SUPERSET so the response is both schemes at once — the rich
+    // AgentScore `{ error, agent_instructions, ... }` AND the spec's `type`/`title`/`status`/
+    // `detail` (+ escalation). `application/problem+json` so spec consumers content-negotiate it.
+    // The wallet / operator-token paths (aipToken undefined) keep the bare AgentScore body +
+    // application/json (the renderers' default), untouched.
+    if (aipToken !== undefined) {
+      const superset = buildAipPolicyDenyBody(reason.code, reason.reasons, body, {
+        trustedIssuers: gate.aip !== undefined ? aipTrustedIssuerSet(gate.aip) : undefined,
+        requiredClaims: aipRequiredClaims(effPolicy),
+        ...(gate.aip?.requireTrustLevel !== undefined && { requiredTrustLevel: gate.aip.requireTrustLevel }),
+        ...(gate.aip?.requireAmr !== undefined && { requiredAmr: gate.aip.requireAmr }),
+      });
+      return {
+        status: superset.status as number,
+        body: superset,
+        headers: { 'content-type': 'application/problem+json' },
+      };
+    }
     const status =
       reason.code === 'token_expired' || reason.code === 'invalid_credential'
         ? 401
@@ -1421,7 +1540,7 @@ export class Checkout {
    *   - `AGENTSCORE_API_KEY` — required. No key → one-time warning + skip
    *     (dev/testnet pattern; production should always configure a key).
    *   - `AGENTSCORE_BASE_URL` — optional override for staging/dev API
-   *     (e.g. `https://api-dev.agentscore.sh` or `http://localhost:3002`).
+   *     (e.g. `https://api.staging.example` or `http://localhost:3002`).
    *
    * Stripe SPT (no extractable wallet signer) → skip silently; Stripe runs
    * its own OFAC screen on the buyer's Stripe account at customer creation.
@@ -1434,7 +1553,10 @@ export class Checkout {
    * clean buyer is just bad UX).
    */
   private async runWalletSanctionsOnly(ctx: CheckoutContext): Promise<GateDenial | null> {
-    const apiKey = process.env.AGENTSCORE_API_KEY;
+    // Prefer the gate's own apiKey when present, else the env var — symmetric with
+    // python's `_run_wallet_sanctions_only` (gate.api_key or env). In practice this is
+    // reached only when the gate has no apiKey, so both resolve to the env var.
+    const apiKey = this.gate?.apiKey ?? process.env.AGENTSCORE_API_KEY;
     if (!apiKey) {
       warnMissingApiKeyOnce('checkout');
       return null;
@@ -1482,8 +1604,11 @@ export class Checkout {
     rail: ZeroSettleRail,
   ): Promise<CheckoutResult | null> {
     if (!this.zeroSettleCarveOut || ctx.pricing === null) return null;
-    const cents = Math.round(ctx.pricing.amountUsd * 100);
-    if (cents !== 0) return null;
+    // Gate on the REAL amount, not cents. `Math.round(amountUsd * 100)` rounds a sub-cent
+    // NON-zero price (e.g. $0.002 → 0 cents) to zero and would skip the on-chain settle while
+    // still delivering the goods — a free-goods bypass. Only a genuine $0 price takes the
+    // carve-out. Matches python `checkout.py` (`amount_usd == 0`).
+    if (ctx.pricing.amountUsd !== 0) return null;
     const headers = normalizeHeadersToLowercase(ctx.request.headers);
     let zero;
     if (rail === 'x402-base') {
@@ -1528,9 +1653,28 @@ export class Checkout {
     return ctx.recipients;
   }
 
-  private async asyncIsCachedAddress(address: string): Promise<boolean> {
-    if (this.isCachedAddress === undefined) return true;
-    return Promise.resolve(this.isCachedAddress(address));
+  private async asyncIsCachedAddress(address: string, ctx?: CheckoutContext): Promise<boolean> {
+    // Merchant-supplied lookup wins (e.g. `piCache.hasAddress` for per-order minting).
+    if (this.isCachedAddress !== undefined) return Promise.resolve(this.isCachedAddress(address));
+    // Per-request minted recipient (`ctx.recipients['x402_base']` from `mintRecipients`) wins over
+    // the construction-time static set. A rail can carry BOTH a static recipient AND `mintRecipients`
+    // (static = discovery/sentinel default; per-request mint = the real payTo). Binding to the static
+    // set here would reject the legit minted payTo, so the per-request recipient takes precedence —
+    // exactly as the compute-first path already does (`expectedPayTo = recipients.x402_base`).
+    const minted = ctx?.recipients['x402_base'];
+    if (minted !== undefined && minted.length > 0) {
+      return address.toLowerCase() === minted.toLowerCase();
+    }
+    // No custom lookup: bind to the CONFIGURED static recipient(s). The agent controls `payTo`
+    // in the x402 payload, so a permissive `true` would let a hostile agent redirect the USDC to
+    // their own wallet while still receiving the goods (funds drain). Reject unless the signed
+    // `payTo` is exactly a configured static recipient.
+    if (this.x402StaticRecipients.size > 0) {
+      return this.x402StaticRecipients.has(address.toLowerCase());
+    }
+    // Pure per-order minting with no `isCachedAddress` supplied: nothing static to bind against.
+    // Stays permissive (unchanged behavior) — such merchants are expected to pass `isCachedAddress`.
+    return true;
   }
 
   private async handleX402(ctx: CheckoutContext): Promise<CheckoutResult> {
@@ -1544,7 +1688,7 @@ export class Checkout {
     });
     const verified = await verifyX402Request({
       request: fakeRequest,
-      isCachedAddress: this.asyncIsCachedAddress.bind(this),
+      isCachedAddress: (addr) => this.asyncIsCachedAddress(addr, ctx),
       acceptedNetwork: this.x402BaseNetwork,
     });
     if (!verified.ok) {
@@ -1568,7 +1712,7 @@ export class Checkout {
         maxTimeoutSeconds: 300,
       },
       resourceMeta: {
-        url: ctx.request.url,
+        url: resolveResourceUrl(ctx.request),
         description: 'Agent purchase via x402',
         mimeType: 'application/json',
       },
@@ -1762,7 +1906,7 @@ export class Checkout {
     // Build x402 accepts BEFORE the body so they appear both in the rich body
     // (agents read JSON) AND in the PAYMENT-REQUIRED header (x402-spec clients).
     let x402Accepts: unknown[] = [];
-    let x402Resource: { url: string; mimeType: string } | undefined;
+    let x402Resource: X402ResourceInfo | undefined;
     const baseNetwork = this.x402BaseNetwork;
     const x402Server = await this.getX402Server();
     if (x402Server !== undefined && baseNetwork !== null) {
@@ -1776,7 +1920,14 @@ export class Checkout {
             payTo: recipient,
             maxTimeoutSeconds: 300,
           });
-          x402Resource = { url: ctx.request.url, mimeType: 'application/json' };
+          x402Resource = {
+            url: resolveResourceUrl(ctx.request),
+            mimeType: 'application/json',
+            ...(this.resourceInfo?.description !== undefined && { description: this.resourceInfo.description }),
+            ...(this.resourceInfo?.serviceName !== undefined && { serviceName: this.resourceInfo.serviceName }),
+            ...(this.resourceInfo?.tags !== undefined && { tags: this.resourceInfo.tags }),
+            ...(this.resourceInfo?.iconUrl !== undefined && { iconUrl: this.resourceInfo.iconUrl }),
+          };
         } catch {
           // Facilitator/scheme build failure: drop x402 from accepts but keep
           // other rails in the body. Merchant logs internally.
@@ -1789,6 +1940,20 @@ export class Checkout {
     // wallet intent. Saves agents a round trip: they learn required_signer +
     // linked_wallets at discovery instead of at the 403 on retry.
     const identityMetadata = resolveIdentityMetadata(ctx);
+
+    // Enrich the declared Bazaar discovery extension with the request method +
+    // route so info.input.method (required by the v2 discovery schema) and
+    // routeTemplate get populated, matching the reference x402 server flow.
+    let requestPath = ctx.request.url;
+    try {
+      requestPath = new URL(resolveResourceUrl(ctx.request)).pathname;
+    } catch {
+      /* malformed url: fall back to the raw url */
+    }
+    const enrichedExtensions = await enrichBazaarDiscoveryExtensions(this.discoveryExtensions, {
+      method: ctx.request.method,
+      path: requestPath,
+    });
 
     const body = build402Body({
       acceptedMethods: accepted,
@@ -1811,8 +1976,9 @@ export class Checkout {
       ...(x402Accepts.length > 0 ? {
         x402: {
           accepts: x402Accepts,
-          ...(this.discoveryExtensions !== undefined && Object.keys(this.discoveryExtensions).length > 0
-            ? { extensions: this.discoveryExtensions }
+          ...(x402Resource ? { resource: x402Resource } : {}),
+          ...(enrichedExtensions !== undefined && Object.keys(enrichedExtensions).length > 0
+            ? { extensions: enrichedExtensions }
             : {}),
         },
       } : {}),
@@ -1824,6 +1990,9 @@ export class Checkout {
         x402Version: 2,
         accepts: x402Accepts,
         ...(x402Resource ? { resource: x402Resource } : {}),
+        ...(enrichedExtensions !== undefined && Object.keys(enrichedExtensions).length > 0
+          ? { extensions: enrichedExtensions }
+          : {}),
       };
     }
 
@@ -1955,11 +2124,24 @@ export function validationResponseWeb(input: ValidationResponseInput): Response 
 // Per-framework adapters on Checkout
 // ─────────────────────────────────────────────────────────────────────────────
 
-function invalidBodyEnvelope(): Record<string, unknown> {
-  return validationEnvelope({
-    code: 'invalid_body',
-    message: 'Request body must be valid JSON.',
-  });
+/**
+ * Resource URL for the x402 402, scheme-corrected for TLS-terminating edge proxies.
+ * Behind ALB / CloudFront the inbound `request.url` is `http://`; x402 discovery
+ * requires `https://`, so honor `X-Forwarded-Proto` (the proxy's original scheme).
+ */
+function resolveResourceUrl(request: CheckoutRequest): string {
+  const fwd = request.headers['x-forwarded-proto'] ?? request.headers['X-Forwarded-Proto'];
+  const proto = typeof fwd === 'string' ? fwd.split(',')[0]?.trim() : undefined;
+  if (proto) {
+    try {
+      const u = new URL(request.url);
+      u.protocol = `${proto}:`;
+      return u.toString();
+    } catch {
+      /* malformed url: keep the original */
+    }
+  }
+  return request.url;
 }
 
 function stripContentType(headers: Record<string, string>): Record<string, string> {
@@ -1968,6 +2150,20 @@ function stripContentType(headers: Record<string, string>): Record<string, strin
     if (k.toLowerCase() !== 'content-type') out[k] = v;
   }
   return out;
+}
+
+/**
+ * The explicitly-set `content-type` from a result's headers, or `undefined` when none was set.
+ * Only the AIP deny paths set one (`application/problem+json`, for both the edge-deny and the
+ * policy-deny superset, so they content-negotiate as RFC 9457). Every other response leaves it
+ * unset — callers fall back to `application/json` WITHOUT mutating the response otherwise, so the
+ * non-AIP paths are byte-for-byte unchanged.
+ */
+function explicitContentType(headers: Record<string, string>): string | undefined {
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === 'content-type') return v;
+  }
+  return undefined;
 }
 
 
@@ -2014,10 +2210,11 @@ declare module './checkout' {
     try {
       parsedBody = (await c.req.json()) as Record<string, unknown>;
     } catch {
-      return new Response(JSON.stringify(invalidBodyEnvelope()), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      // Empty / unparseable body must reach handle(), not 400 before it: x402
+      // discovery validators probe with an empty body and no payment header and
+      // require the 402 challenge. Treat it as {} and let handle() decide; body
+      // validation runs on the paid leg (preValidate / gate).
+      parsedBody = {};
     }
   }
   const rawHeaders = c.req.header() as Record<string, string> | undefined;
@@ -2032,7 +2229,7 @@ declare module './checkout' {
   });
   return new Response(JSON.stringify(result.body), {
     status: result.status,
-    headers: { 'Content-Type': 'application/json', ...stripContentType(result.headers) },
+    headers: { 'Content-Type': explicitContentType(result.headers) ?? 'application/json', ...stripContentType(result.headers) },
   });
 };
 
@@ -2055,13 +2252,10 @@ declare module './checkout' {
     body?: Record<string, unknown>,
   ) => Promise<void>;
 }).handleExpress = async function (req, res, body) {
+  // Empty / non-object body falls through to handle() as {} (see handleHono):
+  // x402 discovery probes must reach the 402 paywall, not 400 at the adapter.
   const parsedBody =
-    body ?? (typeof req.body === 'object' && req.body !== null ? (req.body as Record<string, unknown>) : null);
-  if (parsedBody === null) {
-    res.status(400);
-    res.json(invalidBodyEnvelope());
-    return;
-  }
+    body ?? (typeof req.body === 'object' && req.body !== null ? (req.body as Record<string, unknown>) : {});
   const headers: Record<string, string> = {};
   for (const [k, v] of Object.entries(req.headers)) {
     if (typeof v === 'string') headers[k] = v;
@@ -2077,6 +2271,11 @@ declare module './checkout' {
     raw: req,
   });
   for (const [k, v] of Object.entries(stripContentType(result.headers))) res.setHeader(k, v);
+  // Honor an explicit content-type (AIP problem+json) — setting it before json() makes Express
+  // respect it instead of forcing application/json. Only the AIP path sets one, so non-AIP
+  // responses are untouched (res.json defaults to application/json as before).
+  const ct = explicitContentType(result.headers);
+  if (ct !== undefined) res.setHeader('Content-Type', ct);
   res.status(result.status);
   res.json(result.body);
 };
@@ -2099,14 +2298,11 @@ declare module './checkout' {
     body?: Record<string, unknown>,
   ) => Promise<unknown>;
 }).handleFastify = async function (request, reply, body) {
+  // Empty / non-object body falls through to handle() as {} (see handleHono).
   const parsedBody =
     body ?? (typeof request.body === 'object' && request.body !== null
       ? (request.body as Record<string, unknown>)
-      : null);
-  if (parsedBody === null) {
-    reply.code(400);
-    return reply.send(invalidBodyEnvelope());
-  }
+      : {});
   const headers: Record<string, string> = {};
   for (const [k, v] of Object.entries(request.headers)) {
     if (typeof v === 'string') headers[k] = v;
@@ -2122,6 +2318,15 @@ declare module './checkout' {
   });
   for (const [k, v] of Object.entries(stripContentType(result.headers))) reply.header(k, v);
   reply.code(result.status);
+  // Honor an explicit content-type (AIP problem+json): set it + send a pre-serialized string so
+  // Fastify emits the body verbatim under the chosen content-type instead of forcing
+  // application/json via its object serializer. The string is valid JSON, so parsers still read it
+  // back. Non-AIP responses keep the object path (Fastify serializes + sets application/json).
+  const ct = explicitContentType(result.headers);
+  if (ct !== undefined) {
+    reply.header('content-type', ct);
+    return reply.send(JSON.stringify(result.body));
+  }
   return reply.send(result.body);
 };
 
@@ -2136,10 +2341,8 @@ declare module './checkout' {
     try {
       parsedBody = (await request.json()) as Record<string, unknown>;
     } catch {
-      return new Response(JSON.stringify(invalidBodyEnvelope()), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      // See handleHono: empty / unparseable body falls through to the paywall.
+      parsedBody = {};
     }
   }
   const headers: Record<string, string> = {};
@@ -2156,7 +2359,7 @@ declare module './checkout' {
   });
   return new Response(JSON.stringify(result.body), {
     status: result.status,
-    headers: { 'Content-Type': 'application/json', ...stripContentType(result.headers) },
+    headers: { 'Content-Type': explicitContentType(result.headers) ?? 'application/json', ...stripContentType(result.headers) },
   });
 };
 

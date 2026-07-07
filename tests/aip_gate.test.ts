@@ -1,6 +1,6 @@
 import { SignJWT, exportJWK, generateKeyPair, type JWK } from 'jose';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { aipErrorCode, aipErrorStatus, buildAipErrorBody, verifyAitRequest } from '../src/aip/gate';
+import { aipErrorCode, aipErrorStatus, buildAipErrorBody, buildAipPolicyDenyBody, verifyAitRequest } from '../src/aip/gate';
 import { signMessage } from '../src/aip/http-signature';
 import { JwksCache } from '../src/aip/jwks';
 import { hasAgentIdentityHeader } from '../src/aip/request';
@@ -59,6 +59,8 @@ const signedRequest = async (token: string, url = 'https://wine-merchant.com/che
     privateJwk: agentPrivateJwk,
     publicJwk: agentPublicJwk,
     created: 1715400010,
+    // PoP verifier requires `expires` (replay-window hardening); 60s window like pay.
+    expires: 1715400070,
   });
   return new Request(url, {
     method: 'POST',
@@ -165,5 +167,40 @@ describe('buildAipErrorBody', () => {
   it('status field matches aipErrorStatus', () => {
     expect(buildAipErrorBody('no_token').status).toBe(401);
     expect(buildAipErrorBody('invalid_claims').status).toBe(403);
+  });
+});
+
+describe('buildAipPolicyDenyBody', () => {
+  it('keeps the canonical AgentScore body fields on top of the RFC 9457 envelope', () => {
+    const body = buildAipPolicyDenyBody('wallet_not_trusted', ['sanctions_flagged'], {
+      error: { code: 'wallet_not_trusted', message: 'denied' },
+      reasons: ['sanctions_flagged'],
+      agent_instructions: '{"action":"contact_support"}',
+    });
+    expect(body.type).toBe('urn:aip:error:insufficient_claims');
+    expect(body.status).toBe(403);
+    expect(body.error).toEqual({ code: 'wallet_not_trusted', message: 'denied' });
+    expect(body.agent_instructions).toBe('{"action":"contact_support"}');
+  });
+
+  it('reserves the problem+json envelope: merchant extra cannot clobber type/title/status/detail', () => {
+    // A merchant onBeforeSession `extra` rides through denialReasonToBody unfiltered; a smuggled
+    // `status` would otherwise rewrite both the envelope AND the HTTP status Checkout derives
+    // from it. The canonical envelope must always win.
+    const body = buildAipPolicyDenyBody('wallet_not_trusted', ['kyc_required'], {
+      error: { code: 'wallet_not_trusted', message: 'denied' },
+      status: 200,
+      type: 'https://evil.example/ok',
+      title: 'all good',
+      detail: 'nothing to see',
+      order_id: 'ord_1',
+    });
+    expect(body.status).toBe(403);
+    expect(body.type).toBe('urn:aip:error:insufficient_claims');
+    expect(body.title).toBe('insufficient claims');
+    expect(body.detail).toContain('kyc_required');
+    // Non-reserved merchant fields still ride through.
+    expect(body.order_id).toBe('ord_1');
+    expect(body.error).toEqual({ code: 'wallet_not_trusted', message: 'denied' });
   });
 });
