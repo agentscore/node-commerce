@@ -66,6 +66,41 @@ function makeFakeStripe(addresses: Record<string, string>) {
   };
 }
 
+// Runs first so it observes the once-per-process warning before other mint tests fire it.
+describe('rotating Solana mint warning', () => {
+  it('warns when a per-PI Solana recipient is minted; a static Solana recipient takes the safe path', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Rotating: default networks include solana, no staticRecipients → warn.
+    const { cache } = makeFakeCache();
+    await mintMultichainRecipients({
+      request: new Request('https://x.example', { method: 'POST' }),
+      amountCents: 250,
+      stripe: makeFakeStripe({ tempo: '0xT', base: '0xB', solana: 'SOL1' }),
+      piCache: cache,
+    });
+    expect(
+      warnSpy.mock.calls.some(
+        (c) => /solana/i.test(String(c[0])) && /staticRecipients/.test(String(c[0])),
+      ),
+    ).toBe(true);
+
+    // Static: solana is filtered out of the Stripe mint and served from staticRecipients.
+    const { cache: cache2 } = makeFakeCache();
+    const stripe2 = makeFakeStripe({ tempo: '0xT2', base: '0xB2' });
+    const res = await mintMultichainRecipients({
+      request: new Request('https://x.example', { method: 'POST' }),
+      amountCents: 250,
+      stripe: stripe2,
+      piCache: cache2,
+      networks: ['tempo', 'base', 'solana'],
+      staticRecipients: { solana: 'STATICSOL' },
+    });
+    expect(res.recipients.solana).toBe('STATICSOL');
+    warnSpy.mockRestore();
+  });
+});
+
 describe('createPayToAddressFromStripePI', () => {
   it('reuses the buyer-signed payTo from the credential when MPP auth + address cached', async () => {
     const { cache } = makeFakeCache({ hasAddress: true });
