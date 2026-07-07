@@ -190,7 +190,7 @@ export const buildAipErrorBody = (failure: VerifyAitFailure, requirements?: AipE
  *    / `jurisdiction_restricted` / `kyc_*`) → `insufficient_claims` (403): the AIT did not attest
  *    (or attested a failing value for) the required compliance claim.
  */
-export const aipPolicyDenyCode = (code: string): { code: string; status: 401 | 403 | 503 } => {
+const aipPolicyDenyCode = (code: string): { code: string; status: 401 | 403 | 503 } => {
   switch (code) {
     case 'token_expired':
       return { code: 'expired_token', status: 401 };
