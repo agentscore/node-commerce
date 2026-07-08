@@ -78,7 +78,7 @@ import {
 import { buildX402AcceptsFor402, type X402Server } from './payment/x402_server';
 import { classifyX402SettleResult, processX402Settle } from './payment/x402_settle';
 import { verifyX402Request } from './payment/x402_validation';
-import { zeroAmountCarveOut, type ZeroSettleRail } from './payment/zero-settle';
+import { mppCredentialPayloadType, zeroAmountCarveOut, type ZeroSettleRail } from './payment/zero-settle';
 import { extractPaymentSignerFromAuth } from './signer';
 import type { TrustLevel } from './aip/types';
 import type { SignedDiscoveryResponse } from './discovery/well_known';
@@ -908,9 +908,12 @@ export class Checkout {
      *  configured STATIC recipient(s) — the permissive default applies ONLY when no
      *  static recipient exists (pure per-order minting). */
     isCachedAddress?: IsCachedAddressFn;
-    /** Engage the EIP-3009 value=0 + pympp `proof` carve-out when pricing
-     *  resolves to $0. Goods merchants offering free redemption codes set this
-     *  to `true` so the credential parses without an on-chain settle. */
+    /** Engage the $0 carve-out when pricing resolves to $0: x402 and
+     *  non-proof MPP credentials (repriced no-match / redemption flows,
+     *  Solana, token-style) settle free without an upstream call, while MPP
+     *  `proof` credentials delegate to mppx's native zero-amount
+     *  verification. Set `true` for free-redemption and no-match-refund
+     *  merchants. */
     zeroSettleCarveOut?: boolean;
     /** Reject payment credentials that fail the cheap wire-shape check (not
      *  base64 JSON, not a token-shaped value) BEFORE any merchant hook runs,
@@ -1683,17 +1686,31 @@ export class Checkout {
       zero = zeroAmountCarveOut({ rail, payload: verified.payload });
       railKey = this.x402RailKey();
     } else {
-      zero = zeroAmountCarveOut({ rail, authorizationHeader: headers['authorization'] });
-      // Tempo (and any non-Solana MPP credential, including unparseable ones):
-      // fall through to handleMppx. mppx >= 0.8 settles zero-amount challenges
-      // natively via the EIP-712 proof-credential path — full signature verify,
-      // access-key authorization, replay protection, and a real receipt whose
-      // method drives the railKey derivation. Only Solana stays on the carve-out:
-      // @solana/mpp has no proof-credential contract, so there is nothing
-      // upstream to verify a $0 credential against (its signer block is
-      // parse-only, unauthenticated attribution).
-      if (zero.signerNetwork !== 'solana') return null;
-      railKey = this.railsKeyForMppxMethod('solana') ?? this.mppRailKey();
+      const authHeader = headers['authorization'] ?? null;
+      // Route on the credential's payload type. mppx >= 0.8 settles zero-amount
+      // challenges natively ONLY via the wallet-bound EIP-712 `proof` credential
+      // (full signature verify, access-key authorization, replay protection, and
+      // a real receipt whose method drives railKey) — an agent that saw a $0
+      // challenge signs a proof, so those delegate to handleMppx. Every other
+      // credential at $0 CANNOT settle upstream: `hash`/`transaction` payloads
+      // mean the agent signed against a nonzero quote the merchant re-priced to
+      // $0 at settle (no-match / full-discount flows — the authorization is
+      // never exercised), Solana has no upstream $0 contract, and token-style
+      // credentials have no $0 semantics. Those keep the carve-out: nothing
+      // settles, and the signer is recovered for attribution only via the full
+      // extractPaymentSigner (which also decodes source-less Solana credentials
+      // from the signed transaction), with the dependency-free inline parse as
+      // backstop. The recovered signer block is UNAUTHENTICATED.
+      if (mppCredentialPayloadType(authHeader) === 'proof') return null;
+      const inline = zeroAmountCarveOut({ rail, authorizationHeader: authHeader });
+      const extracted = await extractPaymentSignerFromAuth(authHeader);
+      zero = extracted !== null
+        ? { signerAddress: extracted.address, signerNetwork: extracted.network, txHash: null }
+        : inline;
+      railKey =
+        (zero.signerNetwork !== null
+          ? this.railsKeyForMppxMethod(zero.signerNetwork === 'solana' ? 'solana' : 'tempo')
+          : undefined) ?? this.mppRailKey();
     }
     const outcome: SettleOutcome = {
       rail: rail === 'x402-base' ? 'x402' : 'mpp',

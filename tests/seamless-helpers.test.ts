@@ -2897,11 +2897,11 @@ describe('Checkout discoveryProbe routing', () => {
 });
 
 describe('Checkout zero-settle MPP carve-out', () => {
-  it('zeroSettleCarveOut=true + $0 + non-Solana MPP credential DELEGATES to composeMppx (no interception)', async () => {
-    // mppx >= 0.8 settles zero-amount challenges natively via the proof-credential
-    // path, so the carve-out no longer intercepts Tempo/EVM credentials at $0 —
-    // the real settle path runs and upstream rejections surface as payment
-    // failures instead of a 200 with an unverified signer.
+  it('zeroSettleCarveOut=true + $0 + hash credential keeps the carve-out (repriced-to-zero flow)', async () => {
+    // A hash credential at $0 means the agent signed against a nonzero quote
+    // that re-priced to $0 at settle (no-match / full-discount flows). Upstream
+    // cannot settle it at $0 — the carve-out absorbs it: 200, no compose call,
+    // nothing charged.
     const { Checkout } = await import('../src/checkout');
     const composeMppx = vi.fn(async () => ({
       status: 402 as const,
@@ -2925,7 +2925,39 @@ describe('Checkout zero-settle MPP carve-out', () => {
       headers: { authorization: `Payment ${FAKE_MPP_CRED}` },
       body: { item: 'wine' },
     })) as { status: number; body: Record<string, unknown>; settled: boolean };
-    // The compose hook ran (delegation), and its rejection surfaced as a payment failure.
+    expect(composeMppx).not.toHaveBeenCalled();
+    expect(result.status).toBe(200);
+    expect((result.body as { tx_hash?: string | null }).tx_hash ?? null).toBeNull();
+  });
+
+  it('zeroSettleCarveOut=true + $0 + PROOF credential delegates to composeMppx', async () => {
+    // An agent that saw a $0 challenge signs a proof credential — that path
+    // delegates so mppx's native zero-amount verification runs; upstream
+    // rejections surface as payment failures instead of a 200 with an
+    // unverified signer.
+    const { Checkout } = await import('../src/checkout');
+    const proofCred = Buffer.from(JSON.stringify({
+      challenge: { id: 'ch_1', realm: 'api.example' },
+      payload: { type: 'proof', signature: '0x' + 'ab'.repeat(65) },
+      source: 'did:pkh:eip155:42431:0xeb2Ca790F72787c7e61bC6c861353a1e4ACDFCa5',
+    })).toString('base64');
+    const composeMppx = vi.fn(async () => ({
+      status: 402 as const,
+      headers: { 'www-authenticate': 'Payment realm="t"' },
+    }));
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 0.0 }),
+      composeMppx,
+      zeroSettleCarveOut: true,
+    });
+    const result = (await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: { authorization: `Payment ${proofCred}` },
+      body: { item: 'wine' },
+    })) as { status: number; body: Record<string, unknown>; settled: boolean };
     expect(composeMppx).toHaveBeenCalledOnce();
     expect(result.status).toBe(400);
     expect(result.settled).toBe(false);
