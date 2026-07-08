@@ -392,12 +392,12 @@ describe('buildSkillMd', () => {
     it('emits numbered onboarding steps', () => {
       const out = buildSkillMd({
         ...baseInput,
-        onboardingSteps: ['Install agentscore-pay', 'Get a Passport', 'Pay any 402'],
+        onboardingSteps: ['Install agentscore-pay', 'Get a Passport', 'Pay any x402'],
       });
       expect(out).toContain('## Onboarding Flow');
       expect(out).toContain('1. Install agentscore-pay');
       expect(out).toContain('2. Get a Passport');
-      expect(out).toContain('3. Pay any 402');
+      expect(out).toContain('3. Pay any x402');
     });
 
     it('emits support links as bullets', () => {
