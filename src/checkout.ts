@@ -65,7 +65,7 @@ import { lazyMppxServer, lazyX402Server } from './payment/lazy';
 import { classifyMppxFailure } from './payment/mppx_failures';
 import { runWithMppxFailureCapture, type MppxRailSpec } from './payment/mppx_server';
 import { isEvmNetwork, isSolanaNetwork } from './payment/network_kind';
-import { hasMppxHeader, hasX402Header } from './payment/payment_header';
+import { hasMppxHeader, hasX402Header, malformedPaymentCredential } from './payment/payment_header';
 import {
   resolveRecipient,
   type RecipientLike,
@@ -828,6 +828,7 @@ export class Checkout {
    *  agent-supplied `payTo` to this set (anti funds-drain). Empty for pure per-order minting. */
   private readonly x402StaticRecipients: Set<string>;
   readonly zeroSettleCarveOut: boolean;
+  readonly credentialPreCheck: boolean;
   readonly gate: CheckoutGateConfig | undefined;
   readonly discoveryExtensions: Record<string, unknown> | undefined;
   readonly resourceInfo: { serviceName?: string; tags?: string[]; iconUrl?: string; description?: string } | undefined;
@@ -911,6 +912,14 @@ export class Checkout {
      *  resolves to $0. Goods merchants offering free redemption codes set this
      *  to `true` so the credential parses without an on-chain settle. */
     zeroSettleCarveOut?: boolean;
+    /** Reject payment credentials that fail the cheap wire-shape check (not
+     *  base64 JSON, not a token-shaped value) BEFORE any merchant hook runs,
+     *  so junk headers never trigger `preValidate` / pricing / recipient
+     *  minting / the gate's assess call. Shape only — signature and payTo
+     *  verification stay on the settle path. Default `true`; set `false` for
+     *  custom `composeMppx` implementations that accept non-standard
+     *  credential encodings. */
+    credentialPreCheck?: boolean;
     /** Per-request gate config. When set, the gate runs after `preValidate`
      *  populates `ctx.state` and before pricing/settle. Denials short-circuit
      *  with the gate's body verbatim. */
@@ -985,6 +994,7 @@ export class Checkout {
     this.isCachedAddress = opts.isCachedAddress;
     this.x402StaticRecipients = collectStaticX402Recipients(opts.rails);
     this.zeroSettleCarveOut = opts.zeroSettleCarveOut ?? false;
+    this.credentialPreCheck = opts.credentialPreCheck ?? true;
     this.gate = opts.gate;
     this.discoveryExtensions = opts.discoveryExtensions;
     this.resourceInfo = opts.resourceInfo;
@@ -1134,6 +1144,40 @@ export class Checkout {
           headers: probe.headers,
           referenceId: ctx.referenceId,
           settled: false,
+        };
+      }
+    }
+
+    // 0.5. Credential shape gate. Runs BEFORE preValidate / the identity gate /
+    //      pricing / recipient minting so a junk payment header cannot trigger
+    //      merchant hooks (which may do paid upstream work) or burn an assess
+    //      call. Shape only — real verification stays on the settle path, which
+    //      needs per-request state the hooks produce. Scoped to the credential
+    //      channels this Checkout actually dispatches on, so e.g. an x402 header
+    //      at a Tempo-only merchant keeps its current discovery-leg behavior.
+    if (this.credentialPreCheck) {
+      const malformed = malformedPaymentCredential(request.headers);
+      const enforced =
+        malformed !== null &&
+        (malformed.channel === 'x402'
+          ? this.x402ServerAvailable() && this.x402BaseNetwork !== null
+          : this.composeMppx !== undefined);
+      if (enforced) {
+        return {
+          status: 400,
+          body: buildValidationError({
+            code: 'payment_proof_invalid',
+            message: malformed.message,
+            nextSteps: {
+              action: 'regenerate_payment_credential',
+              user_message:
+                'The payment credential could not be decoded. Rebuild it from a fresh 402 challenge and retry.',
+            },
+          }),
+          headers: {},
+          referenceId: ctx.referenceId,
+          settled: false,
+          settlePhase: 'credential_malformed',
         };
       }
     }
@@ -1640,14 +1684,16 @@ export class Checkout {
       railKey = this.x402RailKey();
     } else {
       zero = zeroAmountCarveOut({ rail, authorizationHeader: headers['authorization'] });
-      // No receipt is minted on the $0 path, so the receipt-method derivation in
-      // handleMppx can't run. Resolve the rails key from the bound credential's
-      // signer network instead of the primary-MPP default, so Solana zero-settles
-      // don't report under the Tempo key (and vice versa).
-      railKey =
-        (zero.signerNetwork !== null
-          ? this.railsKeyForMppxMethod(zero.signerNetwork === 'solana' ? 'solana' : 'tempo')
-          : undefined) ?? this.mppRailKey();
+      // Tempo (and any non-Solana MPP credential, including unparseable ones):
+      // fall through to handleMppx. mppx >= 0.8 settles zero-amount challenges
+      // natively via the EIP-712 proof-credential path — full signature verify,
+      // access-key authorization, replay protection, and a real receipt whose
+      // method drives the railKey derivation. Only Solana stays on the carve-out:
+      // @solana/mpp has no proof-credential contract, so there is nothing
+      // upstream to verify a $0 credential against (its signer block is
+      // parse-only, unauthenticated attribution).
+      if (zero.signerNetwork !== 'solana') return null;
+      railKey = this.railsKeyForMppxMethod('solana') ?? this.mppRailKey();
     }
     const outcome: SettleOutcome = {
       rail: rail === 'x402-base' ? 'x402' : 'mpp',

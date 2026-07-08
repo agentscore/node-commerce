@@ -96,7 +96,7 @@ async function signedReq(): Promise<CheckoutRequest> {
     url: 'https://wine.example/purchase',
     headers: {
       host: authority,
-      'x-payment': 'stub',
+      'x-payment': 'eyJzdHViIjogdHJ1ZX0=',
       'agent-identity': token,
       'signature-input': signatureInput,
       signature,

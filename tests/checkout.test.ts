@@ -13,6 +13,10 @@ import type {
   X402BaseRailSpec,
 } from '../src/payment/rail_spec';
 
+const FAKE_MPP_CRED = Buffer.from(
+  JSON.stringify({ challenge: { id: 'ch_1', realm: 'api.example' }, payload: { type: 'hash', hash: '0xabc' } }),
+).toString('base64');
+
 function req(overrides: Partial<CheckoutRequest> = {}): CheckoutRequest {
   return {
     method: 'POST',
@@ -87,7 +91,7 @@ describe('Checkout — composeMppx hook', () => {
       composeMppx,
       onSettled,
     });
-    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    const result = await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
     expect(result.status).toBe(200);
     expect(result.headers['payment-response']).toBe('ok');
     expect(onSettled).toHaveBeenCalledOnce();
@@ -107,7 +111,7 @@ describe('Checkout — composeMppx hook', () => {
       computePricing: () => ({ amountUsd: 10 }),
       composeMppx,
     });
-    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    const result = await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
     expect(result.status).toBe(200);
     expect(result.headers['payment-receipt']).toBe(receiptHeader);
   });
@@ -124,7 +128,7 @@ describe('Checkout — composeMppx hook', () => {
       computePricing: () => ({ amountUsd: 10 }),
       composeMppx,
     });
-    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    const result = await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
     expect(result.status).toBe(200);
     expect('payment-receipt' in result.headers).toBe(false);
   });
@@ -148,7 +152,7 @@ describe('Checkout — composeMppx hook', () => {
       computePricing: () => ({ amountUsd: 10 }),
       composeMppx,
     });
-    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    const result = await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
     expect(result.status).toBe(200);
     expect(result.headers['payment-receipt']).toBe('auto-extracted-receipt-value');
   });
@@ -173,7 +177,7 @@ describe('Checkout — composeMppx hook', () => {
       computePricing: () => ({ amountUsd: 10 }),
       composeMppx,
     });
-    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    const result = await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
     expect(result.status).toBe(200);
     expect(result.headers['payment-receipt']).toBe('explicit-value');
   });
@@ -195,7 +199,7 @@ describe('Checkout — composeMppx hook', () => {
       computePricing: () => ({ amountUsd: 10 }),
       composeMppx,
     });
-    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    const result = await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
     expect(result.status).toBe(200);
     expect('payment-receipt' in result.headers).toBe(false);
   });
@@ -213,7 +217,7 @@ describe('Checkout — composeMppx hook', () => {
       computePricing: () => ({ amountUsd: 10 }),
       composeMppx,
     });
-    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    const result = await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
     expect(result.status).toBe(400);
     expect(result.headers['www-authenticate']).toBe('Payment id="ord_x"');
     expect((result.body.error as Record<string, unknown>).code).toBe('payment_proof_invalid');
@@ -243,7 +247,7 @@ describe('Checkout — composeMppx hook', () => {
       computePricing: () => ({ amountUsd: 10 }),
       composeMppx,
     });
-    const result = await checkout.handle(req({ headers: { authorization: 'Payment id=abc' } }));
+    const result = await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
     expect(result.status).toBe(401);
     expect((result.body.error as Record<string, unknown>).code).toBe('tempo_key_not_registered');
     expect(result.settlePhase).toBe('verify_failed');
@@ -513,7 +517,7 @@ describe('Checkout — MPP railKey end-to-end derivation', () => {
         return { ok: true };
       },
     );
-    const result = await checkout.handle(req({ headers: { authorization: 'Payment xyz' } }));
+    const result = await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
     expect(result.status).toBe(200);
     expect(observedRailKey).toBe('sol_rail');
   });
@@ -530,7 +534,7 @@ describe('Checkout — MPP railKey end-to-end derivation', () => {
         return { ok: true };
       },
     );
-    await checkout.handle(req({ headers: { authorization: 'Payment xyz' } }));
+    await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
     expect(observedRailKey).toBe('tempo_charge');
   });
 
@@ -546,7 +550,7 @@ describe('Checkout — MPP railKey end-to-end derivation', () => {
         return { ok: true };
       },
     );
-    await checkout.handle(req({ headers: { authorization: 'Payment xyz' } }));
+    await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
     expect(observedRailKey).toBe('stripe_spt');
   });
 
@@ -559,7 +563,7 @@ describe('Checkout — MPP railKey end-to-end derivation', () => {
         return { ok: true };
       },
     );
-    await checkout.handle(req({ headers: { authorization: 'Payment xyz' } }));
+    await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
     // mppRailKey() returns the first non-stripe, non-EVM rail key.
     expect(observedRailKey).toBe('tempo_charge');
   });
@@ -573,7 +577,7 @@ describe('Checkout — MPP railKey end-to-end derivation', () => {
         return { ok: true };
       },
     );
-    await checkout.handle(req({ headers: { authorization: 'Payment xyz' } }));
+    await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
     expect(observedRailKey).toBe('explicit_override');
   });
 
@@ -590,7 +594,7 @@ describe('Checkout — MPP railKey end-to-end derivation', () => {
         return { ok: true };
       },
     );
-    await checkout.handle(req({ headers: { authorization: 'Payment xyz' } }));
+    await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
     expect(observedRailKey).toBe('sol_rail');
   });
 });
@@ -948,40 +952,47 @@ describe('Checkout — zero-settle railKey resolves from the bound credential', 
   });
 
   it('a Tempo credential resolves railKey to the tempo rail even when solana is declared first', async () => {
-    // mppRailKey() returns the FIRST non-EVM, non-Stripe rail — with solana declared
-    // first, the old default would mislabel a Tempo zero-settle as solana. The
-    // credential-derived key is order-independent.
+    // A Tempo (eip155-sourced) credential at $0 is NOT intercepted by the
+    // carve-out: it delegates to the real MPP settle path (mppx >= 0.8 settles
+    // zero-amount challenges natively via the proof-credential path), and the
+    // receipt method drives the railKey — order-independent of rail declaration.
     let observed: { railKey?: string; signerNetwork?: string | null } | undefined;
+    const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({
+      status: 200,
+      raw: { receipt: { method: 'tempo' } },
+    }));
     const checkout = buildZeroCheckout(
       {
         sol_rail: { recipient: 'solanaaddr', network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp' } as SolanaMppRailSpec,
         tempo_charge: { recipient: '0xtempo' } as TempoRailSpec,
       },
       async (_ctx, outcome) => { observed = outcome; return { ok: true }; },
-      async () => ({ status: 200, raw: {} }),
+      composeMppx,
     );
     const result = await checkout.handle(req({
       headers: { authorization: mppAuthHeader(`did:pkh:eip155:42431:${EVM_SIGNER}`) },
     }));
     expect(result.status).toBe(200);
+    expect(composeMppx).toHaveBeenCalledOnce();
     expect(observed?.railKey).toBe('tempo_charge');
-    expect(observed?.signerNetwork).toBe('evm');
   });
 
-  it('a malformed MPP credential falls back to the primary MPP rail key', async () => {
+  it('a parseable credential without a Solana DID also delegates (fallback railKey from the settle path)', async () => {
     let observed: { railKey?: string; signerNetwork?: string | null } | undefined;
+    const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({ status: 200, raw: {} }));
     const checkout = buildZeroCheckout(
       {
         tempo_charge: { recipient: '0xtempo' } as TempoRailSpec,
         sol_rail: { recipient: 'solanaaddr', network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp' } as SolanaMppRailSpec,
       },
       async (_ctx, outcome) => { observed = outcome; return { ok: true }; },
-      async () => ({ status: 200, raw: {} }),
+      composeMppx,
     );
     const result = await checkout.handle(req({
       headers: { authorization: 'Payment ' + Buffer.from(JSON.stringify({ nope: true })).toString('base64') },
     }));
     expect(result.status).toBe(200);
+    expect(composeMppx).toHaveBeenCalledOnce();
     expect(observed?.railKey).toBe('tempo_charge');
     expect(observed?.signerNetwork).toBeNull();
   });
@@ -1023,5 +1034,97 @@ describe('Checkout — zero-settle x402 branch verifies the credential first', (
     const result = await checkout.handle(req({ headers: { 'x-payment': x402Header(BIND_RECIPIENT) } }));
     expect(result.status).toBe(200);
     expect(server.settlePayment).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Credential shape gate — junk payment headers are rejected BEFORE any merchant
+// hook (preValidate / pricing / minting) or the identity-gate assess call runs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Checkout — credential shape gate (pre-hook)', () => {
+  beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
+  afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+
+  it('a junk MPP Authorization header 400s before preValidate or composeMppx run', async () => {
+    const preValidate = vi.fn(async () => ({}));
+    const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({ status: 200, raw: {} }));
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: '0xtempo' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      preValidate,
+      computePricing: (): PricingResult => ({ amountUsd: 10 }),
+      composeMppx,
+    });
+    const result = await checkout.handle(req({ headers: { authorization: 'Payment total-garbage!!!' } }));
+    expect(result.status).toBe(400);
+    expect(result.settlePhase).toBe('credential_malformed');
+    expect((result.body.error as { code: string }).code).toBe('payment_proof_invalid');
+    expect(preValidate).not.toHaveBeenCalled();
+    expect(composeMppx).not.toHaveBeenCalled();
+  });
+
+  it('a junk x402 header 400s before preValidate runs', async () => {
+    const preValidate = vi.fn(async () => ({}));
+    const server = makeFakeX402Server();
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: BIND_RECIPIENT, network: BIND_NETWORK } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      preValidate,
+      computePricing: (): PricingResult => ({ amountUsd: 0.01 }),
+      x402Server: server as never,
+    });
+    const result = await checkout.handle(req({ headers: { 'x-payment': '!!!garbage!!!' } }));
+    expect(result.status).toBe(400);
+    expect(result.settlePhase).toBe('credential_malformed');
+    expect(preValidate).not.toHaveBeenCalled();
+    expect(server.settlePayment).not.toHaveBeenCalled();
+  });
+
+  it('a JWT-shaped Payment token passes the shape gate (token-style credentials stay dispatchable)', async () => {
+    const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({ status: 200, raw: {} }));
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: '0xtempo' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: (): PricingResult => ({ amountUsd: 10 }),
+      composeMppx,
+    });
+    const jwt = 'eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJ4In0.c2ln';
+    const result = await checkout.handle(req({ headers: { authorization: `Payment ${jwt}` } }));
+    expect(result.status).toBe(200);
+    expect(composeMppx).toHaveBeenCalledOnce();
+  });
+
+  it('credentialPreCheck: false opts out (junk header reaches the dispatch path as before)', async () => {
+    const preValidate = vi.fn(async () => ({}));
+    const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({
+      status: 402,
+      headers: { 'www-authenticate': 'Payment realm="t"' },
+    }));
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: '0xtempo' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      preValidate,
+      computePricing: (): PricingResult => ({ amountUsd: 10 }),
+      composeMppx,
+      credentialPreCheck: false,
+    });
+    const result = await checkout.handle(req({ headers: { authorization: 'Payment total-garbage!!!' } }));
+    expect(preValidate).toHaveBeenCalledOnce();
+    expect(composeMppx).toHaveBeenCalled();
+    expect(result.settlePhase).not.toBe('credential_malformed');
+  });
+
+  it('an x402 header at a Tempo-only merchant is NOT enforced (discovery behavior unchanged)', async () => {
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: '0xtempo' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: (): PricingResult => ({ amountUsd: 10 }),
+      composeMppx: async () => ({ status: 402, headers: { 'www-authenticate': 'Payment realm="t"' } }),
+    });
+    const result = await checkout.handle(req({ headers: { 'x-payment': '!!!garbage!!!' } }));
+    // No x402 rail → the junk x402 header is ignored and the request falls
+    // through to the anonymous discovery leg (402 with rails), same as before.
+    expect(result.status).toBe(402);
   });
 });
