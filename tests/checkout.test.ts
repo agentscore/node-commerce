@@ -952,10 +952,36 @@ describe('Checkout — zero-settle railKey resolves from the bound credential', 
   });
 
   it('a Tempo credential resolves railKey to the tempo rail even when solana is declared first', async () => {
-    // A Tempo (eip155-sourced) credential at $0 is NOT intercepted by the
-    // carve-out: it delegates to the real MPP settle path (mppx >= 0.8 settles
-    // zero-amount challenges natively via the proof-credential path), and the
-    // receipt method drives the railKey — order-independent of rail declaration.
+    // A hash/transaction credential at $0 means the agent signed against a
+    // NONZERO quote that re-priced to $0 at settle (no-match flows). Upstream
+    // cannot settle those at $0, so the carve-out absorbs them — no compose
+    // call, no charge — and railKey derives from the recovered signer network,
+    // order-independent of rail declaration.
+    let observed: { railKey?: string; signerNetwork?: string | null } | undefined;
+    const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({ status: 200, raw: {} }));
+    const checkout = buildZeroCheckout(
+      {
+        sol_rail: { recipient: 'solanaaddr', network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp' } as SolanaMppRailSpec,
+        tempo_charge: { recipient: '0xtempo' } as TempoRailSpec,
+      },
+      async (_ctx, outcome) => { observed = outcome; return { ok: true }; },
+      composeMppx,
+    );
+    const result = await checkout.handle(req({
+      headers: {
+        authorization: 'Payment ' + Buffer.from(JSON.stringify({
+          source: `did:pkh:eip155:42431:${EVM_SIGNER}`,
+          payload: { type: 'hash', hash: '0xabc' },
+        })).toString('base64'),
+      },
+    }));
+    expect(result.status).toBe(200);
+    expect(composeMppx).not.toHaveBeenCalled();
+    expect(observed?.railKey).toBe('tempo_charge');
+    expect(observed?.signerNetwork).toBe('evm');
+  });
+
+  it('a $0 PROOF credential delegates to the settle path (mppx verifies zero-amount proofs natively)', async () => {
     let observed: { railKey?: string; signerNetwork?: string | null } | undefined;
     const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({
       status: 200,
@@ -970,14 +996,19 @@ describe('Checkout — zero-settle railKey resolves from the bound credential', 
       composeMppx,
     );
     const result = await checkout.handle(req({
-      headers: { authorization: mppAuthHeader(`did:pkh:eip155:42431:${EVM_SIGNER}`) },
+      headers: {
+        authorization: 'Payment ' + Buffer.from(JSON.stringify({
+          source: `did:pkh:eip155:42431:${EVM_SIGNER}`,
+          payload: { type: 'proof', signature: '0x' + 'ab'.repeat(65) },
+        })).toString('base64'),
+      },
     }));
     expect(result.status).toBe(200);
     expect(composeMppx).toHaveBeenCalledOnce();
     expect(observed?.railKey).toBe('tempo_charge');
   });
 
-  it('a parseable credential without a Solana DID also delegates (fallback railKey from the settle path)', async () => {
+  it('a parseable credential with no typed payload keeps the carve-out (null signer, fallback railKey)', async () => {
     let observed: { railKey?: string; signerNetwork?: string | null } | undefined;
     const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({ status: 200, raw: {} }));
     const checkout = buildZeroCheckout(
@@ -992,9 +1023,50 @@ describe('Checkout — zero-settle railKey resolves from the bound credential', 
       headers: { authorization: 'Payment ' + Buffer.from(JSON.stringify({ nope: true })).toString('base64') },
     }));
     expect(result.status).toBe(200);
-    expect(composeMppx).toHaveBeenCalledOnce();
+    expect(composeMppx).not.toHaveBeenCalled();
     expect(observed?.railKey).toBe('tempo_charge');
     expect(observed?.signerNetwork).toBeNull();
+  });
+
+  it('a token-style (JWT-shaped) credential at $0 keeps the carve-out', async () => {
+    // Stripe SPT and other token credentials pass the shape gate but have no
+    // $0 settle semantics upstream — carve-out, null signer, no compose call.
+    let observed: { railKey?: string; signerNetwork?: string | null } | undefined;
+    const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({ status: 200, raw: {} }));
+    const checkout = buildZeroCheckout(
+      { tempo_charge: { recipient: '0xtempo' } as TempoRailSpec },
+      async (_ctx, outcome) => { observed = outcome; return { ok: true }; },
+      composeMppx,
+    );
+    const result = await checkout.handle(req({
+      headers: { authorization: 'Payment eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJ4In0.c2ln' },
+    }));
+    expect(result.status).toBe(200);
+    expect(composeMppx).not.toHaveBeenCalled();
+    expect(observed?.signerNetwork).toBeNull();
+  });
+
+  it('zeroSettleCarveOut=false never carves out at $0 (every credential attempts a real settle)', async () => {
+    const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({
+      status: 402,
+      headers: { 'www-authenticate': 'Payment realm="t"' },
+    }));
+    const checkout = new Checkout({
+      rails: { tempo_charge: { recipient: '0xtempo' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: (): PricingResult => ({ amountUsd: 0 }),
+      composeMppx,
+    });
+    const result = await checkout.handle(req({
+      headers: {
+        authorization: 'Payment ' + Buffer.from(JSON.stringify({
+          source: `did:pkh:eip155:42431:${EVM_SIGNER}`,
+          payload: { type: 'hash', hash: '0xabc' },
+        })).toString('base64'),
+      },
+    }));
+    expect(composeMppx).toHaveBeenCalledOnce();
+    expect(result.status).toBe(400);
   });
 });
 

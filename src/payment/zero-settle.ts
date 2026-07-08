@@ -8,23 +8,30 @@
  *   `value=0` as `invalid_payload`, so $0 x402 orders take the carve-out. The
  *   credential is still run through `verifyX402Request` (signature shape +
  *   payTo binding) before the carve-out is honored.
- * - **Tempo (and other EVM MPP)**: NOT carved out. mppx >= 0.8 settles
+ * - **MPP `proof` credentials**: NOT carved out. mppx >= 0.8 settles
  *   zero-amount challenges natively via the wallet-bound EIP-712 proof
  *   credential (full verification, access-key authorization, replay
- *   protection), so $0 Tempo orders flow through the normal MPP settle path.
- * - **Solana MPP**: `@solana/mpp` has no proof-credential contract, so there
- *   is nothing upstream to verify a $0 credential against. The carve-out
- *   parses the credential and lifts the signer for wallet-capture
- *   attribution; that signer block is UNAUTHENTICATED (parse-only) and must
- *   not be trusted for anything beyond attribution hints. Identity is still
- *   authenticated by the merchant's gate above; redemption codes are
- *   single-use; nothing settles on-chain.
+ *   protection). An agent that saw a $0 challenge signs a `proof`, so those
+ *   delegate to the normal MPP settle path.
+ * - **Every other MPP credential at $0** (`hash` / `transaction` payloads,
+ *   token-style credentials, Solana): carved out. These arise when the agent
+ *   signed against a NONZERO quote that the merchant re-priced to $0 at
+ *   settle (no-match / full-discount flows — the authorization is simply
+ *   never exercised), or on rails with no upstream $0 contract
+ *   (`@solana/mpp` has no proof-credential surface). Upstream would reject
+ *   all of them at $0, so the carve-out lifts the signer for wallet-capture
+ *   attribution only; that signer block is UNAUTHENTICATED (parse-only) and
+ *   must not be trusted beyond attribution hints. Identity is still
+ *   authenticated by the merchant's gate above; nothing settles on-chain.
  *
  * `zeroAmountCarveOut` parses the credential, lifts the signer, and returns
  * `{ signerAddress, signerNetwork, txHash: null }`. The MPP path uses inline
  * base64+JSON parsing (no `mppx` dependency at runtime) so this module stays
- * dependency-free; it is also how `handleZeroSettle` classifies the rail
- * (Solana vs EVM did:pkh source) to decide carve-out vs delegation.
+ * dependency-free. `mppCredentialPayloadType` is the router `handleZeroSettle`
+ * uses to decide delegation (`proof`) vs carve-out (everything else); signer
+ * recovery itself prefers the full `extractPaymentSigner` (which also decodes
+ * source-less Solana credentials from the signed transaction) with this
+ * module's inline parse as the dependency-free backstop.
  */
 
 import type { SignerNetwork } from '../signer';
@@ -97,6 +104,31 @@ function x402SignerFromPayload(payload: Record<string, unknown> | null | undefin
     signerNetwork: 'evm',
     txHash: null,
   };
+}
+
+/**
+ * Read the MPP credential's `payload.type` (`'proof'` / `'hash'` /
+ * `'transaction'`) from an `Authorization: Payment <base64>` header without
+ * any `mppx` dependency. Returns `null` for token-style values (JWTs),
+ * unparseable headers, or credentials without a typed payload.
+ */
+export function mppCredentialPayloadType(
+  authorizationHeader: string | null | undefined,
+): string | null {
+  if (typeof authorizationHeader !== 'string') return null;
+  if (!authorizationHeader.toLowerCase().startsWith('payment ')) return null;
+  const token = authorizationHeader.slice('payment '.length).trim();
+  if (!token) return null;
+  try {
+    const credential: unknown = JSON.parse(atob(token));
+    if (!credential || typeof credential !== 'object') return null;
+    const payload = (credential as { payload?: unknown }).payload;
+    if (!payload || typeof payload !== 'object') return null;
+    const type = (payload as { type?: unknown }).type;
+    return typeof type === 'string' ? type : null;
+  } catch {
+    return null;
+  }
 }
 
 function mppSignerFromAuth(
