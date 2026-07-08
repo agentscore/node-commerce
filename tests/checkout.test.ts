@@ -893,3 +893,135 @@ describe('Checkout — zero-settle carve-out gates on the real amount (sub-cent 
     expect(server.settlePayment).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zero-settle carve-out — railKey resolves from the bound credential (no receipt
+// exists on the $0 path, so the receipt-method derivation can't run) and the
+// x402 branch verifies the credential before honoring the carve-out.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Checkout — zero-settle railKey resolves from the bound credential', () => {
+  beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
+  afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+
+  const SOLANA_SIGNER = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
+  const EVM_SIGNER = '0xeb2Ca790F72787c7e61bC6c861353a1e4ACDFCa5';
+
+  function mppAuthHeader(source: string): string {
+    return 'Payment ' + Buffer.from(JSON.stringify({ source })).toString('base64');
+  }
+
+  function buildZeroCheckout(
+    rails: ConstructorParameters<typeof Checkout>[0]['rails'],
+    onSettled: (ctx: CheckoutContext, outcome: { railKey?: string; signerNetwork?: string | null }) => Promise<Record<string, unknown>>,
+    composeMppx: (ctx: CheckoutContext) => Promise<MppxComposeOutcome>,
+  ) {
+    return new Checkout({
+      rails,
+      url: 'https://api.example/purchase',
+      computePricing: (): PricingResult => ({ amountUsd: 0 }),
+      zeroSettleCarveOut: true,
+      composeMppx,
+      onSettled: onSettled as Parameters<typeof Checkout>[0]['onSettled'],
+    });
+  }
+
+  it('a Solana MPP credential resolves railKey to the solana rail, not the tempo default', async () => {
+    let observed: { railKey?: string; signerNetwork?: string | null } | undefined;
+    const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({ status: 200, raw: {} }));
+    const checkout = buildZeroCheckout(
+      {
+        tempo_charge: { recipient: '0xtempo' } as TempoRailSpec,
+        sol_rail: { recipient: 'solanaaddr', network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp' } as SolanaMppRailSpec,
+      },
+      async (_ctx, outcome) => { observed = outcome; return { ok: true }; },
+      composeMppx,
+    );
+    const result = await checkout.handle(req({
+      headers: { authorization: mppAuthHeader(`did:pkh:solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:${SOLANA_SIGNER}`) },
+    }));
+    expect(result.status).toBe(200);
+    expect(observed?.railKey).toBe('sol_rail');
+    expect(observed?.signerNetwork).toBe('solana');
+    // The $0 path never composes/settles upstream.
+    expect(composeMppx).not.toHaveBeenCalled();
+  });
+
+  it('a Tempo credential resolves railKey to the tempo rail even when solana is declared first', async () => {
+    // mppRailKey() returns the FIRST non-EVM, non-Stripe rail — with solana declared
+    // first, the old default would mislabel a Tempo zero-settle as solana. The
+    // credential-derived key is order-independent.
+    let observed: { railKey?: string; signerNetwork?: string | null } | undefined;
+    const checkout = buildZeroCheckout(
+      {
+        sol_rail: { recipient: 'solanaaddr', network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp' } as SolanaMppRailSpec,
+        tempo_charge: { recipient: '0xtempo' } as TempoRailSpec,
+      },
+      async (_ctx, outcome) => { observed = outcome; return { ok: true }; },
+      async () => ({ status: 200, raw: {} }),
+    );
+    const result = await checkout.handle(req({
+      headers: { authorization: mppAuthHeader(`did:pkh:eip155:42431:${EVM_SIGNER}`) },
+    }));
+    expect(result.status).toBe(200);
+    expect(observed?.railKey).toBe('tempo_charge');
+    expect(observed?.signerNetwork).toBe('evm');
+  });
+
+  it('a malformed MPP credential falls back to the primary MPP rail key', async () => {
+    let observed: { railKey?: string; signerNetwork?: string | null } | undefined;
+    const checkout = buildZeroCheckout(
+      {
+        tempo_charge: { recipient: '0xtempo' } as TempoRailSpec,
+        sol_rail: { recipient: 'solanaaddr', network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp' } as SolanaMppRailSpec,
+      },
+      async (_ctx, outcome) => { observed = outcome; return { ok: true }; },
+      async () => ({ status: 200, raw: {} }),
+    );
+    const result = await checkout.handle(req({
+      headers: { authorization: 'Payment ' + Buffer.from(JSON.stringify({ nope: true })).toString('base64') },
+    }));
+    expect(result.status).toBe(200);
+    expect(observed?.railKey).toBe('tempo_charge');
+    expect(observed?.signerNetwork).toBeNull();
+  });
+});
+
+describe('Checkout — zero-settle x402 branch verifies the credential first', () => {
+  beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
+  afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+
+  function buildZeroX402Checkout(server = makeFakeX402Server()) {
+    return new Checkout({
+      rails: { x402_base: { recipient: BIND_RECIPIENT, network: BIND_NETWORK } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: (): PricingResult => ({ amountUsd: 0 }),
+      x402Server: server as never,
+      zeroSettleCarveOut: true,
+    });
+  }
+
+  it('REJECTS a $0 settle whose payTo is not the configured recipient (no free goods on a forged header)', async () => {
+    const checkout = buildZeroX402Checkout();
+    const attacker = '0xbadbadbadbadbadbadbadbadbadbadbadbadbad0';
+    const result = await checkout.handle(req({ headers: { 'x-payment': x402Header(attacker) } }));
+    expect(result.status).toBe(400);
+    expect(result.settled).toBe(false);
+    expect((result.body.error as { code: string }).code).toBe('payment_proof_invalid');
+  });
+
+  it('REJECTS a $0 settle with an undecodable payment header', async () => {
+    const checkout = buildZeroX402Checkout();
+    const result = await checkout.handle(req({ headers: { 'x-payment': '!!not-base64-json!!' } }));
+    expect(result.status).toBe(400);
+    expect(result.settled).toBe(false);
+  });
+
+  it('a verified $0 credential still recovers the signer for attribution', async () => {
+    const server = makeFakeX402Server();
+    const checkout = buildZeroX402Checkout(server);
+    const result = await checkout.handle(req({ headers: { 'x-payment': x402Header(BIND_RECIPIENT) } }));
+    expect(result.status).toBe(200);
+    expect(server.settlePayment).not.toHaveBeenCalled();
+  });
+});

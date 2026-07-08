@@ -1612,21 +1612,43 @@ export class Checkout {
     if (ctx.pricing.amountUsd !== 0) return null;
     const headers = normalizeHeadersToLowercase(ctx.request.headers);
     let zero;
+    let railKey: string;
     if (rail === 'x402-base') {
-      const x402Header = headers['payment-signature'] ?? headers['x-payment'];
-      let payload: Record<string, unknown> | null = null;
-      if (typeof x402Header === 'string' && x402Header.length > 0) {
-        try {
-          payload = JSON.parse(atob(x402Header)) as Record<string, unknown>;
-        } catch {
-          payload = null;
-        }
+      // Verify the signature + payTo binding before honoring the carve-out (parity
+      // with python's _handle_zero_settle): the recovered signer feeds wallet-capture
+      // attribution and onSettled, so it must come from a verified payload.
+      const fakeRequest = new Request(ctx.request.url, {
+        method: ctx.request.method,
+        headers: ctx.request.headers,
+      });
+      const verified = await verifyX402Request({
+        request: fakeRequest,
+        isCachedAddress: (addr) => this.asyncIsCachedAddress(addr, ctx),
+        acceptedNetwork: this.x402BaseNetwork ?? '',
+      });
+      if (!verified.ok) {
+        return {
+          status: verified.status,
+          body: verified.body,
+          headers: {},
+          referenceId: ctx.referenceId,
+          settled: false,
+          settlePhase: 'verify_failed',
+        };
       }
-      zero = zeroAmountCarveOut({ rail, payload });
+      zero = zeroAmountCarveOut({ rail, payload: verified.payload });
+      railKey = this.x402RailKey();
     } else {
       zero = zeroAmountCarveOut({ rail, authorizationHeader: headers['authorization'] });
+      // No receipt is minted on the $0 path, so the receipt-method derivation in
+      // handleMppx can't run. Resolve the rails key from the bound credential's
+      // signer network instead of the primary-MPP default, so Solana zero-settles
+      // don't report under the Tempo key (and vice versa).
+      railKey =
+        (zero.signerNetwork !== null
+          ? this.railsKeyForMppxMethod(zero.signerNetwork === 'solana' ? 'solana' : 'tempo')
+          : undefined) ?? this.mppRailKey();
     }
-    const railKey = rail === 'x402-base' ? this.x402RailKey() : this.mppRailKey();
     const outcome: SettleOutcome = {
       rail: rail === 'x402-base' ? 'x402' : 'mpp',
       paymentResponseHeader: null,
