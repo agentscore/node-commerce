@@ -39,7 +39,7 @@ function req(headers: Record<string, string>): CheckoutRequest {
   return {
     method: 'POST',
     url: 'https://wine.example/purchase',
-    headers: { 'x-payment': 'stub-x402-payload', ...headers },
+    headers: { 'x-payment': 'eyJzdHViIjogdHJ1ZX0=', ...headers },
     body: { product_id: 'p1', quantity: 1 },
   };
 }
@@ -99,7 +99,7 @@ describe('Checkout gate × AIP', () => {
     const checkout = makeCheckout({ aip: AIP });
     const request = new Request('https://wine.example/purchase', {
       method: 'POST',
-      headers: { 'x-payment': 'stub-x402-payload', 'agent-identity': 'eyJhbGciOiJFZERTQSJ9.e30.sig' },
+      headers: { 'x-payment': 'eyJzdHViIjogdHJ1ZX0=', 'agent-identity': 'eyJhbGciOiJFZERTQSJ9.e30.sig' },
       body: JSON.stringify({ product_id: 'p1', quantity: 1 }),
     });
     const res = await checkout.handleNextjs(request);
@@ -116,7 +116,7 @@ describe('Checkout gate × AIP', () => {
     const request = new Request('https://wine.example/purchase', {
       method: 'POST',
       // No identity header at all → missing_identity (the gate's no-AIP path), application/json.
-      headers: { 'x-payment': 'stub-x402-payload' },
+      headers: { 'x-payment': 'eyJzdHViIjogdHJ1ZX0=' },
       body: JSON.stringify({ product_id: 'p1', quantity: 1 }),
     });
     const res = await checkout.handleNextjs(request);
@@ -177,7 +177,7 @@ describe('Checkout gate × AIP — offline (no apiKey) policy enforcement', () =
     })));
     return {
       method: 'POST', url: 'https://wine.example/purchase',
-      headers: { host: authority, 'x-payment': 'stub', 'agent-identity': token, 'signature-input': signatureInput, signature },
+      headers: { host: authority, 'x-payment': 'eyJzdHViIjogdHJ1ZX0=', 'agent-identity': token, 'signature-input': signatureInput, signature },
       body: { product_id: 'p1', quantity: 1 },
     };
   }
@@ -288,7 +288,7 @@ describe('Checkout gate × AIP — issuer-conditional policy', () => {
     }));
     return {
       method: 'POST', url: 'https://wine.example/purchase',
-      headers: { host: authority, 'x-payment': 'stub', 'agent-identity': token, 'signature-input': signatureInput, signature },
+      headers: { host: authority, 'x-payment': 'eyJzdHViIjogdHJ1ZX0=', 'agent-identity': token, 'signature-input': signatureInput, signature },
       body: { product_id: 'p1', quantity: 1 },
     };
   }

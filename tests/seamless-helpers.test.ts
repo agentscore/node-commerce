@@ -44,6 +44,10 @@ import { lazyX402Server } from '../src/payment/lazy';
 import { extractSignerForPrecheck } from '../src/signer';
 import type { TempoRailSpec, X402BaseRailSpec } from '../src/payment/rail_spec';
 
+const FAKE_MPP_CRED = Buffer.from(
+  JSON.stringify({ challenge: { id: 'ch_1', realm: 'api.example' }, payload: { type: 'hash', hash: '0xabc' } }),
+).toString('base64');
+
 const RECIPIENT = '0x000000000000000000000000000000000000dEaD';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -198,7 +202,7 @@ describe('makeMppxComposeHook', () => {
       serverGetter: async () => ({ realm: 'r', charge: async () => [credential, receipt] }),
     });
     const out = await hook({
-      request: { method: 'POST', url: 'https://x/y', headers: { authorization: 'Payment <cred>' }, body: {} },
+      request: { method: 'POST', url: 'https://x/y', headers: { authorization: `Payment ${FAKE_MPP_CRED}` }, body: {} },
       referenceId: 'ref',
       pricing: { amountUsd: 1.0 },
       recipients: {},
@@ -216,7 +220,7 @@ describe('makeMppxComposeHook', () => {
       serverGetter: async () => ({ realm: 'r', charge: async () => [credential, receipt] }),
     });
     const out = await hook({
-      request: { method: 'POST', url: 'https://x/y', headers: { authorization: 'Payment <cred>' }, body: {} },
+      request: { method: 'POST', url: 'https://x/y', headers: { authorization: `Payment ${FAKE_MPP_CRED}` }, body: {} },
       referenceId: 'ref',
       pricing: { amountUsd: 1.0 },
       recipients: {},
@@ -232,7 +236,7 @@ describe('makeMppxComposeHook', () => {
       serverGetter: async () => ({ realm: 'r', charge: async () => [credential, receipt] }),
     });
     const out = await hook({
-      request: { method: 'POST', url: 'https://x/y', headers: { authorization: 'Payment <cred>' }, body: {} },
+      request: { method: 'POST', url: 'https://x/y', headers: { authorization: `Payment ${FAKE_MPP_CRED}` }, body: {} },
       referenceId: 'ref',
       pricing: { amountUsd: 1.0 },
       recipients: {},
@@ -248,7 +252,7 @@ describe('makeMppxComposeHook', () => {
     const hook = makeMppxComposeHook({
       serverGetter: async () => ({ realm: 'r', charge: async () => [credential, receipt] }),
     });
-    const out = await hook(buildCtx({ authorization: 'Payment somevalidcred' }));
+    const out = await hook(buildCtx({ authorization: `Payment ${FAKE_MPP_CRED}` }));
     expect(out.status).toBe(200);
     expect(out.txHash).toBe('0xtx');
     expect(out.signerAddress).toBe('0xabcd000000000000000000000000000000000003');
@@ -261,7 +265,7 @@ describe('makeMppxComposeHook', () => {
     const hook = makeMppxComposeHook({
       serverGetter: async () => ({ realm: 'r', charge: async () => [credential, receipt] }),
     });
-    const out = await hook(buildCtx({ authorization: 'Payment somevalidcred' }));
+    const out = await hook(buildCtx({ authorization: `Payment ${FAKE_MPP_CRED}` }));
     expect(out.status).toBe(200);
     expect(typeof out.paymentReceiptHeader).toBe('string');
     expect((out.paymentReceiptHeader ?? '').length).toBeGreaterThan(0);
@@ -1357,7 +1361,7 @@ describe('Checkout gate hooks', () => {
     const result = await checkout.handle({
       method: 'POST',
       url: 'https://api.example/purchase',
-      headers: { authorization: 'Payment <opaque>' },
+      headers: { authorization: `Payment ${FAKE_MPP_CRED}` },
       body: {},
     });
     expect(result.status).toBe(200);
@@ -1381,7 +1385,7 @@ describe('Checkout gate hooks', () => {
     const result = await checkout.handle({
       method: 'POST',
       url: 'https://api.example/purchase',
-      headers: { authorization: 'Payment <opaque>' },
+      headers: { authorization: `Payment ${FAKE_MPP_CRED}` },
       body: {},
     });
     expect(result.status).toBe(403);
@@ -1397,7 +1401,7 @@ describe('Checkout gate hooks', () => {
       checkout.handle({
         method: 'POST',
         url: 'https://api.example/purchase',
-        headers: { authorization: 'Payment <opaque>' },
+        headers: { authorization: `Payment ${FAKE_MPP_CRED}` },
         body: {},
       }),
     ).rejects.toThrow();
@@ -1415,7 +1419,7 @@ describe('Checkout gate hooks', () => {
     const result = await checkout.handle({
       method: 'POST',
       url: 'https://api.example/purchase',
-      headers: { authorization: 'Payment <opaque>' },
+      headers: { authorization: `Payment ${FAKE_MPP_CRED}` },
       body: {},
     });
     expect(result.status).toBe(200);
@@ -1575,7 +1579,7 @@ describe('Checkout SDK gate path', () => {
     const result = await checkout.handle({
       method: 'POST',
       url: 'https://api.example/purchase',
-      headers: { authorization: 'Payment <cred>', 'x-operator-token': 'opc_test' },
+      headers: { authorization: `Payment ${FAKE_MPP_CRED}`, 'x-operator-token': 'opc_test' },
       body: {},
     });
     expect(result.status).toBe(200);
@@ -1610,7 +1614,7 @@ describe('Checkout SDK gate path', () => {
     const result = await checkout.handle({
       method: 'POST',
       url: 'https://api.example/purchase',
-      headers: { authorization: 'Payment <cred>' },
+      headers: { authorization: `Payment ${FAKE_MPP_CRED}` },
       body: {},
     });
     expect([401, 403, 503]).toContain(result.status);
@@ -1656,7 +1660,7 @@ describe('Checkout SDK gate path', () => {
     const result = await checkout.handle({
       method: 'POST',
       url: 'https://api.example/purchase',
-      headers: { authorization: 'Payment <cred>', 'x-wallet-address': '0xclaimed' },
+      headers: { authorization: `Payment ${FAKE_MPP_CRED}`, 'x-wallet-address': '0xclaimed' },
       body: {},
     });
     expect(result.status).toBe(403);
@@ -1696,7 +1700,7 @@ describe('Checkout SDK gate path', () => {
     const result = await checkout.handle({
       method: 'POST',
       url: 'https://api.example/purchase',
-      headers: { authorization: 'Payment <cred>', 'x-wallet-address': '0xclaimed' },
+      headers: { authorization: `Payment ${FAKE_MPP_CRED}`, 'x-wallet-address': '0xclaimed' },
       body: {},
     });
     expect(result.status).toBe(403);
@@ -1734,7 +1738,7 @@ describe('Checkout SDK gate path', () => {
     const result = await checkout.handle({
       method: 'POST',
       url: 'https://api.example/purchase',
-      headers: { authorization: 'Payment <cred>' },
+      headers: { authorization: `Payment ${FAKE_MPP_CRED}` },
       body: {},
     });
     expect(result.status).toBe(402);
@@ -1787,7 +1791,7 @@ describe('Checkout SDK gate path — fully-populated gate config', () => {
     const result = await checkout.handle({
       method: 'POST',
       url: 'https://api.example/purchase',
-      headers: { authorization: 'Payment <cred>' },
+      headers: { authorization: `Payment ${FAKE_MPP_CRED}` },
       body: {},
     });
     expect(result.status).toBe(200);
@@ -2292,7 +2296,7 @@ describe('Checkout handleMppx', () => {
     const result = await checkout.handle({
       method: 'POST',
       url: 'https://api.example/purchase',
-      headers: { authorization: 'Payment <credential>' },
+      headers: { authorization: `Payment ${FAKE_MPP_CRED}` },
       body: { item: 'wine' },
     });
     expect(result.status).toBe(200);
@@ -2417,7 +2421,7 @@ describe('Framework adapter SETTLE leg', () => {
     app.post('/purchase', (c) => checkout.handleHono(c));
     const resp = await app.request('/purchase', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: 'Payment <cred>' },
+      headers: { 'content-type': 'application/json', authorization: `Payment ${FAKE_MPP_CRED}` },
       body: JSON.stringify({ item: 'wine' }),
     });
     expect(resp.status).toBe(200);
@@ -2430,7 +2434,7 @@ describe('Framework adapter SETTLE leg', () => {
     const checkout = _settleCheckout();
     const req = new Request('https://api.example/purchase', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: 'Payment <cred>' },
+      headers: { 'content-type': 'application/json', authorization: `Payment ${FAKE_MPP_CRED}` },
       body: JSON.stringify({ item: 'wine' }),
     });
     const resp = await checkout.handleNextjs(req);
@@ -2443,7 +2447,7 @@ describe('Framework adapter SETTLE leg', () => {
     const checkout = _settleCheckout();
     const req = new Request('https://api.example/purchase', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: 'Payment <cred>' },
+      headers: { 'content-type': 'application/json', authorization: `Payment ${FAKE_MPP_CRED}` },
       body: JSON.stringify({ item: 'wine' }),
     });
     const resp = await checkout.handleWeb(req);
@@ -2454,7 +2458,7 @@ describe('Framework adapter SETTLE leg', () => {
     const checkout = _settleCheckout();
     const captured: { status?: number; body?: unknown } = {};
     const req = {
-      headers: { 'content-type': 'application/json', authorization: 'Payment <cred>' },
+      headers: { 'content-type': 'application/json', authorization: `Payment ${FAKE_MPP_CRED}` },
       body: { item: 'wine' },
       method: 'POST',
       protocol: 'https',
@@ -2491,7 +2495,7 @@ describe('Framework adapter SETTLE leg', () => {
         // Express represents multi-value headers as string[].
         'accept': ['application/json', 'text/plain'],
         // Single-value: still a string.
-        authorization: 'Payment <cred>',
+        authorization: `Payment ${FAKE_MPP_CRED}`,
       },
       body: { item: 'wine' },
       method: 'POST',
@@ -2543,7 +2547,7 @@ describe('Framework adapter SETTLE leg', () => {
     };
     // Multi-value header path
     await checkout.handleFastify({
-      headers: { 'content-type': 'application/json', 'x-multi': ['v1', 'v2'], authorization: 'Payment <cred>' },
+      headers: { 'content-type': 'application/json', 'x-multi': ['v1', 'v2'], authorization: `Payment ${FAKE_MPP_CRED}` },
       body: { item: 'wine' },
       method: 'POST',
       url: '/purchase',
@@ -2564,7 +2568,7 @@ describe('Framework adapter SETTLE leg', () => {
     const checkout = _settleCheckout();
     const captured: { status?: number; body?: unknown } = {};
     const request = {
-      headers: { 'content-type': 'application/json', authorization: 'Payment <cred>' },
+      headers: { 'content-type': 'application/json', authorization: `Payment ${FAKE_MPP_CRED}` },
       body: { item: 'wine' },
       method: 'POST',
       protocol: 'https',
@@ -2747,11 +2751,11 @@ describe('Checkout zero-settle x402-base carve-out', () => {
       headers: { 'x-payment': '!!!not-base64!!!' },
       body: {},
     });
-    // The $0 carve-out verifies the credential first (parity with python): an
-    // undecodable header is a verify failure, not a free delivery with no signer.
+    // An undecodable header now fails the wire-shape gate before any hook runs
+    // (and before the carve-out): 400, not a free delivery with no signer.
     expect(result.status).toBe(400);
     expect(result.settled).toBe(false);
-    expect(result.settlePhase).toBe('verify_failed');
+    expect(result.settlePhase).toBe('credential_malformed');
   });
 });
 
@@ -2859,7 +2863,7 @@ describe('Checkout discoveryProbe routing', () => {
     await checkout.handle({
       method: 'POST',
       url: 'https://api.example/purchase',
-      headers: { authorization: 'Payment <opaque-credential>' },
+      headers: { authorization: `Payment ${FAKE_MPP_CRED}` },
       body: { item: 'wine' },
     });
     expect(pricingCalled).toBe(true);
@@ -2893,16 +2897,21 @@ describe('Checkout discoveryProbe routing', () => {
 });
 
 describe('Checkout zero-settle MPP carve-out', () => {
-  it('zeroSettleCarveOut=true + $0 + MPP authorization → 200 with tx_hash null', async () => {
+  it('zeroSettleCarveOut=true + $0 + non-Solana MPP credential DELEGATES to composeMppx (no interception)', async () => {
+    // mppx >= 0.8 settles zero-amount challenges natively via the proof-credential
+    // path, so the carve-out no longer intercepts Tempo/EVM credentials at $0 —
+    // the real settle path runs and upstream rejections surface as payment
+    // failures instead of a 200 with an unverified signer.
     const { Checkout } = await import('../src/checkout');
+    const composeMppx = vi.fn(async () => ({
+      status: 402 as const,
+      headers: { 'www-authenticate': 'Payment realm="t"' },
+    }));
     const checkout = new Checkout({
       rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } },
       url: 'https://api.example/purchase',
       computePricing: async () => ({ amountUsd: 0.0 }),
-      composeMppx: async () => ({
-        status: 402,
-        headers: { 'www-authenticate': 'Payment realm="t"' },
-      }),
+      composeMppx,
       onSettled: async (_ctx: unknown, outcome: { txHash?: string | null; railKey?: string }) => ({
         order_id: 'o-1',
         tx_hash: outcome.txHash,
@@ -2913,11 +2922,14 @@ describe('Checkout zero-settle MPP carve-out', () => {
     const result = (await checkout.handle({
       method: 'POST',
       url: 'https://api.example/purchase',
-      headers: { authorization: 'Payment <opaque-credential>' },
+      headers: { authorization: `Payment ${FAKE_MPP_CRED}` },
       body: { item: 'wine' },
-    })) as { status: number; body: Record<string, unknown> };
-    expect(result.status).toBe(200);
-    expect(result.body.tx_hash ?? null).toBeNull();
+    })) as { status: number; body: Record<string, unknown>; settled: boolean };
+    // The compose hook ran (delegation), and its rejection surfaced as a payment failure.
+    expect(composeMppx).toHaveBeenCalledOnce();
+    expect(result.status).toBe(400);
+    expect(result.settled).toBe(false);
+    expect((result.body.error as { code: string }).code).toBe('payment_proof_invalid');
   });
 });
 

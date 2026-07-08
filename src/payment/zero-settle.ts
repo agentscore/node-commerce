@@ -1,23 +1,30 @@
 /**
- * Zero-amount carve-out: skip upstream verify+settle for $0 orders.
+ * Zero-amount carve-out: skip upstream verify+settle for $0 orders on the
+ * rails that cannot settle $0 upstream.
  *
- * CDP rejects EIP-3009 `transferWithAuthorization` with `value=0` as
- * `invalid_payload`; `mppx`'s tempo intents accept only `hash` and
- * `transaction` payload types (rejecting the `proof` payload that gets
- * emitted for $0 settles). Both upstream verify+settle paths fail when the
- * authorized amount is zero, so merchants that drop the settle to $0 in a
- * redemption-code flow need a way to skip verify+settle entirely while
- * still recovering the signer for wallet-capture attribution.
+ * Scope (which rail takes the carve-out is decided in `Checkout.handleZeroSettle`):
  *
- * `zeroAmountCarveOut` is that path: parse the credential, lift the
- * signer, return `{ signerAddress, signerNetwork, txHash: null }`. Identity
- * is still authenticated by the merchant's gate above; the redemption code
- * is single-use; nothing on-chain to verify.
+ * - **x402 Base**: CDP rejects EIP-3009 `transferWithAuthorization` with
+ *   `value=0` as `invalid_payload`, so $0 x402 orders take the carve-out. The
+ *   credential is still run through `verifyX402Request` (signature shape +
+ *   payTo binding) before the carve-out is honored.
+ * - **Tempo (and other EVM MPP)**: NOT carved out. mppx >= 0.8 settles
+ *   zero-amount challenges natively via the wallet-bound EIP-712 proof
+ *   credential (full verification, access-key authorization, replay
+ *   protection), so $0 Tempo orders flow through the normal MPP settle path.
+ * - **Solana MPP**: `@solana/mpp` has no proof-credential contract, so there
+ *   is nothing upstream to verify a $0 credential against. The carve-out
+ *   parses the credential and lifts the signer for wallet-capture
+ *   attribution; that signer block is UNAUTHENTICATED (parse-only) and must
+ *   not be trusted for anything beyond attribution hints. Identity is still
+ *   authenticated by the merchant's gate above; redemption codes are
+ *   single-use; nothing settles on-chain.
  *
- * The MPP path uses inline base64+JSON parsing (no `mppx` dependency at
- * runtime) so the zero-settle path stays dependency-free. The full
- * `extractPaymentSigner` path is still mppx-backed for production traffic
- * where the credential is a real mppx-shaped object.
+ * `zeroAmountCarveOut` parses the credential, lifts the signer, and returns
+ * `{ signerAddress, signerNetwork, txHash: null }`. The MPP path uses inline
+ * base64+JSON parsing (no `mppx` dependency at runtime) so this module stays
+ * dependency-free; it is also how `handleZeroSettle` classifies the rail
+ * (Solana vs EVM did:pkh source) to decide carve-out vs delegation.
  */
 
 import type { SignerNetwork } from '../signer';

@@ -149,9 +149,23 @@ export {
   type SuccessBodyArgs,
   type WorkOutcome,
 } from './checkout_compute_first';
-export { createQuoteCache, type CachedQuote, type QuoteCache, type QuoteCacheOptions } from './quote_cache';
+export {
+  createQuoteCache,
+  createResultCache,
+  type CachedQuote,
+  type QuoteCache,
+  type QuoteCacheOptions,
+  type ResultCache,
+  type ResultCacheOptions,
+} from './quote_cache';
 export { createDefaultOnDenied, defaultReadOnlyOnDenied, type CreateDefaultOnDeniedOptions, type DefaultOnDeniedResult } from './identity/default_denied';
-export { hasMppxHeader, hasPaymentHeader, hasX402Header } from './payment/payment_header';
+export {
+  hasMppxHeader,
+  hasPaymentHeader,
+  hasX402Header,
+  malformedPaymentCredential,
+  type MalformedPaymentCredential,
+} from './payment/payment_header';
 // AIP (Agentic Identity Protocol) — AIT verification (verifier role) + RFC 9421 signing.
 export {
   AGENT_IDENTITY_HEADER,
