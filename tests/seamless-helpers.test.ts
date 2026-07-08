@@ -2731,7 +2731,7 @@ describe('Checkout zero-settle x402-base carve-out', () => {
     expect((result.body as { signer: string }).signer).toBe('0xabc0000000000000000000000000000000000007');
   });
 
-  it('falls through gracefully when x-payment header is not valid base64 json', async () => {
+  it('rejects the carve-out when the x-payment header is not valid base64 json', async () => {
     const checkout = new Checkout({
       rails: { x402_base: { recipient: RECIPIENT, network: 'eip155:84532' } as X402BaseRailSpec },
       url: 'https://api.example/purchase',
@@ -2747,8 +2747,11 @@ describe('Checkout zero-settle x402-base carve-out', () => {
       headers: { 'x-payment': '!!!not-base64!!!' },
       body: {},
     });
-    // Zero settle still succeeds (no signer lifted, but the carve-out doesn't gate on signer).
-    expect(result.status).toBe(200);
+    // The $0 carve-out verifies the credential first (parity with python): an
+    // undecodable header is a verify failure, not a free delivery with no signer.
+    expect(result.status).toBe(400);
+    expect(result.settled).toBe(false);
+    expect(result.settlePhase).toBe('verify_failed');
   });
 });
 
