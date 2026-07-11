@@ -87,12 +87,12 @@ export function buildSignerMismatchBody({
   result: VerifyWalletSignerResult;
   /** Optional override for the human-facing `next_steps.user_message`. */
   userMessage?: string;
-  /** Optional override for `next_steps.learn_more_url`. Default: AgentScore agent-identity guide. */
+  /** Optional override for `next_steps.learn_more_url`. Default: the AgentScore Passport guide. */
   learnMoreUrl?: string;
 }): Record<string, unknown> | null {
   if (result.kind === 'pass') return null;
 
-  const learnMoreUrlResolved = learnMoreUrl ?? 'https://docs.agentscore.com/guides/agent-identity';
+  const learnMoreUrlResolved = learnMoreUrl ?? 'https://docs.agentscore.com/passport';
 
   if (result.kind === 'wallet_signer_mismatch') {
     const linkedWallets = result.linkedWallets ?? [];
