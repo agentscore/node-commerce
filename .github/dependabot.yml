@@ -12,7 +12,16 @@ updates:
       timezone: "America/New_York"
     ignore:
       - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
       - dependency-name: "@eslint/js"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@solana/kit"
+        update-types: ["version-update:semver-major"]
+      # viem + mppx move only in coordinated cross-repo passes (exact pins).
+      - dependency-name: "viem"
+      - dependency-name: "mppx"
 
   - package-ecosystem: "github-actions"
     directory: "/"

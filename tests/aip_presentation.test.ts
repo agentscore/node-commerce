@@ -82,8 +82,13 @@ describe('skill.md identity section', () => {
 });
 
 describe('openapi security schemes', () => {
-  it('includes the AgentIdentity scheme', () => {
-    const schemes = agentscoreSecuritySchemes();
+  it('includes the AgentIdentity scheme when aip is set', () => {
+    const schemes = agentscoreSecuritySchemes({ aip: true });
     expect(schemes.AgentIdentity).toMatchObject({ type: 'apiKey', in: 'header', name: 'Agent-Identity' });
+  });
+  it('omits the AgentIdentity scheme by default', () => {
+    const schemes = agentscoreSecuritySchemes();
+    expect(schemes.AgentIdentity).toBeUndefined();
+    expect(Object.keys(schemes)).toEqual(['OperatorToken', 'WalletAddress', 'siwx']);
   });
 });
