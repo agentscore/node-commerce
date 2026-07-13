@@ -1,6 +1,6 @@
 # @agent-score/commerce
 
-Agent commerce SDK for Node.js. The full merchant-side toolkit: identity gating + payment helpers + 402 builders + discovery + Stripe multichain. One install, subpath imports per concern.
+Agentic commerce SDK for Node.js. The full merchant-side toolkit: identity gating + payment helpers + 402 builders + discovery + Stripe multichain. One install, subpath imports per concern.
 
 Every helper is extracted from a real consumer, not speculated.
 

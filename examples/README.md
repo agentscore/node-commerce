@@ -42,4 +42,4 @@ These examples are intentionally thin on domain logic. Vendors plug in their own
 - Tax / shipping calculators
 - Frontend UI (none of these examples include one; they're agent-only APIs)
 
-AgentScore Commerce handles the agent commerce protocol layer; everything else is your business.
+AgentScore Commerce handles the agentic commerce protocol layer; everything else is your business.
