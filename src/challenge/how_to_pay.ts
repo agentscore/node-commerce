@@ -148,7 +148,7 @@ export function buildHowToPay({
     const amountCents = Math.round(totalNum * 100);
     const linkCliBlocked = amountCents > 50000;
     const productName = stripeCfg.productName ?? 'this purchase';
-    const sptContext = `Purchasing "${productName}" via the agent commerce API. The user authorized this purchase through their AI agent for $${totalNum}; charge to be settled via shared payment token over the Machine Payments Protocol.`;
+    const sptContext = `Purchasing "${productName}" via the agentic commerce API. The user authorized this purchase through their AI agent for $${totalNum}; charge to be settled via shared payment token over the Machine Payments Protocol.`;
     const stripe: HowToPayStripeEntry = {
       prerequisite:
         'Either your own Stripe account with Shared Payment Token acceptance, OR a Stripe Link wallet (any user with link.com).',
