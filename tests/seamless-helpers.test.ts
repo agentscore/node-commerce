@@ -2751,9 +2751,10 @@ describe('Checkout zero-settle x402-base carve-out', () => {
       headers: { 'x-payment': '!!!not-base64!!!' },
       body: {},
     });
-    // An undecodable header now fails the wire-shape gate before any hook runs
-    // (and before the carve-out): 400, not a free delivery with no signer.
-    expect(result.status).toBe(400);
+    // An undecodable header fails the wire-shape gate before the carve-out or any
+    // paid hook: it does not settle (no free delivery with no signer), and the
+    // agent gets a fresh 402 challenge to re-pay, not a dead-end 400.
+    expect(result.status).toBe(402);
     expect(result.settled).toBe(false);
     expect(result.settlePhase).toBe('credential_malformed');
   });
@@ -2959,7 +2960,9 @@ describe('Checkout zero-settle MPP carve-out', () => {
       body: { item: 'wine' },
     })) as { status: number; body: Record<string, unknown>; settled: boolean };
     expect(composeMppx).toHaveBeenCalledOnce();
-    expect(result.status).toBe(400);
+    // mppx rejected the proof at settle and re-challenged: 402, not a 200 with an
+    // unverified signer, and not a dead-end 400.
+    expect(result.status).toBe(402);
     expect(result.settled).toBe(false);
     expect((result.body.error as { code: string }).code).toBe('payment_proof_invalid');
   });
