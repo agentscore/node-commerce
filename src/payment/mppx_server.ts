@@ -190,27 +190,18 @@ async function registerSolana(spec: SolanaMppRailSpec): Promise<unknown> {
       'createMppxServer: SolanaMppRailSpec requires a string recipient (per-order factories not supported here).',
     );
   }
-  // @solana/mpp >=0.6.0 enforces MPP spec §13.6: when a fee payer is set,
-  // only recipients listed as splits with `ataCreationRequired: true` end up
-  // in the validator's `allowedAtaOwners`; the top-level recipient is NOT
-  // implicitly allowed, so every settle that includes a `CreateIdempotent`
-  // ATA instruction (which mppx's client emits defensively) gets rejected.
-  // Defaulting to true keeps every Solana settle working out of the box on
-  // 0.6.0+ (the only configurations that break otherwise are those where
-  // the merchant has manually pre-created every recipient's ATA AND wants
-  // to refuse fee-payer-sponsored creation). On 0.5.x the flag is unknown
-  // and silently ignored — same behavior as before. Merchants opt out by
-  // passing `ataCreationRequired: false` explicitly (rare: requires
-  // pre-creating every recipient's ATA out-of-band).
-  const ataCreationRequired = spec.ataCreationRequired !== false;
+  // The static-treasury path (a fixed recipient whose USDC ATA is pre-funded
+  // out-of-band) is the only viable Solana settle path: @solana/mpp keeps the
+  // primary recipient's ATA "out of scope" on the client, so no
+  // `CreateIdempotent` is emitted for it and no self-referential split is
+  // needed to satisfy the validator. @solana/mpp 0.7.0 actively REJECTS a
+  // primary-recipient split carrying `ataCreationRequired: true` in
+  // fee-sponsored (signer) mode, so we must not emit one.
   const baseMethod = solanaMpp.charge({
     recipient: spec.recipient,
     currency: spec.token ?? defaultMint,
     decimals: spec.decimals ?? defaultDecimals,
     network,
-    ...(ataCreationRequired
-      ? { splits: [{ recipient: spec.recipient, amount: '0', ataCreationRequired: true }] }
-      : {}),
     ...(spec.rpcUrl ? { rpcUrl: spec.rpcUrl } : {}),
     ...(spec.signer ? { signer: spec.signer } : {}),
     ...(spec.tokenProgram ? { tokenProgram: spec.tokenProgram } : {}),

@@ -107,13 +107,20 @@ describe('createMppxServer — additional rail branches', () => {
     expect(server).toBeDefined();
   });
 
-  it('solana rail with ataCreationRequired: false omits the self-referential split', async () => {
+  it('solana rail constructs with a fee-payer signer (0.7.0 rejects a primary-recipient split in fee-sponsored mode)', async () => {
+    // @solana/mpp 0.7.0 throws at charge() construction if a split targets the
+    // primary recipient with ataCreationRequired in fee-sponsored (signer)
+    // mode. The static-treasury path emits no such split, so a signer-backed
+    // rail must construct cleanly. A prior suite passed no signer and would
+    // false-green on a regression that reintroduces the split.
+    const { generateKeyPairSigner } = await import('@solana/kit');
+    const feePayer = await generateKeyPairSigner();
     const server = await createMppxServer({
       rails: {
         solana: {
           recipient: 'JDK3GZwsmgWwdFicNnrLHEgZc54SNYp6egWL9LL3k9f5',
           network: networks.solana.devnet.caip2,
-          ataCreationRequired: false,
+          signer: feePayer,
         } as SolanaMppRailSpec,
       },
       secretKey: 'mpp_test_secret_key_padded_to_32_bytes',
