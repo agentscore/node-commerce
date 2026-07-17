@@ -1115,17 +1115,18 @@ describe('Checkout — zero-settle x402 branch verifies the credential first', (
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Credential shape gate. A junk payment header skips the merchant's paid
-// preValidate probe and the identity-gate assess call, then re-challenges with
-// a fresh 402 (pricing + recipient minting + compose run, same as any discovery
-// leg) so an x402/MPP client re-pays instead of aborting on a 400.
+// Credential shape gate. A junk payment header is re-run as a discovery request
+// (credential stripped): preValidate + pricing + recipient minting + compose all
+// run their fresh path, so the agent gets a fresh 402 to re-pay against instead
+// of a 400/500. The gate/assess and settle are skipped (no header after
+// stripping); the junk credential is never settled.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Checkout — credential shape gate (pre-hook)', () => {
   beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
   afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
-  it('a junk MPP Authorization header re-challenges with a fresh 402, no preValidate', async () => {
+  it('a junk MPP Authorization header re-challenges with a fresh 402 (discovery flow)', async () => {
     const preValidate = vi.fn(async () => ({}));
     const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({
       status: 402,
@@ -1142,11 +1143,11 @@ describe('Checkout — credential shape gate (pre-hook)', () => {
     expect(result.status).toBe(402);
     expect(result.settlePhase).toBe('credential_malformed');
     expect(result.headers['www-authenticate']).toBe('Payment realm="fresh"');
-    // The junk credential must not burn the merchant's paid probe.
-    expect(preValidate).not.toHaveBeenCalled();
+    // Treated as a discovery request: preValidate runs (pricing depends on its state).
+    expect(preValidate).toHaveBeenCalled();
   });
 
-  it('a junk x402 header re-challenges with a fresh 402, no preValidate or settle', async () => {
+  it('a junk x402 header re-challenges with a fresh 402, never settling', async () => {
     const preValidate = vi.fn(async () => ({}));
     const server = makeFakeX402Server();
     const checkout = new Checkout({
@@ -1159,9 +1160,29 @@ describe('Checkout — credential shape gate (pre-hook)', () => {
     const result = await checkout.handle(req({ headers: { 'x-payment': '!!!garbage!!!' } }));
     expect(result.status).toBe(402);
     expect(result.settlePhase).toBe('credential_malformed');
-    // Junk must not burn the paid probe or attempt a settle.
-    expect(preValidate).not.toHaveBeenCalled();
+    // Discovery flow: preValidate runs; the junk credential is never settled.
+    expect(preValidate).toHaveBeenCalled();
     expect(server.settlePayment).not.toHaveBeenCalled();
+  });
+
+  it('malformed credential runs preValidate so state-dependent pricing does not crash (402 not 500)', async () => {
+    // Regression: computePricing reads state that preValidate populates (the
+    // martin-estate shape). The malformed re-challenge must run preValidate
+    // first, or pricing dereferences undefined and 500s.
+    const preValidate = vi.fn(async () => ({ product: { priceCents: 4800 } }));
+    const computePricing = vi.fn(
+      (ctx): PricingResult => ({ amountUsd: (ctx.state.product as { priceCents: number }).priceCents / 100 }),
+    );
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: BIND_RECIPIENT, network: BIND_NETWORK } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      preValidate,
+      computePricing,
+      x402Server: makeFakeX402Server() as never,
+    });
+    const result = await checkout.handle(req({ headers: { 'x-payment': 'not-decodable' } }));
+    expect(result.status).toBe(402);
+    expect(result.body.accepted_methods).toBeDefined();
   });
 
   it('the malformed-credential 402 carries a usable challenge body (accepted_methods)', async () => {

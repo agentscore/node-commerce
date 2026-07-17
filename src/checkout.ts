@@ -1166,16 +1166,15 @@ export class Checkout {
           ? this.x402ServerAvailable() && this.x402BaseNetwork !== null
           : this.composeMppx !== undefined);
       if (enforced) {
-        // Protocol-correct recovery: a junk credential gets a FRESH 402
-        // challenge (same shape as the discovery leg) so an x402/MPP client
-        // re-pays, instead of a dead-end 400 it can't act on. Strip the
-        // malformed credential first (`discoveryView`) so recipient minting +
-        // MPP compose take their fresh-mint / fresh-challenge path rather than
-        // trying to bind the garbage and throwing another 400. preValidate and
-        // the gate/assess are skipped by construction here — a junk credential
-        // must never burn the merchant's paid probe or an identity API call
-        // (the whole reason this pre-check runs before those hooks).
-        const result = await this.emitFreshChallenge(this.discoveryView(ctx));
+        // A junk credential is treated as a discovery request: strip it and
+        // re-enter handle() so preValidate + pricing + recipient minting +
+        // compose all run exactly as they do for a no-credential request. That
+        // yields a fresh 402 the agent re-pays against, not a dead-end 400, and
+        // not a 500 when computePricing reads state that preValidate populates.
+        // The gate/assess and settle are skipped by construction: after
+        // stripping there is no payment header, so no re-trigger of this check
+        // (max one level of recursion) and no identity call on the junk value.
+        const result = await this.handle(this.stripPaymentHeaders(request));
         return { ...result, settlePhase: 'credential_malformed' };
       }
     }
@@ -1912,12 +1911,10 @@ export class Checkout {
     };
   }
 
-  /** Emit a fresh 402 challenge: compute pricing, mint per-order recipients,
-   *  ask the (optional) MPP compose hook for a fresh WWW-Authenticate, and
-   *  build the rich 402 body. This is the discovery leg, factored out so the
-   *  malformed-credential path can reuse it verbatim. Idempotent on already
-   *  computed pricing / resolved recipients, so the normal discovery leg (which
-   *  primes both) pays nothing extra. */
+  /** Emit the discovery-leg 402: pricing (idempotent), mint per-order
+   *  recipients, ask the optional MPP compose hook for a fresh WWW-Authenticate,
+   *  and build the rich 402 body. preValidate + pricing already ran in the main
+   *  flow before this is reached, so it primes nothing twice. */
   private async emitFreshChallenge(ctx: CheckoutContext): Promise<CheckoutResult> {
     if (ctx.pricing === null) ctx.pricing = await this.computePricing(ctx);
     await this.resolveRecipientsForCtx(ctx);
@@ -1935,25 +1932,23 @@ export class Checkout {
     return await this.emit402(ctx, mppxHeaders);
   }
 
-  /** Return a copy of `ctx` with every payment-credential header removed, so
-   *  downstream recipient minting and MPP compose take their discovery
-   *  (fresh-mint, fresh-challenge) path instead of trying to bind the inbound
-   *  credential. Used to turn a malformed-credential request into a clean 402
-   *  re-challenge. Pricing / recipients are reset so they mint fresh. */
-  private discoveryView(ctx: CheckoutContext): CheckoutContext {
+  /** Return a copy of the request with every payment-credential header removed,
+   *  so re-entering handle() treats it as a discovery (no-credential) request:
+   *  preValidate + pricing + minting + compose all run their fresh path, and the
+   *  gate/assess and settle are skipped. Turns a malformed-credential request
+   *  into a clean 402 re-challenge. The raw request is left intact (its body may
+   *  already be consumed); MPP compose reads it only best-effort under a
+   *  try/catch, while the stripped headers are what the credential-shape check,
+   *  gate dispatch, and recipient minting read. */
+  private stripPaymentHeaders(request: CheckoutRequest): CheckoutRequest {
     const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(ctx.request.headers)) {
+    for (const [k, v] of Object.entries(request.headers)) {
       const lk = k.toLowerCase();
       if (lk === 'payment-signature' || lk === 'x-payment') continue;
       if (lk === 'authorization' && v.startsWith('Payment ')) continue;
       headers[k] = v;
     }
-    return {
-      ...ctx,
-      request: { ...ctx.request, headers },
-      pricing: null,
-      recipients: {},
-    };
+    return { ...request, headers };
   }
 
   private async emit402(
