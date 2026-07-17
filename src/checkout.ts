@@ -535,6 +535,25 @@ export type ComposeMppxFn = (ctx: CheckoutContext) => MppxComposeOutcome | Promi
 export type IsCachedAddressFn = (address: string) => boolean | Promise<boolean>;
 
 
+/** Return `raw` with the payment-credential headers removed, when it is a
+ *  Web `Request` (the shape Hono / Next.js / Web-Fetch adapters forward).
+ *  Used by the malformed-credential re-challenge so hooks reading
+ *  `ctx.request.raw` see a clean discovery-leg request. Non-Request `raw`
+ *  (e.g. an Express req) passes through unchanged. The rebuilt Request carries
+ *  the surviving headers only; the body is already parsed into
+ *  `request.body`, and the re-challenge is a discovery leg that reads headers,
+ *  not the raw body, so a body-less clone is safe and avoids the
+ *  `Body already used` throw from cloning a consumed Request. */
+function stripPaymentHeadersFromRaw(raw: unknown): unknown {
+  if (typeof Request === 'undefined' || !(raw instanceof Request)) return raw;
+  const headers = new Headers(raw.headers);
+  headers.delete('payment-signature');
+  headers.delete('x-payment');
+  const auth = headers.get('authorization');
+  if (auth !== null && auth.startsWith('Payment ')) headers.delete('authorization');
+  return new Request(raw.url, { method: raw.method, headers });
+}
+
 function resolveIdentityMetadata(
   ctx: CheckoutContext,
 ): IdentityMetadataBlock | undefined {
@@ -1948,7 +1967,13 @@ export class Checkout {
       if (lk === 'authorization' && v.startsWith('Payment ')) continue;
       headers[k] = v;
     }
-    return { ...request, headers };
+    // The malformed re-challenge re-enters as a discovery leg, so the credential
+    // must be gone from EVERY view of the request. Hooks that read the native
+    // request (`ctx.request.raw`), such as `mintMultichainRecipients` (it parses
+    // the MPP credential off the raw `Authorization: Payment` header), would
+    // otherwise still see the junk and throw, turning the fresh-402 re-challenge
+    // back into a 4xx dead end. Strip `raw` in lockstep with `headers`.
+    return { ...request, headers, raw: stripPaymentHeadersFromRaw(request.raw) };
   }
 
   private async emit402(
