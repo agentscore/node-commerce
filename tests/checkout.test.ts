@@ -6,6 +6,7 @@ import {
   type MppxComposeOutcome,
   type PricingResult,
 } from '../src/checkout';
+import { CheckoutValidationError } from '../src/errors';
 import type {
   SolanaMppRailSpec,
   StripeRailSpec,
@@ -1145,6 +1146,54 @@ describe('Checkout — credential shape gate (pre-hook)', () => {
     expect(result.headers['www-authenticate']).toBe('Payment realm="fresh"');
     // Treated as a discovery request: preValidate runs (pricing depends on its state).
     expect(preValidate).toHaveBeenCalled();
+  });
+
+  it('re-challenge strips the credential from ctx.request.raw too (hooks reading raw see a discovery leg)', async () => {
+    // Regression: the re-challenge must be a discovery leg for EVERY view of the
+    // request, including the native `ctx.request.raw` that hooks like
+    // `mintMultichainRecipients` read. martin-estate's mintRecipients parses the
+    // MPP credential off `ctx.request.raw` and throws 401 on junk; if raw still
+    // carries the junk `Authorization: Payment` on the re-entry, the fresh-402
+    // re-challenge turns back into a 401 dead end (the on-prod symptom).
+    let rawAuthSeenByHook: string | null | undefined = 'unset';
+    const mintRecipients = vi.fn(async (ctx: CheckoutContext): Promise<Record<string, string>> => {
+      const raw = ctx.request.raw as Request | undefined;
+      const auth = raw?.headers.get('authorization') ?? null;
+      rawAuthSeenByHook = auth;
+      if (auth !== null && auth.startsWith('Payment ')) {
+        // Mirror mintMultichainRecipients: a present-but-unparseable MPP
+        // credential is a hard 401, not a silent discovery mint.
+        throw new CheckoutValidationError({
+          code: 'invalid_credential',
+          message: 'The Authorization: Payment header is not a valid MPP credential.',
+          action: 'retry_without_credential',
+          status: 401,
+        });
+      }
+      return { tempo: '0xtempo' };
+    });
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: '0xtempo' } as TempoRailSpec },
+      url: 'https://api.example/purchase',
+      preValidate: async () => ({}),
+      computePricing: (): PricingResult => ({ amountUsd: 10 }),
+      composeMppx: async (): Promise<MppxComposeOutcome> => ({
+        status: 402,
+        headers: { 'www-authenticate': 'Payment realm="fresh"' },
+      }),
+      mintRecipients,
+    });
+    const raw = new Request('https://api.example/purchase', {
+      method: 'POST',
+      headers: { authorization: 'Payment total-garbage!!!', 'content-type': 'application/json' },
+    });
+    const result = await checkout.handle(
+      req({ headers: { authorization: 'Payment total-garbage!!!' }, raw }),
+    );
+    expect(result.status).toBe(402);
+    expect(result.settlePhase).toBe('credential_malformed');
+    // The hook ran on the re-entry and saw a raw with the credential stripped.
+    expect(rawAuthSeenByHook).toBeNull();
   });
 
   it('a junk x402 header re-challenges with a fresh 402, never settling', async () => {
