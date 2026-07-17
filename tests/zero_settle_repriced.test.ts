@@ -109,7 +109,9 @@ describe('repriced-to-zero settles against real mppx', () => {
       },
       body: { miss: true },
     });
-    expect(result.status).toBe(400);
+    // Real mppx rejected the forged proof and re-challenged: 402, never settled
+    // (no free goods), and on_settled never fired.
+    expect(result.status).toBe(402);
     expect(result.settled).toBe(false);
     expect(outcomes).toHaveLength(0);
   });

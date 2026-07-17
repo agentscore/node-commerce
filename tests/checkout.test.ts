@@ -204,7 +204,7 @@ describe('Checkout — composeMppx hook', () => {
     expect('payment-receipt' in result.headers).toBe(false);
   });
 
-  it('402 from compose on settle leg maps to 400 payment_proof_invalid', async () => {
+  it('402 from compose on settle leg returns 402 carrying the fresh challenge', async () => {
     const composeMppx = vi.fn(
       async (): Promise<MppxComposeOutcome> => ({
         status: 402,
@@ -218,7 +218,9 @@ describe('Checkout — composeMppx hook', () => {
       composeMppx,
     });
     const result = await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
-    expect(result.status).toBe(400);
+    // mppx rejected the credential and emitted a fresh challenge; return it as a
+    // 402 the agent re-pays against, not a 400 that x402/MPP clients abort on.
+    expect(result.status).toBe(402);
     expect(result.headers['www-authenticate']).toBe('Payment id="ord_x"');
     expect((result.body.error as Record<string, unknown>).code).toBe('payment_proof_invalid');
     expect(result.settlePhase).toBe('verify_failed');
@@ -1066,7 +1068,8 @@ describe('Checkout — zero-settle railKey resolves from the bound credential', 
       },
     }));
     expect(composeMppx).toHaveBeenCalledOnce();
-    expect(result.status).toBe(400);
+    // compose rejected the credential and re-challenged: 402, not a dead-end 400.
+    expect(result.status).toBe(402);
   });
 });
 
@@ -1093,10 +1096,12 @@ describe('Checkout — zero-settle x402 branch verifies the credential first', (
     expect((result.body.error as { code: string }).code).toBe('payment_proof_invalid');
   });
 
-  it('REJECTS a $0 settle with an undecodable payment header', async () => {
+  it('does not settle a $0 undecodable payment header; re-challenges with a fresh 402', async () => {
     const checkout = buildZeroX402Checkout();
     const result = await checkout.handle(req({ headers: { 'x-payment': '!!not-base64-json!!' } }));
-    expect(result.status).toBe(400);
+    // Junk credential never settles (no free goods), but the agent gets a fresh
+    // 402 challenge to re-pay, not a dead-end 400.
+    expect(result.status).toBe(402);
     expect(result.settled).toBe(false);
   });
 
@@ -1110,17 +1115,22 @@ describe('Checkout — zero-settle x402 branch verifies the credential first', (
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Credential shape gate — junk payment headers are rejected BEFORE any merchant
-// hook (preValidate / pricing / minting) or the identity-gate assess call runs.
+// Credential shape gate. A junk payment header skips the merchant's paid
+// preValidate probe and the identity-gate assess call, then re-challenges with
+// a fresh 402 (pricing + recipient minting + compose run, same as any discovery
+// leg) so an x402/MPP client re-pays instead of aborting on a 400.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Checkout — credential shape gate (pre-hook)', () => {
   beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
   afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
-  it('a junk MPP Authorization header 400s before preValidate or composeMppx run', async () => {
+  it('a junk MPP Authorization header re-challenges with a fresh 402, no preValidate', async () => {
     const preValidate = vi.fn(async () => ({}));
-    const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({ status: 200, raw: {} }));
+    const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({
+      status: 402,
+      headers: { 'www-authenticate': 'Payment realm="fresh"' },
+    }));
     const checkout = new Checkout({
       rails: { tempo: { recipient: '0xtempo' } as TempoRailSpec },
       url: 'https://api.example/purchase',
@@ -1129,14 +1139,14 @@ describe('Checkout — credential shape gate (pre-hook)', () => {
       composeMppx,
     });
     const result = await checkout.handle(req({ headers: { authorization: 'Payment total-garbage!!!' } }));
-    expect(result.status).toBe(400);
+    expect(result.status).toBe(402);
     expect(result.settlePhase).toBe('credential_malformed');
-    expect((result.body.error as { code: string }).code).toBe('payment_proof_invalid');
+    expect(result.headers['www-authenticate']).toBe('Payment realm="fresh"');
+    // The junk credential must not burn the merchant's paid probe.
     expect(preValidate).not.toHaveBeenCalled();
-    expect(composeMppx).not.toHaveBeenCalled();
   });
 
-  it('a junk x402 header 400s before preValidate runs', async () => {
+  it('a junk x402 header re-challenges with a fresh 402, no preValidate or settle', async () => {
     const preValidate = vi.fn(async () => ({}));
     const server = makeFakeX402Server();
     const checkout = new Checkout({
@@ -1147,10 +1157,25 @@ describe('Checkout — credential shape gate (pre-hook)', () => {
       x402Server: server as never,
     });
     const result = await checkout.handle(req({ headers: { 'x-payment': '!!!garbage!!!' } }));
-    expect(result.status).toBe(400);
+    expect(result.status).toBe(402);
     expect(result.settlePhase).toBe('credential_malformed');
+    // Junk must not burn the paid probe or attempt a settle.
     expect(preValidate).not.toHaveBeenCalled();
     expect(server.settlePayment).not.toHaveBeenCalled();
+  });
+
+  it('the malformed-credential 402 carries a usable challenge body (accepted_methods)', async () => {
+    const server = makeFakeX402Server();
+    const checkout = new Checkout({
+      rails: { x402_base: { recipient: BIND_RECIPIENT, network: BIND_NETWORK } as X402BaseRailSpec },
+      url: 'https://api.example/purchase',
+      computePricing: (): PricingResult => ({ amountUsd: 0.01 }),
+      x402Server: server as never,
+    });
+    const result = await checkout.handle(req({ headers: { 'x-payment': 'not-decodable' } }));
+    expect(result.status).toBe(402);
+    // A fresh challenge the agent can re-pay against, not a bare error body.
+    expect(result.body.accepted_methods).toBeDefined();
   });
 
   it('a JWT-shaped Payment token passes the shape gate (token-style credentials stay dispatchable)', async () => {

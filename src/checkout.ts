@@ -1166,22 +1166,17 @@ export class Checkout {
           ? this.x402ServerAvailable() && this.x402BaseNetwork !== null
           : this.composeMppx !== undefined);
       if (enforced) {
-        return {
-          status: 400,
-          body: buildValidationError({
-            code: 'payment_proof_invalid',
-            message: malformed.message,
-            nextSteps: {
-              action: 'regenerate_payment_credential',
-              user_message:
-                'The payment credential could not be decoded. Rebuild it from a fresh 402 challenge and retry.',
-            },
-          }),
-          headers: {},
-          referenceId: ctx.referenceId,
-          settled: false,
-          settlePhase: 'credential_malformed',
-        };
+        // Protocol-correct recovery: a junk credential gets a FRESH 402
+        // challenge (same shape as the discovery leg) so an x402/MPP client
+        // re-pays, instead of a dead-end 400 it can't act on. Strip the
+        // malformed credential first (`discoveryView`) so recipient minting +
+        // MPP compose take their fresh-mint / fresh-challenge path rather than
+        // trying to bind the garbage and throwing another 400. preValidate and
+        // the gate/assess are skipped by construction here — a junk credential
+        // must never burn the merchant's paid probe or an identity API call
+        // (the whole reason this pre-check runs before those hooks).
+        const result = await this.emitFreshChallenge(this.discoveryView(ctx));
+        return { ...result, settlePhase: 'credential_malformed' };
       }
     }
 
@@ -1259,27 +1254,11 @@ export class Checkout {
       return await this.handleMppx(ctx);
     }
 
-    // Discovery leg: mint per-order recipients BEFORE composeMppx so the
-    // hook sees ctx.recipients populated. composeMppx mints a fresh
-    // WWW-Authenticate challenge that the agent needs to sign on the retry;
-    // the hook returns status=402 with mppx-issued headers, which we
-    // propagate into the rich 402 emit. (Resolver is idempotent — the
-    // earlier resolve in this flow already succeeded; this call is a no-op
-    // unless we got here without going through it.)
-    await this.resolveRecipientsForCtx(ctx);
-    let mppxHeaders: Record<string, string> = {};
-    if (this.composeMppx !== undefined) {
-      try {
-        const preComposed = await this.composeMppx(ctx);
-        if (preComposed.status === 402) {
-          mppxHeaders = { ...(preComposed.headers ?? {}) };
-        }
-      } catch {
-        // Hook errors here only affect the optional MPP challenge; the 402
-        // still goes out with whatever rails resolved.
-      }
-    }
-    return await this.emit402(ctx, mppxHeaders);
+    // Discovery leg: emit the fresh 402 challenge. Recipients were already
+    // resolved above (idempotent) and pricing computed, so this mints nothing
+    // twice; composeMppx supplies the fresh WWW-Authenticate the agent signs on
+    // the retry.
+    return await this.emitFreshChallenge(ctx);
   }
 
   private validationErrorResult(
@@ -1915,17 +1894,65 @@ export class Checkout {
         settlePhase: 'verify_failed',
       };
     }
+    // mppx already emitted a fresh challenge (in `composed.headers`), so return
+    // it as a 402 the agent re-pays against, not a dead-end 400. x402/MPP
+    // clients version-route on the status code: a 402 triggers a retry with a
+    // new credential, a 400 aborts.
     return {
-      status: 400,
+      status: 402,
       body: buildValidationError({
         code: 'payment_proof_invalid',
-        message: 'MPP credential rejected; regenerate from a fresh 402 challenge.',
+        message: 'MPP credential rejected; regenerate from the fresh 402 challenge and retry.',
         nextSteps: { action: 'regenerate_payment_credential' },
       }),
       headers: { ...(composed.headers ?? {}) },
       referenceId: ctx.referenceId,
       settled: false,
       settlePhase: 'verify_failed',
+    };
+  }
+
+  /** Emit a fresh 402 challenge: compute pricing, mint per-order recipients,
+   *  ask the (optional) MPP compose hook for a fresh WWW-Authenticate, and
+   *  build the rich 402 body. This is the discovery leg, factored out so the
+   *  malformed-credential path can reuse it verbatim. Idempotent on already
+   *  computed pricing / resolved recipients, so the normal discovery leg (which
+   *  primes both) pays nothing extra. */
+  private async emitFreshChallenge(ctx: CheckoutContext): Promise<CheckoutResult> {
+    if (ctx.pricing === null) ctx.pricing = await this.computePricing(ctx);
+    await this.resolveRecipientsForCtx(ctx);
+    let mppxHeaders: Record<string, string> = {};
+    if (this.composeMppx !== undefined) {
+      try {
+        const preComposed = await this.composeMppx(ctx);
+        if (preComposed.status === 402) mppxHeaders = { ...(preComposed.headers ?? {}) };
+      } catch {
+        // The MPP challenge is optional; the 402 still goes out with whatever
+        // rails resolved. A junk credential in the raw request can make compose
+        // throw here, which is exactly why this is best-effort.
+      }
+    }
+    return await this.emit402(ctx, mppxHeaders);
+  }
+
+  /** Return a copy of `ctx` with every payment-credential header removed, so
+   *  downstream recipient minting and MPP compose take their discovery
+   *  (fresh-mint, fresh-challenge) path instead of trying to bind the inbound
+   *  credential. Used to turn a malformed-credential request into a clean 402
+   *  re-challenge. Pricing / recipients are reset so they mint fresh. */
+  private discoveryView(ctx: CheckoutContext): CheckoutContext {
+    const headers: Record<string, string> = {};
+    for (const [k, v] of Object.entries(ctx.request.headers)) {
+      const lk = k.toLowerCase();
+      if (lk === 'payment-signature' || lk === 'x-payment') continue;
+      if (lk === 'authorization' && v.startsWith('Payment ')) continue;
+      headers[k] = v;
+    }
+    return {
+      ...ctx,
+      request: { ...ctx.request, headers },
+      pricing: null,
+      recipients: {},
     };
   }
 
