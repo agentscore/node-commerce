@@ -237,43 +237,36 @@ export function classifyOrchestrationError(err: unknown): ClassifiedX402Error | 
 }
 
 /**
- * Reshape a decoded X-Payment payload into the lean canonical x402 PaymentPayload the
- * facilitator's verify/settle endpoints validate: `{ x402Version, scheme, network, payload }`.
+ * Strip the non-signed `extensions` + `resource` blocks from a decoded X-Payment payload
+ * before it is forwarded to the facilitator's verify/settle endpoints.
  *
- * agentscore-pay (and other x402 clients) transmit a richer wire shape: the chosen
- * requirement is nested under `accepted` (which `verifyX402Request` reads for network/payTo),
- * and the 402 challenge's `extensions` (Bazaar input schema) + `resource` blocks are echoed
- * alongside the signed `payload`. None of that is part of the EIP-3009 signature; the
- * signature covers only `payload.authorization`; but CDP's `/x402/verify` validates the
- * paymentPayload against the `x402V2PaymentPayload` union, which requires top-level
- * `scheme` + `network`: a payload that carries them only under `accepted` matches neither
- * branch, and the echoed `extensions.bazaar.schema` bloats the body enough that CDP rejects
- * it on larger schemas while tolerating small ones ("must match one of [x402V2PaymentPayload,
- * x402V1PaymentPayload]"). Forwarding the four canonical fields only fixes it regardless of size.
+ * agentscore-pay (and other x402 clients) echo the 402 challenge's `extensions` (Bazaar
+ * input schema) and `resource` blocks into the payload alongside the signed `payload` +
+ * `accepted`. Neither is part of the EIP-3009 signature (which covers only
+ * `payload.authorization`). CDP's `/x402/verify` validates the paymentPayload against its
+ * `x402V2PaymentPayload` schema, which is `{ x402Version, payload, accepted }` and admits
+ * neither `extensions` nor `resource`: their presence makes the payload match no union
+ * branch and CDP rejects it ("must match one of [x402V2PaymentPayload, x402V1PaymentPayload]").
+ * Endpoints whose echoed Bazaar schema is large fail while small ones happen to slip through,
+ * so it presents as "works on some routes, fails on others" but is one shape bug.
  *
- * `scheme`/`network` are lifted out of `accepted`, falling back to any top-level values a
- * canonical client already sent. The full `accepted`/`extensions`/`resource` stay on the wire
- * for `verifyX402Request`; they are dropped only here, at the facilitator boundary. A payload
- * that lacks the canonical pieces (unexpected shape) passes through untouched so it reaches the
- * facilitator unchanged rather than silently mangled.
+ * Confirmed against the live CDP facilitator: accepted-nested WITHOUT extensions/resource
+ * passes schema and reaches signature verify; a flat `{ x402Version, scheme, network, payload }`
+ * is rejected with "x402V2PaymentPayload requires 'accepted'". So `accepted` (which
+ * `verifyX402Request` reads for network/payTo) and every other field stay intact; only the
+ * two echoed challenge blocks are dropped, and only here at the facilitator boundary.
+ * Non-object payloads, and payloads carrying neither field, pass through untouched.
  */
-export function toCanonicalX402PaymentPayload(payload: unknown): unknown {
+export function stripUnsignedX402PayloadFields(payload: unknown): unknown {
   if (typeof payload !== 'object' || payload === null) return payload;
   const p = payload as Record<string, unknown>;
-  const accepted =
-    typeof p.accepted === 'object' && p.accepted !== null
-      ? (p.accepted as Record<string, unknown>)
-      : undefined;
-  const scheme = p.scheme ?? accepted?.scheme;
-  const network = p.network ?? accepted?.network;
-  const inner = p.payload;
-  if (scheme === undefined || network === undefined || inner === undefined) return payload;
-  return {
-    x402Version: p.x402Version ?? 2,
-    scheme,
-    network,
-    payload: inner,
-  };
+  if (!('extensions' in p) && !('resource' in p)) return payload;
+  const rest: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(p)) {
+    if (k === 'extensions' || k === 'resource') continue;
+    rest[k] = v;
+  }
+  return rest;
 }
 
 export async function processX402Settle({
@@ -328,9 +321,9 @@ export async function processX402Settle({
     return { success: false, phase: 'no_requirements', reason: 'x402Server.buildPaymentRequirements returned empty' };
   }
 
-  // Hand the facilitator the lean canonical payload, never the client's full wire shape
-  // (nested `accepted` + echoed `extensions`/`resource`), which CDP's verify rejects.
-  const canonicalPayload = toCanonicalX402PaymentPayload(payload);
+  // Strip the echoed `extensions`/`resource` blocks before the facilitator call: CDP's
+  // verify schema admits neither, so their presence makes the payload match no union branch.
+  const facilitatorPayload = stripUnsignedX402PayloadFields(payload);
 
   const resolvedTransportContext = transportContext ?? (() => {
     const path = new URL(resourceMeta.url).pathname;
@@ -350,7 +343,7 @@ export async function processX402Settle({
   let verifyResult: { success?: boolean; isValid?: boolean; [key: string]: unknown };
   try {
     verifyResult = await server.verifyPayment(
-      canonicalPayload,
+      facilitatorPayload,
       matchedRequirement,
       enrichedExt as Record<string, unknown> | undefined,
       resolvedTransportContext,
@@ -369,7 +362,7 @@ export async function processX402Settle({
 
   try {
     const settleResult = await server.settlePayment(
-      canonicalPayload,
+      facilitatorPayload,
       matchedRequirement,
       enrichedExt as Record<string, unknown> | undefined,
       resolvedTransportContext,

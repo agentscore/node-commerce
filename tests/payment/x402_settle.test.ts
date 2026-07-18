@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   classifyX402SettleResult,
   processX402Settle,
-  toCanonicalX402PaymentPayload,
+  stripUnsignedX402PayloadFields,
 } from '../../src/payment/x402_settle';
 import type { X402Server } from '../../src/payment/x402_server';
 import type { ProcessX402SettleResult } from '../../src/payment/x402_settle';
@@ -148,58 +148,56 @@ describe('processX402Settle', () => {
   });
 });
 
-describe('toCanonicalX402PaymentPayload', () => {
-  // The exact wire shape agentscore-pay transmits: scheme/network nested under `accepted`,
-  // the 402 challenge's `extensions` (Bazaar input schema) + `resource` echoed alongside the
-  // signed `payload`, and NO top-level scheme/network. CDP's /verify rejects this.
+describe('stripUnsignedX402PayloadFields', () => {
+  // The exact wire shape agentscore-pay transmits: the signed `payload` + the chosen
+  // requirement under `accepted` (which verify reads for network/payTo), PLUS the 402
+  // challenge's `extensions` (Bazaar input schema) + `resource` echoed alongside. CDP's
+  // x402V2PaymentPayload schema is `{ x402Version, payload, accepted }` and admits neither
+  // extensions nor resource, so their presence makes verify reject the payload.
+  const accepted = {
+    scheme: 'exact',
+    network: 'eip155:8453',
+    payTo: '0xpay',
+    asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    amount: '10000',
+    maxTimeoutSeconds: 300,
+    extra: { name: 'USD Coin', version: '2' },
+  };
+  const inner = { authorization: { from: '0xsigner', to: '0xpay' }, signature: '0xdeadbeef' };
   const wirePayload = {
     x402Version: 2,
-    payload: { authorization: { from: '0xsigner', to: '0xpay' }, signature: '0xdeadbeef' },
-    accepted: {
-      scheme: 'exact',
-      network: 'eip155:8453',
-      payTo: '0xpay',
-      asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-      amount: '10000',
-      maxTimeoutSeconds: 300,
-      extra: { name: 'USD Coin', version: '2' },
-    },
+    payload: inner,
+    accepted,
     extensions: { bazaar: { schema: { type: 'object', properties: { phone: { type: 'string' } } } } },
     resource: { url: 'https://example.com/person/base/no-pii', description: 'x'.repeat(600), tags: ['person'] },
   };
 
-  it('lifts scheme/network out of `accepted` and drops accepted/extensions/resource', () => {
-    expect(toCanonicalX402PaymentPayload(wirePayload)).toEqual({
+  it('drops extensions + resource and KEEPS accepted + payload + x402Version intact', () => {
+    expect(stripUnsignedX402PayloadFields(wirePayload)).toEqual({
       x402Version: 2,
-      scheme: 'exact',
-      network: 'eip155:8453',
-      payload: { authorization: { from: '0xsigner', to: '0xpay' }, signature: '0xdeadbeef' },
+      payload: inner,
+      accepted,
     });
   });
 
-  it('prefers a canonical client\'s top-level scheme/network when already present', () => {
-    const canonical = {
-      x402Version: 2,
-      scheme: 'exact',
-      network: 'eip155:8453',
-      payload: { authorization: {}, signature: '0x1' },
-    };
-    expect(toCanonicalX402PaymentPayload(canonical)).toEqual(canonical);
+  it('returns the payload unchanged (same reference) when neither field is present', () => {
+    const lean = { x402Version: 2, payload: inner, accepted };
+    expect(stripUnsignedX402PayloadFields(lean)).toBe(lean);
   });
 
-  it('defaults x402Version to 2 when absent', () => {
-    const noVersion = { payload: { authorization: {}, signature: '0x1' }, accepted: { scheme: 'exact', network: 'eip155:8453' } };
-    expect(toCanonicalX402PaymentPayload(noVersion)).toMatchObject({ x402Version: 2, scheme: 'exact', network: 'eip155:8453' });
+  it('strips when only one of the two fields is present', () => {
+    expect(stripUnsignedX402PayloadFields({ x402Version: 2, payload: inner, accepted, resource: { url: 'x' } }))
+      .toEqual({ x402Version: 2, payload: inner, accepted });
+    expect(stripUnsignedX402PayloadFields({ x402Version: 2, payload: inner, accepted, extensions: { bazaar: {} } }))
+      .toEqual({ x402Version: 2, payload: inner, accepted });
   });
 
-  it('passes unknown / incomplete shapes through untouched (no scheme+network+payload)', () => {
-    const weird = { foo: 'bar' };
-    expect(toCanonicalX402PaymentPayload(weird)).toBe(weird);
-    expect(toCanonicalX402PaymentPayload(null)).toBeNull();
-    expect(toCanonicalX402PaymentPayload('not-an-object')).toBe('not-an-object');
+  it('passes non-object payloads through untouched', () => {
+    expect(stripUnsignedX402PayloadFields(null)).toBeNull();
+    expect(stripUnsignedX402PayloadFields('not-an-object')).toBe('not-an-object');
   });
 
-  it('processX402Settle forwards the lean canonical payload (not the full wire shape) to verify AND settle', async () => {
+  it('processX402Settle forwards the stripped payload (accepted kept, extensions/resource gone) to verify AND settle', async () => {
     const verifyPayment = vi.fn().mockResolvedValue({ isValid: true });
     const settlePayment = vi.fn().mockResolvedValue({ tx: '0xabc' });
     const server = makeServer({ verifyPayment, settlePayment });
@@ -212,17 +210,11 @@ describe('toCanonicalX402PaymentPayload', () => {
     });
     expect(result.success).toBe(true);
 
-    const lean = {
-      x402Version: 2,
-      scheme: 'exact',
-      network: 'eip155:8453',
-      payload: { authorization: { from: '0xsigner', to: '0xpay' }, signature: '0xdeadbeef' },
-    };
     for (const spy of [verifyPayment, settlePayment]) {
       const forwarded = spy.mock.calls[0][0] as Record<string, unknown>;
-      expect(forwarded).toEqual(lean);
-      // The bloat CDP chokes on must be gone.
-      expect(forwarded).not.toHaveProperty('accepted');
+      expect(forwarded).toEqual({ x402Version: 2, payload: inner, accepted });
+      // accepted MUST survive (CDP's v2 schema requires it); the echoed bloat MUST be gone.
+      expect(forwarded).toHaveProperty('accepted');
       expect(forwarded).not.toHaveProperty('extensions');
       expect(forwarded).not.toHaveProperty('resource');
     }
