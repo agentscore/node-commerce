@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { classifyX402SettleResult, processX402Settle } from '../../src/payment/x402_settle';
+import {
+  classifyX402SettleResult,
+  processX402Settle,
+  toCanonicalX402PaymentPayload,
+} from '../../src/payment/x402_settle';
 import type { X402Server } from '../../src/payment/x402_server';
 import type { ProcessX402SettleResult } from '../../src/payment/x402_settle';
 
@@ -141,6 +145,87 @@ describe('processX402Settle', () => {
       const verifyRes = await processX402Settle({ x402Server: verifyServer, ...baseInput });
       expect(verifyRes).toMatchObject({ success: false, phase: 'facilitator_error', step: 'verify_payment', error: 'verify-string-error' });
     });
+  });
+});
+
+describe('toCanonicalX402PaymentPayload', () => {
+  // The exact wire shape agentscore-pay transmits: scheme/network nested under `accepted`,
+  // the 402 challenge's `extensions` (Bazaar input schema) + `resource` echoed alongside the
+  // signed `payload`, and NO top-level scheme/network. CDP's /verify rejects this.
+  const wirePayload = {
+    x402Version: 2,
+    payload: { authorization: { from: '0xsigner', to: '0xpay' }, signature: '0xdeadbeef' },
+    accepted: {
+      scheme: 'exact',
+      network: 'eip155:8453',
+      payTo: '0xpay',
+      asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      amount: '10000',
+      maxTimeoutSeconds: 300,
+      extra: { name: 'USD Coin', version: '2' },
+    },
+    extensions: { bazaar: { schema: { type: 'object', properties: { phone: { type: 'string' } } } } },
+    resource: { url: 'https://example.com/person/base/no-pii', description: 'x'.repeat(600), tags: ['person'] },
+  };
+
+  it('lifts scheme/network out of `accepted` and drops accepted/extensions/resource', () => {
+    expect(toCanonicalX402PaymentPayload(wirePayload)).toEqual({
+      x402Version: 2,
+      scheme: 'exact',
+      network: 'eip155:8453',
+      payload: { authorization: { from: '0xsigner', to: '0xpay' }, signature: '0xdeadbeef' },
+    });
+  });
+
+  it('prefers a canonical client\'s top-level scheme/network when already present', () => {
+    const canonical = {
+      x402Version: 2,
+      scheme: 'exact',
+      network: 'eip155:8453',
+      payload: { authorization: {}, signature: '0x1' },
+    };
+    expect(toCanonicalX402PaymentPayload(canonical)).toEqual(canonical);
+  });
+
+  it('defaults x402Version to 2 when absent', () => {
+    const noVersion = { payload: { authorization: {}, signature: '0x1' }, accepted: { scheme: 'exact', network: 'eip155:8453' } };
+    expect(toCanonicalX402PaymentPayload(noVersion)).toMatchObject({ x402Version: 2, scheme: 'exact', network: 'eip155:8453' });
+  });
+
+  it('passes unknown / incomplete shapes through untouched (no scheme+network+payload)', () => {
+    const weird = { foo: 'bar' };
+    expect(toCanonicalX402PaymentPayload(weird)).toBe(weird);
+    expect(toCanonicalX402PaymentPayload(null)).toBeNull();
+    expect(toCanonicalX402PaymentPayload('not-an-object')).toBe('not-an-object');
+  });
+
+  it('processX402Settle forwards the lean canonical payload (not the full wire shape) to verify AND settle', async () => {
+    const verifyPayment = vi.fn().mockResolvedValue({ isValid: true });
+    const settlePayment = vi.fn().mockResolvedValue({ tx: '0xabc' });
+    const server = makeServer({ verifyPayment, settlePayment });
+
+    const result = await processX402Settle({
+      x402Server: server,
+      payload: wirePayload,
+      resourceConfig: { scheme: 'exact', network: 'eip155:8453', price: '$0.01', payTo: '0xpay' },
+      resourceMeta: { url: 'https://example.com/person/base/no-pii', description: 'demo', mimeType: 'application/json' },
+    });
+    expect(result.success).toBe(true);
+
+    const lean = {
+      x402Version: 2,
+      scheme: 'exact',
+      network: 'eip155:8453',
+      payload: { authorization: { from: '0xsigner', to: '0xpay' }, signature: '0xdeadbeef' },
+    };
+    for (const spy of [verifyPayment, settlePayment]) {
+      const forwarded = spy.mock.calls[0][0] as Record<string, unknown>;
+      expect(forwarded).toEqual(lean);
+      // The bloat CDP chokes on must be gone.
+      expect(forwarded).not.toHaveProperty('accepted');
+      expect(forwarded).not.toHaveProperty('extensions');
+      expect(forwarded).not.toHaveProperty('resource');
+    }
   });
 });
 
