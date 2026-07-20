@@ -555,11 +555,11 @@
 
     "@vitest/utils": ["@vitest/utils@4.1.10", "", { "dependencies": { "@vitest/pretty-format": "4.1.10", "convert-source-map": "^2.0.0", "tinyrainbow": "^3.1.0" } }, "sha512-fy9am/HWxbaGt/Sawrp90vt6Y6jQwf1RX77cz3uwoJwJVMli/e1IEwRPnMNJ7vKfPTwo0diXifkpPvwH9v7nGA=="],
 
-    "@x402/core": ["@x402/core@2.18.0", "", { "dependencies": { "zod": "^3.24.2" } }, "sha512-3LB5m0Yx7C38ks8jDqTGYPZ2FnLzlH9pTlGvE8er2ujS1ri12sXXvWwnmYsmh3ZkXSDbV3BKU8oRKULatPp0Hg=="],
+    "@x402/core": ["@x402/core@2.19.0", "", { "dependencies": { "zod": "^3.24.2" } }, "sha512-IPQIHzIrwvbri1339QWHvwtiTTDbGsrF5Yff0LZfufmVXNdOSYbjY8oz6vZg7+4W13f7/k81NUMAFoDOU4gswQ=="],
 
-    "@x402/evm": ["@x402/evm@2.18.0", "", { "dependencies": { "@x402/core": "~2.18.0", "viem": "^2.48.11", "zod": "^3.24.2" } }, "sha512-iiA5zqqJMcFdMEO+nvdctiWHcSn1EBpN8Dic0beGoxmoWX2Y8DnDHEROL/E0S3bUFpQlwTKkp4rie4wvqhsBvg=="],
+    "@x402/evm": ["@x402/evm@2.19.0", "", { "dependencies": { "@x402/core": "~2.19.0", "viem": "^2.48.11", "zod": "^3.24.2" } }, "sha512-ycbYCjJmLC1I7tRQslAwB73FhJAVMPzsojYunWuR5hk+jKUwgC6djch1ZrKFC1f9lJi7IOiezZtRHj6TWyCCrg=="],
 
-    "@x402/extensions": ["@x402/extensions@2.18.0", "", { "dependencies": { "@noble/curves": "^1.9.0", "@scure/base": "^1.2.6", "@signinwithethereum/siwe": "^4.1.0", "@x402/core": "~2.18.0", "ajv": "^8.17.1", "jose": "^5.9.6", "tweetnacl": "^1.0.3", "viem": "^2.48.11", "zod": "^3.24.2" } }, "sha512-Hahl0ZhHVyxIyDzNS1xCsDIzwDvkHRapdmH1fJbboEYvgNIeOToMLR+VG8kh1oJSdw/5RRgt3RpMqHnwvxgAGQ=="],
+    "@x402/extensions": ["@x402/extensions@2.19.0", "", { "dependencies": { "@noble/curves": "^1.9.0", "@scure/base": "^1.2.6", "@signinwithethereum/siwe": "^4.1.0", "@x402/core": "~2.19.0", "ajv": "^8.17.1", "jose": "^5.9.6", "tweetnacl": "^1.0.3", "viem": "^2.48.11", "zod": "^3.24.2" } }, "sha512-lPPBlABFjvgHxhtqm8pFZpW/mo/1wGT2JbhHSc1rXXFx+xEZZ6qHY8vehssNIRM5cMEP1Nx32j1A3+ME8SKeiA=="],
 
     "abitype": ["abitype@1.2.3", "", { "peerDependencies": { "typescript": ">=5.0.4", "zod": "^3.22.0 || ^4.0.0" }, "optionalPeers": ["typescript", "zod"] }, "sha512-Ofer5QUnuUdTFsBRwARMoWKOH1ND5ehwYhJ3OJ/BQO+StkwQjHw0XyVh4vDttzHB7QOFhPHa/o413PJ82gU/Tg=="],
 
@@ -857,7 +857,7 @@
 
     "hasown": ["hasown@2.0.3", "", { "dependencies": { "function-bind": "^1.1.2" } }, "sha512-ej4AhfhfL2Q2zpMmLo7U1Uv9+PyhIZpgQLGT1F9miIGmiCJIoCgSmczFdrc97mWT4kVY72KA+WnnhJ5pghSvSg=="],
 
-    "hono": ["hono@4.12.30", "", {}, "sha512-emn+JoJjrN9YTpRDS5it/UI2SO9BAE37T6I3d963RxcZ81G9A4pr2SZTEiiaiKbzx+NKRg5BZ89fCL7gCJCUog=="],
+    "hono": ["hono@4.12.31", "", {}, "sha512-zJIHFrl6bq3RDd2YusFNCDlM8qUprxKswyi/OPzPyzKDdyBXDqWx8bZlZ7R+saTdSTatUmb3O7K4SspGPaEOQg=="],
 
     "html-escaper": ["html-escaper@2.0.2", "", {}, "sha512-H2iMtd0I4Mt5eYiapRdIDjp+XzelXQ0tFE4JS7YFwFevXXMmOp9myNrUvCg0D6ws8iqkRPBfKHgbwig1SmlLfg=="],
 
@@ -1447,11 +1447,7 @@
 
     "@typescript-eslint/visitor-keys/eslint-visitor-keys": ["eslint-visitor-keys@5.0.1", "", {}, "sha512-tD40eHxA35h0PEIZNeIjkHoDR4YjjJp34biM0mDvplBe//mB+IHCqHDGV7pxF+7MklTvighcCPPZC7ynWyjdTA=="],
 
-    "@x402/evm/viem": ["viem@2.54.6", "", { "dependencies": { "@noble/curves": "1.9.1", "@noble/hashes": "1.8.0", "@scure/bip32": "1.7.0", "@scure/bip39": "1.6.0", "abitype": "1.2.3", "isows": "1.0.7", "ox": "0.14.30", "ws": "8.21.0" }, "peerDependencies": { "typescript": ">=5.0.4" }, "optionalPeers": ["typescript"] }, "sha512-OfybECKJYVmhiNqz+SHhed+O2h6niQ+0Wjg9J0b4bV+/QrvLgjxhfKO7hZqsuK1YtZ/0BErBKy708Zp+cU5T0Q=="],
-
     "@x402/extensions/jose": ["jose@5.10.0", "", {}, "sha512-s+3Al/p9g32Iq+oqXxkW//7jk2Vig6FF1CFqzVXoTUXt2qz89YWbL+OwS17NFYEvxC35n0FKeGO2LGYSxeM2Gg=="],
-
-    "@x402/extensions/viem": ["viem@2.54.6", "", { "dependencies": { "@noble/curves": "1.9.1", "@noble/hashes": "1.8.0", "@scure/bip32": "1.7.0", "@scure/bip39": "1.6.0", "abitype": "1.2.3", "isows": "1.0.7", "ox": "0.14.30", "ws": "8.21.0" }, "peerDependencies": { "typescript": ">=5.0.4" }, "optionalPeers": ["typescript"] }, "sha512-OfybECKJYVmhiNqz+SHhed+O2h6niQ+0Wjg9J0b4bV+/QrvLgjxhfKO7hZqsuK1YtZ/0BErBKy708Zp+cU5T0Q=="],
 
     "eslint/ajv": ["ajv@6.15.0", "", { "dependencies": { "fast-deep-equal": "^3.1.1", "fast-json-stable-stringify": "^2.0.0", "json-schema-traverse": "^0.4.1", "uri-js": "^4.2.2" } }, "sha512-fgFx7Hfoq60ytK2c7DhnF8jIvzYgOMxfugjLOSMHjLIPgenqa7S7oaagATUq99mV6IYvN2tRmC0wnTYX6iPbMw=="],
 
