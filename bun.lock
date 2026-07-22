@@ -16,16 +16,16 @@
         "@types/express": "^5.0.6",
         "@types/node": "^26.1.1",
         "@vitest/coverage-v8": "^4.1.10",
-        "@x402/core": "^2.18.0",
-        "@x402/evm": "^2.18.0",
-        "@x402/extensions": "^2.18.0",
+        "@x402/core": "^2.19.0",
+        "@x402/evm": "^2.19.0",
+        "@x402/extensions": "^2.19.0",
         "dotenv": "^17.4.2",
         "eslint": "^9.39.5",
         "eslint-plugin-import": "^2.32.0",
         "eslint-plugin-unused-imports": "^4.4.1",
         "express": "^5.2.1",
         "fastify": "^5.10.0",
-        "hono": "^4.12.30",
+        "hono": "^4.12.31",
         "ioredis": "^5.11.1",
         "jose": "^6.2.3",
         "knip": "^6.27.0",
@@ -33,7 +33,7 @@
         "mppx": "0.8.12",
         "tsup": "^8.5.1",
         "typescript": "^6.0.3",
-        "typescript-eslint": "^8.64.0",
+        "typescript-eslint": "^8.65.0",
         "viem": "2.55.2",
         "vitest": "^4.1.10",
       },
@@ -73,7 +73,7 @@
 
     "@adraffy/ens-normalize": ["@adraffy/ens-normalize@1.11.1", "", {}, "sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ=="],
 
-    "@agent-score/sdk": ["@agent-score/sdk@2.6.3", "", {}, "sha512-Pl1YY8QUYtseUMRfXC9xVQ6RzTDNuSwnNu+8NztBcLDlOJOi6UYwAySKCWQ1NXsWtn7v/F26fkHTC8E4MNRmxg=="],
+    "@agent-score/sdk": ["@agent-score/sdk@2.6.4", "", {}, "sha512-1Qm5pLTBp8w5rwBZC2HAqQiAeUB3s/yswJNQWqnw+tsftGy5LuU5Yb1KzNYL68OepX3joHPfRXsUxvIlHVo/sQ=="],
 
     "@babel/helper-string-parser": ["@babel/helper-string-parser@7.29.7", "", {}, "sha512-Pb5ijPrZ89GDH8223L4UP8i6QApWxs04RbPQJTeWDV0/keR2E36MeKnyr6LYmUUvqRRI+Iv87SuF1W6ErINzYw=="],
 
