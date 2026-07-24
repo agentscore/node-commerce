@@ -9,3 +9,5 @@ pre-push:
   commands:
     typecheck:
       run: bun run build && bun run typecheck
+    knip:
+      run: bun run knip
