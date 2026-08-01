@@ -217,7 +217,7 @@ describe('runGateWithEnforcement', () => {
 
   it('soft mode does NOT swallow a signer-sanctions deny surfaced via top-level error.code', async () => {
     // A signer-sanctions SDN deny may surface as a top-level error.code (not in reasons); it is
-    // still recognised as a sanctions deny and stays terminal under soft.
+    // still recognized as a sanctions deny and stays terminal under soft.
     const body = { error: { code: 'sanctions_flagged', message: 'signer on SDN list' } };
     const result = await runGateWithEnforcement('soft', async () => ({ ok: false, status: 403, body }));
     expect(result.status).toBe('denied');
