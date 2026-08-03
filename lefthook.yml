@@ -1,9 +1,20 @@
+# Hooks run the REPO'S OWN pinned tooling, never `bunx`.
+#
+# `bunx <tool>` resolves the tool independently of this project, so it can fetch
+# a different major and then fail, or pass, for reasons that have nothing to do
+# with the code being checked. That is not hypothetical here: this repo
+# deliberately holds eslint at 9 and TypeScript at 6 while 10 and 7 are
+# published, so `bunx eslint` would pull exactly the major the manifest pins
+# away from. `bunx` also writes to the lockfile as a side effect.
+#
+# The pre-push hook already goes through package scripts; the lint hook was the
+# one left on bunx.
 pre-commit:
   parallel: true
   commands:
     eslint:
       glob: "**/*.{ts,tsx,mjs}"
-      run: bunx eslint --max-warnings 0 {staged_files}
+      run: ./node_modules/.bin/eslint --max-warnings 0 {staged_files}
 
 pre-push:
   commands:
