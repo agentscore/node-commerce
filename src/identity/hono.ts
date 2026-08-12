@@ -15,6 +15,7 @@ import type {
   DenialReason,
   FailOpenInfraReason,
   GateQuotaInfo,
+  OperatorHandle,
   SignerVerdict,
 } from '../core';
 import type { Context, MiddlewareHandler } from 'hono';
@@ -41,6 +42,10 @@ interface GateState {
    *  same-wallet/different-signer requests can't read each other's verdict. Read via
    *  {@link getSignerVerdict}. */
   signerVerdict?: SignerVerdict;
+  /** Stable pairwise handle for the account behind this request's operator token,
+   *  projected off the same assess response as {@link signerVerdict}. Read via
+   *  {@link getOperatorHandle}. */
+  operatorHandle?: OperatorHandle;
 }
 
 interface AgentScoreGateOptions extends Omit<AgentScoreCoreOptions, 'createSessionOnMissing'> {
@@ -100,13 +105,14 @@ export function agentscoreGate(options: AgentScoreGateOptions): MiddlewareHandle
     const outcome = await core.evaluate(identity, c, signer);
 
     if (outcome.kind === 'allow') {
-      if (outcome.degraded || outcome.quota || outcome.signerVerdict) {
+      if (outcome.degraded || outcome.quota || outcome.signerVerdict || outcome.operatorHandle) {
         const prev = c.get(GATE_STATE_KEY) as GateState;
         c.set(GATE_STATE_KEY, {
           ...prev,
           ...(outcome.degraded && { degraded: true, infraReason: outcome.infraReason }),
           ...(outcome.quota && { quota: outcome.quota }),
           ...(outcome.signerVerdict && { signerVerdict: outcome.signerVerdict }),
+          ...(outcome.operatorHandle && { operatorHandle: outcome.operatorHandle }),
         } satisfies GateState);
       }
       if (outcome.data) c.set(CONTEXT_KEY, outcome.data);
@@ -114,9 +120,15 @@ export function agentscoreGate(options: AgentScoreGateOptions): MiddlewareHandle
       return;
     }
 
-    if (outcome.signerVerdict) {
+    // Stash on the DENY path too: a merchant recording a denial against the buyer needs the
+    // handle on exactly the path where its handler never runs.
+    if (outcome.signerVerdict || outcome.operatorHandle) {
       const prev = c.get(GATE_STATE_KEY) as GateState;
-      c.set(GATE_STATE_KEY, { ...prev, signerVerdict: outcome.signerVerdict } satisfies GateState);
+      c.set(GATE_STATE_KEY, {
+        ...prev,
+        ...(outcome.signerVerdict && { signerVerdict: outcome.signerVerdict }),
+        ...(outcome.operatorHandle && { operatorHandle: outcome.operatorHandle }),
+      } satisfies GateState);
     }
     return onDenied(c, outcome.reason);
   };
@@ -204,6 +216,7 @@ export function getSignerVerdict(c: Context): SignerVerdict | undefined {
 }
 
 
+
 /** Wrap `agentscoreGate(...)` so it only fires when a payment credential is
  *  attached to the request. Discovery legs (no payment header) flow through
  *  unauthenticated and the handler emits a 402 with all rails; settle legs
@@ -288,3 +301,20 @@ export function getVerifiedAit(c: Context): VerifiedAit | undefined {
   return c.get(AIT_CONTEXT_KEY) as VerifiedAit | undefined;
 }
 
+/**
+ * Read the stable pairwise {@link OperatorHandle} for the ACCOUNT behind this request's
+ * operator token. This is what durable merchant state (prepaid balances first) should key
+ * on, because it survives the token rotating, expiring, or being revoked, whereas anything
+ * keyed on the token instance is stranded every time one rotates.
+ *
+ * Synchronous and free: the handle rides the gate's existing `/v1/assess` call, so reading
+ * it costs no extra round trip and nothing extra against the merchant's quota.
+ *
+ * Returns `undefined` when the gate did not run, no operator token was presented (wallet or
+ * AIT paths), or the API has no handle salt configured. Available on denied requests too,
+ * so a merchant recording a denial against a buyer can still key it.
+ */
+export function getOperatorHandle(c: Context): OperatorHandle | undefined {
+  const state = c.get(GATE_STATE_KEY) as GateState | undefined;
+  return state?.operatorHandle;
+}

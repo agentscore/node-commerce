@@ -55,6 +55,7 @@ import {
   type CreateSessionOnMissing,
   type DenialReason,
   type EvaluateOutcome,
+  type OperatorHandle,
   createAgentScoreCore,
 } from './core';
 import { enrichBazaarDiscoveryExtensions } from './discovery/bazaar';
@@ -277,6 +278,17 @@ export interface CheckoutContext {
     network: 'evm' | 'solana';
     idempotencyKey?: string;
   }) => Promise<void>;
+  /** Stable pairwise handle for the ACCOUNT behind this request's operator token, set by
+   *  Checkout's internal gate from the same `/v1/assess` response it already fetched (so it
+   *  costs no extra round trip and nothing extra against quota).
+   *
+   *  This is what durable merchant state should key on, prepaid balances above all: it
+   *  survives the token rotating, expiring or being revoked, whereas state keyed on the
+   *  token instance is stranded every time one rotates.
+   *
+   *  `undefined` when no gate is configured, on wallet or AIT paths, on anonymous discovery
+   *  legs, or when the API has no handle salt configured. */
+  operatorHandle?: OperatorHandle;
 }
 
 /**
@@ -1485,6 +1497,10 @@ export class Checkout {
     const x402Header = headers['payment-signature'] ?? headers['x-payment'];
     const signer = await extractPaymentSignerFromAuth(headers['authorization'], x402Header);
     const outcome: EvaluateOutcome = await core.evaluate(identity, ctx, signer);
+
+    // Identity, not a verdict: stash it on both branches so a merchant recording a denial
+    // against the buyer can still key it.
+    if (outcome.operatorHandle !== undefined) ctx.operatorHandle = outcome.operatorHandle;
 
     if (outcome.kind === 'allow') {
       // Stash captureWallet on ctx so onSettled can link the signer wallet to

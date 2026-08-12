@@ -237,6 +237,11 @@ export interface AssessResult {
    *  by the API. Useful for advertising in 402 challenges so wallet-auth agents know which
    *  alt-signers will satisfy `wallet_signer_mismatch`. */
   linked_wallets?: string[];
+  /** Stable pairwise handle for the ACCOUNT behind the presented operator token. See
+   *  {@link OperatorHandle}; read it through each adapter's `getOperatorHandle(ctx)`.
+   *  Present only on the operator-token path, and only when the API has its handle salt
+   *  configured. */
+  operator_handle?: string;
   verify_url?: string;
   policy_result?: PolicyResult | null;
   /** IdP provenance, present only when `identity_method === 'aip_token'` — which issuer attested
@@ -293,8 +298,11 @@ export interface GateQuotaInfo {
  *   reason, or invoke the caller's custom denial handler.
  */
 export type EvaluateOutcome =
-  | { kind: 'allow'; data?: AssessResult; degraded?: boolean; infraReason?: FailOpenInfraReason; quota?: GateQuotaInfo; signerVerdict?: SignerVerdict }
-  | { kind: 'deny'; reason: DenialReason; signerVerdict?: SignerVerdict };
+  | { kind: 'allow'; data?: AssessResult; degraded?: boolean; infraReason?: FailOpenInfraReason; quota?: GateQuotaInfo; signerVerdict?: SignerVerdict; operatorHandle?: OperatorHandle }
+  // `operatorHandle` rides the DENY branch too, unlike `data`: it is identity rather than
+  // compliance, and a merchant recording a denial against the buyer needs it on exactly the
+  // path where the handler never runs.
+  | { kind: 'deny'; reason: DenialReason; signerVerdict?: SignerVerdict; operatorHandle?: OperatorHandle };
 
 interface CaptureWalletOptions {
   /** Operator credential (`opc_...`) that the agent authenticated with. */
@@ -327,6 +335,26 @@ export interface SignerVerdict {
     | { status: 'unavailable' }
     | null;
 }
+
+/** A stable, per-merchant identity for the ACCOUNT behind an operator token, surfaced by
+ *  `getOperatorHandle(c)`. This is what durable merchant state (prepaid balances first)
+ *  keys on.
+ *
+ *  Two properties make it the right key, and both are the reason a raw token is the wrong
+ *  one. It is stable across token ROTATION and expiry, because it derives from the account
+ *  rather than the credential: an `opc_` lives 24h and rotates silently off a 90-day
+ *  refresh, so state keyed on a token instance is stranded daily, and revoking a leaked
+ *  token would forfeit a balance. And it is PAIRWISE per consuming merchant, so the same
+ *  buyer presents an unrelated handle at every store and handles never correlate across
+ *  merchants.
+ *
+ *  It carries NO compliance meaning by design: a `sign_in`-scoped credential resolves
+ *  exactly like a KYC-backed one, and every policy question stays on the decision fields
+ *  beside it.
+ *
+ *  It rides the gate's existing `/v1/assess` call rather than a lookup of its own, so
+ *  reading it costs no extra round trip and nothing extra against the merchant's quota. */
+export type OperatorHandle = string;
 
 export type VerifyWalletSignerResult =
   | { kind: 'pass'; claimedOperator: string | null; signerOperator: string | null }
@@ -707,6 +735,9 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       const cachedVerdict = cached.raw
         ? buildSignerVerdict(identity, cached.raw as Record<string, unknown>)
         : undefined;
+      const cachedHandle = cached.raw
+        ? readOperatorHandle(cached.raw as Record<string, unknown>)
+        : undefined;
       if (cached.allow) {
         const cachedRaw = cached.raw as Record<string, unknown> | undefined;
         const cachedQuota = cachedRaw?.quota as GateQuotaInfo | undefined;
@@ -715,6 +746,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
           data: cachedRaw as unknown as AssessResult,
           ...(cachedQuota !== undefined && { quota: cachedQuota }),
           ...(cachedVerdict !== undefined && { signerVerdict: cachedVerdict }),
+          ...(cachedHandle !== undefined && { operatorHandle: cachedHandle }),
         };
       }
       // Fixable compliance denials (kyc_required, kyc_pending, kyc_failed) get the
@@ -867,6 +899,8 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     // stash them on its per-request state (NOT a shared slot — see buildSignerVerdict). guard:
     // wallet-only identity (operator-token / AIT win and signer-match is deliberately not enforced).
     const signerVerdict = buildSignerVerdict(identity, data);
+    // Rides the same assess response, so reading it later costs nothing extra.
+    const operatorHandle = readOperatorHandle(data);
 
     if (allow) {
       // SDK populates `quota` on the assess response from X-Quota-* headers when the
@@ -877,6 +911,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         data: data as unknown as AssessResult,
         ...(quota !== undefined && { quota }),
         ...(signerVerdict !== undefined && { signerVerdict }),
+        ...(operatorHandle !== undefined && { operatorHandle }),
       };
     }
 
@@ -890,7 +925,12 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     if (isFixableDenial(decisionReasons)) {
       const sessionReason = await tryMintSessionDenial(ctx);
       if (sessionReason) {
-        return { kind: 'deny', reason: sessionReason, ...(signerVerdict !== undefined && { signerVerdict }) };
+        return {
+          kind: 'deny',
+          reason: sessionReason,
+          ...(signerVerdict !== undefined && { signerVerdict }),
+          ...(operatorHandle !== undefined && { operatorHandle }),
+        };
       }
     }
 
@@ -904,7 +944,17 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         data: data as unknown as AssessResult,
       },
       ...(signerVerdict !== undefined && { signerVerdict }),
+      ...(operatorHandle !== undefined && { operatorHandle }),
     };
+  }
+
+  // Project the handle off the assess response. Narrowed rather than cast: the field is
+  // absent whenever the request had no operator token, and absent (not empty-string) is
+  // also what the API emits if its handle salt is unconfigured, so anything that is not a
+  // usable `oph_` string must read as "no handle" instead of becoming a state key.
+  function readOperatorHandle(raw: Record<string, unknown> | undefined): OperatorHandle | undefined {
+    const value = raw?.operator_handle;
+    return typeof value === 'string' && value.startsWith('oph_') ? value : undefined;
   }
 
   async function captureWallet(options: CaptureWalletOptions): Promise<void> {
