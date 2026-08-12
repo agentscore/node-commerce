@@ -256,6 +256,33 @@ describe('Checkout — composeMppx hook', () => {
     expect(result.settlePhase).toBe('verify_failed');
   });
 
+  it('a Solana confirmation timeout does NOT become a regenerate/pay-again 402', async () => {
+    // The dangerous case: @solana/mpp broadcast the transfer (money moved),
+    // then confirmation timed out and verify() threw. This must NOT reach the
+    // agent as `payment_proof_invalid` + regenerate, or a compliant client
+    // pays twice.
+    const composeMppx = vi.fn(
+      async (): Promise<MppxComposeOutcome> => {
+        console.error('mppx: internal verification error', {
+          message: 'Transaction confirmation timeout',
+        });
+        return { status: 402, headers: { 'www-authenticate': 'Payment id="ord_x"' } };
+      },
+    );
+    const checkout = new Checkout({
+      rails: { solanaMpp: { recipient: 'SoLanaRecipient1111111111111111111111111111' } as never },
+      url: 'https://api.example/purchase',
+      computePricing: () => ({ amountUsd: 1 }),
+      composeMppx,
+    });
+    const result = await checkout.handle(req({ headers: { authorization: `Payment ${FAKE_MPP_CRED}` } }));
+    expect(result.status).toBe(504);
+    const err = result.body.error as Record<string, unknown>;
+    expect(err.code).toBe('payment_pending_confirmation');
+    expect(err.code).not.toBe('payment_proof_invalid');
+    expect((result.body.next_steps as Record<string, unknown>).action).not.toBe('regenerate_payment_credential');
+  });
+
   it('discovery-leg compose_mppx layers fresh WWW-Auth into the 402', async () => {
     const composeMppx = vi.fn(
       async (): Promise<MppxComposeOutcome> => ({
