@@ -14,6 +14,7 @@ import type {
   DenialReason,
   FailOpenInfraReason,
   GateQuotaInfo,
+  OperatorHandle,
   SignerVerdict,
 } from '../core';
 
@@ -50,6 +51,13 @@ export type GuardResult =
        *  wallet-auth requests; `undefined` otherwise (operator-token paths, discovery
        *  legs, or routes the gate didn't run on). */
       getSignerVerdict?: () => SignerVerdict | undefined;
+      /** Stable pairwise handle for the ACCOUNT behind this request's operator token, and
+       *  what durable merchant state (prepaid balances first) should key on: it survives
+       *  the token rotating, expiring or being revoked, whereas token-keyed state is
+       *  stranded on every rotation. Rides the gate's existing `/v1/assess` call, so it
+       *  costs no extra round trip and nothing extra against quota. `undefined` on wallet
+       *  or AIT paths, or when the API has no handle salt configured. */
+      operatorHandle?: OperatorHandle;
       /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
        *  (429/5xx/network timeout). Compliance was NOT enforced this request — log/alert. */
       degraded?: boolean;
@@ -125,6 +133,7 @@ export function createAgentScoreGate(options: AgentScoreGateOptions): (req: Requ
         data: outcome.data,
         captureWallet,
         getSignerVerdict: getSignerVerdictBound,
+        ...(outcome.operatorHandle ? { operatorHandle: outcome.operatorHandle } : {}),
         ...(outcome.degraded ? { degraded: true, infraReason: outcome.infraReason } : {}),
         ...(outcome.quota ? { quota: outcome.quota } : {}),
       };
@@ -160,6 +169,13 @@ export function withAgentScoreGate<TCtx = unknown>(
       /** Synchronous read of the cached signer verdicts. See {@link GuardResult}'s
        *  `getSignerVerdict` for the contract. */
       getSignerVerdict?: () => SignerVerdict | undefined;
+      /** Stable pairwise handle for the ACCOUNT behind this request's operator token, and
+       *  what durable merchant state (prepaid balances first) should key on: it survives
+       *  the token rotating, expiring or being revoked, whereas token-keyed state is
+       *  stranded on every rotation. Rides the gate's existing `/v1/assess` call, so it
+       *  costs no extra round trip and nothing extra against quota. `undefined` on wallet
+       *  or AIT paths, or when the API has no handle salt configured. */
+      operatorHandle?: OperatorHandle;
       /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
        *  (429/5xx/network timeout). Compliance was NOT enforced this request — log/alert. */
       degraded?: boolean;
@@ -181,6 +197,7 @@ export function withAgentScoreGate<TCtx = unknown>(
         data: result.data,
         captureWallet: result.captureWallet,
         getSignerVerdict: result.getSignerVerdict,
+        ...(result.operatorHandle ? { operatorHandle: result.operatorHandle } : {}),
         ...(result.degraded ? { degraded: true, infraReason: result.infraReason } : {}),
         ...(result.quota ? { quota: result.quota } : {}),
       },

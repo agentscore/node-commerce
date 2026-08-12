@@ -1,6 +1,6 @@
 import { hasPaymentHeader } from '../payment/payment_header';
 import { createAgentScoreGate } from './web';
-import type { AssessResult, FailOpenInfraReason, GateQuotaInfo, SignerVerdict } from '../core';
+import type { AssessResult, FailOpenInfraReason, GateQuotaInfo, OperatorHandle, SignerVerdict } from '../core';
 
 
 /**
@@ -40,6 +40,12 @@ export function withAgentScoreGate<TReq extends Request = Request, TCtx = unknow
        *  primary `/v1/assess` in one round trip. Bound only on strict wallet-auth
        *  requests; `undefined` otherwise. */
       getSignerVerdict?: () => SignerVerdict | undefined;
+      /** Stable pairwise handle for the ACCOUNT behind this request's operator token, and
+       *  what durable merchant state (prepaid balances first) should key on: it survives
+       *  the token rotating, expiring or being revoked. Rides the gate's existing
+       *  `/v1/assess` call, so it costs no extra round trip and nothing extra against
+       *  quota. `undefined` on wallet or AIT paths, or when the API has no handle salt. */
+      operatorHandle?: OperatorHandle;
       /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
        *  (429/5xx/network timeout). Compliance was NOT enforced — log/alert in your handler. */
       degraded?: boolean;
@@ -61,6 +67,7 @@ export function withAgentScoreGate<TReq extends Request = Request, TCtx = unknow
         data: result.data,
         captureWallet: result.captureWallet,
         getSignerVerdict: result.getSignerVerdict,
+        ...(result.operatorHandle ? { operatorHandle: result.operatorHandle } : {}),
         ...(result.degraded ? { degraded: true, infraReason: result.infraReason } : {}),
         ...(result.quota ? { quota: result.quota } : {}),
       },
