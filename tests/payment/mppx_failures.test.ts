@@ -14,6 +14,37 @@ describe('classifyMppxFailure', () => {
     expect(classifyMppxFailure('Transaction reverted: ERC20: transfer amount exceeds balance')).toBeNull();
   });
 
+  describe('Solana confirmation timeout (broadcast-then-unconfirmed)', () => {
+    it('classifies a confirmation timeout as pending, NOT as regenerate/pay-again', () => {
+      const out = classifyMppxFailure('Transaction confirmation timeout');
+      expect(out).not.toBeNull();
+      expect(out?.code).toBe('payment_pending_confirmation');
+      // 504, not 402: a 402 would trigger x402 clients to auto-repay, which is
+      // exactly the double-charge this guards against.
+      expect(out?.status).toBe(504);
+      expect(out?.status).not.toBe(402);
+      // The action must never tell the agent to regenerate the credential.
+      expect(out?.nextSteps.action).not.toBe('regenerate_payment_credential');
+      expect(out?.nextSteps.action).toBe('check_settlement_before_retry');
+      expect(out?.extra?.chain).toBe('solana');
+      expect(out?.extra?.broadcast).toBe(true);
+    });
+
+    it('matches the status-recovery-failed variant too', () => {
+      const out = classifyMppxFailure(
+        'Transaction confirmation timeout (status recovery failed: RPC error)',
+      );
+      expect(out?.code).toBe('payment_pending_confirmation');
+    });
+
+    it('warns the buyer not to pay twice and to check the balance first', () => {
+      const msg = classifyMppxFailure('Transaction confirmation timeout')!.nextSteps.user_message;
+      expect(msg.toLowerCase()).toContain('confirmation timed out');
+      expect(msg.toLowerCase()).toMatch(/check your (wallet )?balance/);
+      expect(msg.toLowerCase()).toMatch(/not pay again|only resubmit/);
+    });
+  });
+
   it('classifies Tempo keychain rejection by literal pattern', () => {
     const out = classifyMppxFailure(
       'RPC Request failed. (keychain validation failed: AccountKeychainError(KeyNotFound(KeyNotFound)))',
