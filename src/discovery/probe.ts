@@ -117,6 +117,18 @@ interface DiscoveryProbeOptions {
     amountAtomic?: string;
     /** Resource URL the probe is responding for. Used in the PAYMENT-REQUIRED header. */
     resourceUrl?: string;
+    /** Full x402 v2 ResourceInfo for the PAYMENT-REQUIRED header. Overrides the
+     *  `resourceUrl` shorthand. When neither is set, a minimal resource is
+     *  synthesized from the realm: v2 envelope validators (mppx, x402scan's
+     *  shared engine) hard-require `resource`, so a resource-less sample header
+     *  reads as "no valid x402 response" however correct the accepts are. */
+    resource?: Record<string, unknown>;
+    /** x402 v2 `extensions` for the sample envelope (header AND body), e.g. the
+     *  Bazaar block with input/output schemas. Discovery validators read the
+     *  example input from here to build VALID probe bodies for the follow-up
+     *  checks, so a probe without it gets probed with junk bodies instead.
+     *  `Checkout` fills this from its own `discoveryExtensions` automatically. */
+    extensions?: Record<string, unknown>;
   };
 }
 
@@ -172,14 +184,25 @@ export function buildDiscoveryProbeResponse(opts: DiscoveryProbeOptions): Discov
       ?? (opts.x402Sample.networks ?? [])
         .map((n) => sampleX402AcceptForNetwork(n, opts.x402Sample!.amountAtomic ?? '1000000'))
         .filter((e): e is Record<string, unknown> => e !== null);
+    // The v2 envelope REQUIRES `resource`: validators (mppx, x402scan's shared
+    // engine) refuse a resource-less PAYMENT-REQUIRED header outright, so when
+    // the caller supplied neither form, synthesize a minimal one from the realm.
+    const realmUrl = opts.realm.startsWith('http') ? opts.realm : `https://${opts.realm}`;
+    const resource = (opts.x402Sample.resource
+      ?? (opts.x402Sample.resourceUrl
+        ? { url: opts.x402Sample.resourceUrl, mimeType: 'application/json' }
+        : { url: realmUrl, mimeType: 'application/json' })) as {
+      url: string;
+      [key: string]: unknown;
+    };
+    const extensions = opts.x402Sample.extensions;
     // Emit the sample accepts as-is (no v1<->v2 amount alias) so the probe sample
     // matches what the real 402 emits; clients version-route on `x402Version`.
     headers['payment-required'] = paymentRequiredHeader({
       x402Version,
       accepts: sampleAccepts,
-      ...(opts.x402Sample.resourceUrl
-        ? { resource: { url: opts.x402Sample.resourceUrl, mimeType: 'application/json' } }
-        : {}),
+      resource,
+      ...(extensions ? { extensions } : {}),
     });
     // Also embed in body for clients that read body-level accepts (e.g. awal x402 details
     // falls back from header → body when the header isn't present).
@@ -187,6 +210,8 @@ export function buildDiscoveryProbeResponse(opts: DiscoveryProbeOptions): Discov
     // Reuse the header's accepts so the body matches the header exactly.
     const headerJson = JSON.parse(Buffer.from(headers['payment-required'], 'base64').toString('utf-8'));
     bodyObj.accepts = headerJson.accepts;
+    bodyObj.resource = headerJson.resource;
+    if (headerJson.extensions !== undefined) bodyObj.extensions = headerJson.extensions;
   }
 
   return {

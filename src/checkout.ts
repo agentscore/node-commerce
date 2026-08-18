@@ -250,6 +250,8 @@ export interface DiscoveryProbeConfig {
     accepts?: unknown[];
     amountAtomic?: string;
     resourceUrl?: string;
+    resource?: Record<string, unknown>;
+    extensions?: Record<string, unknown>;
   };
 }
 
@@ -1161,6 +1163,42 @@ export class Checkout {
       if (isProbe) {
         const { buildDiscoveryProbeResponse } = await import('./discovery/probe.js');
         const cfg = this.discoveryProbe;
+        // Default the sample envelope's `resource` and `extensions` from what the
+        // real 402 would emit (the checkout's own url + resourceInfo, and the
+        // enriched Bazaar extensions): v2 validators hard-require `resource`, and
+        // discovery engines read the Bazaar example input to build valid bodies
+        // for their follow-up probes. Explicit x402Sample values still win.
+        let x402Sample = cfg.x402Sample;
+        if (x402Sample !== undefined) {
+          const defaultResource: Record<string, unknown> | undefined =
+            x402Sample.resource ?? (x402Sample.resourceUrl !== undefined ? undefined : {
+              url: this.url,
+              mimeType: 'application/json',
+              ...(this.resourceInfo?.description !== undefined && { description: this.resourceInfo.description }),
+              ...(this.resourceInfo?.serviceName !== undefined && { serviceName: this.resourceInfo.serviceName }),
+              ...(this.resourceInfo?.tags !== undefined && { tags: this.resourceInfo.tags }),
+              ...(this.resourceInfo?.iconUrl !== undefined && { iconUrl: this.resourceInfo.iconUrl }),
+            });
+          let defaultExtensions = x402Sample.extensions;
+          if (defaultExtensions === undefined && this.discoveryExtensions !== undefined) {
+            let requestPath = this.url;
+            try {
+              requestPath = new URL(this.url).pathname;
+            } catch {
+              /* malformed url: fall back to the raw url */
+            }
+            const enriched = await enrichBazaarDiscoveryExtensions(this.discoveryExtensions, {
+              method: request.method,
+              path: requestPath,
+            });
+            if (enriched !== undefined && Object.keys(enriched).length > 0) defaultExtensions = enriched;
+          }
+          x402Sample = {
+            ...x402Sample,
+            ...(defaultResource !== undefined && { resource: defaultResource }),
+            ...(defaultExtensions !== undefined && { extensions: defaultExtensions }),
+          };
+        }
         const probe = buildDiscoveryProbeResponse({
           realm: cfg.realm,
           sampleRail: cfg.sampleRail,
@@ -1170,7 +1208,7 @@ export class Checkout {
           ...(cfg.ttlSeconds !== undefined && { ttlSeconds: cfg.ttlSeconds }),
           ...(cfg.docsUrl !== undefined && { docsUrl: cfg.docsUrl }),
           ...(cfg.message !== undefined && { message: cfg.message }),
-          ...(cfg.x402Sample !== undefined && { x402Sample: cfg.x402Sample }),
+          ...(x402Sample !== undefined && { x402Sample }),
         });
         return {
           status: probe.status,

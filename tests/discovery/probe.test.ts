@@ -157,6 +157,60 @@ describe('buildDiscoveryProbeResponse — x402Sample branch', () => {
     expect(body.accepts[0].network).toBe(networks.base.mainnet.caip2);
   });
 
+  it('always emits a v2 resource in header and body: explicit, from resourceUrl, or synthesized from realm', () => {
+    // v2 envelope validators (mppx, x402scan's shared engine) hard-require
+    // `resource`; a resource-less sample header reads as "no valid x402 response".
+    const fromUrl = buildDiscoveryProbeResponse({
+      realm: 'merchant.example',
+      sampleRail: 'tempo-mainnet',
+      sampleAmountUsd: 1,
+      sampleRecipient: '0x0',
+      x402Sample: { networks: [networks.base.mainnet.caip2], resourceUrl: 'https://merchant.example/purchase' },
+    });
+    const fromUrlHeader = JSON.parse(Buffer.from(fromUrl.headers['payment-required']!, 'base64').toString('utf-8'));
+    expect(fromUrlHeader.resource).toEqual({ url: 'https://merchant.example/purchase', mimeType: 'application/json' });
+    expect(JSON.parse(fromUrl.body).resource).toEqual(fromUrlHeader.resource);
+
+    const synthesized = buildDiscoveryProbeResponse({
+      realm: 'merchant.example',
+      sampleRail: 'tempo-mainnet',
+      sampleAmountUsd: 1,
+      sampleRecipient: '0x0',
+      x402Sample: { networks: [networks.base.mainnet.caip2] },
+    });
+    const synthHeader = JSON.parse(Buffer.from(synthesized.headers['payment-required']!, 'base64').toString('utf-8'));
+    expect(synthHeader.resource).toEqual({ url: 'https://merchant.example', mimeType: 'application/json' });
+
+    const explicit = buildDiscoveryProbeResponse({
+      realm: 'merchant.example',
+      sampleRail: 'tempo-mainnet',
+      sampleAmountUsd: 1,
+      sampleRecipient: '0x0',
+      x402Sample: {
+        networks: [networks.base.mainnet.caip2],
+        resource: { url: 'https://merchant.example/api', serviceName: 'Merchant', mimeType: 'application/json' },
+      },
+    });
+    const explicitHeader = JSON.parse(Buffer.from(explicit.headers['payment-required']!, 'base64').toString('utf-8'));
+    expect(explicitHeader.resource.serviceName).toBe('Merchant');
+  });
+
+  it('threads extensions into the header envelope and mirrors them in the body', () => {
+    const extensions = {
+      bazaar: { info: { input: { type: 'http', method: 'POST', bodyType: 'json', body: { q: 'x' } } } },
+    };
+    const probe = buildDiscoveryProbeResponse({
+      realm: 'merchant.example',
+      sampleRail: 'tempo-mainnet',
+      sampleAmountUsd: 1,
+      sampleRecipient: '0x0',
+      x402Sample: { networks: [networks.base.mainnet.caip2], extensions },
+    });
+    const header = JSON.parse(Buffer.from(probe.headers['payment-required']!, 'base64').toString('utf-8'));
+    expect(header.extensions).toEqual(extensions);
+    expect(JSON.parse(probe.body).extensions).toEqual(extensions);
+  });
+
   it('skips unknown CAIP-2 networks in shorthand silently', () => {
     const probe = buildDiscoveryProbeResponse({
       realm: 'merchant.example',
