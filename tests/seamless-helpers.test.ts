@@ -2842,6 +2842,40 @@ describe('Checkout discoveryProbe routing', () => {
     expect(result.headers['www-authenticate']).toContain('realm="example"');
   });
 
+  it('probe x402 sample inherits resource (checkout url + resourceInfo) and Bazaar extensions', async () => {
+    const { Checkout } = await import('../src/checkout');
+    const checkout = new Checkout({
+      rails: { tempo: { recipient: RECIPIENT, network: 'tempo-mainnet' } },
+      url: 'https://api.example/purchase',
+      computePricing: async () => ({ amountUsd: 1.0 }),
+      resourceInfo: { serviceName: 'Example API', iconUrl: 'https://api.example/logo.png' },
+      discoveryExtensions: {
+        bazaar: { info: { input: { type: 'http', method: 'POST', bodyType: 'json', body: { item: 'wine' } } } },
+      },
+      discoveryProbe: {
+        realm: 'api.example',
+        sampleRail: 'tempo',
+        sampleAmountUsd: 1.0,
+        sampleRecipient: RECIPIENT,
+        x402Sample: { networks: ['eip155:8453'] },
+      },
+    });
+    const result = (await checkout.handle({
+      method: 'POST',
+      url: 'https://api.example/purchase',
+      headers: {},
+      body: {},
+    })) as { status: number; body: Record<string, unknown>; headers: Record<string, string> };
+    expect(result.status).toBe(402);
+    const header = JSON.parse(
+      Buffer.from(result.headers['payment-required']!, 'base64').toString('utf-8'),
+    ) as { resource: Record<string, unknown>; extensions: Record<string, unknown> };
+    expect(header.resource.url).toBe('https://api.example/purchase');
+    expect(header.resource.serviceName).toBe('Example API');
+    expect(header.extensions.bazaar).toBeDefined();
+    expect(result.body.resource).toEqual(header.resource);
+  });
+
   it('POST with Payment authorization bypasses probe routing', async () => {
     const { Checkout } = await import('../src/checkout');
     let pricingCalled = false;
