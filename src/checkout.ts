@@ -289,7 +289,13 @@ export interface CheckoutContext {
    *  token instance is stranded every time one rotates.
    *
    *  `undefined` when no gate is configured, on wallet or AIT paths, on anonymous discovery
-   *  legs, or when the API has no handle salt configured. */
+   *  legs, or when the API has no handle salt configured.
+   *
+   *  ORDERING: populated by the gate, which runs AFTER `preValidate`, so it is readable
+   *  from `computePricing` onward (`mintRecipients`, `composeMppx`, `onSettled` included)
+   *  and ALWAYS `undefined` inside `preValidate`. A `preValidate` read compiles, passes
+   *  every keyless-dev test, and zero-settles every production request whose flow keys on
+   *  it (a live store shipped exactly that). */
   operatorHandle?: OperatorHandle;
 }
 
