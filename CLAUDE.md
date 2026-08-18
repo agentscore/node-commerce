@@ -84,7 +84,7 @@ Denial reason codes: `missing_identity`, `identity_verification_required`, `toke
 
 ### Operator handle: what durable merchant state keys on
 
-`getOperatorHandle(ctx)` (per-adapter; `gate.operatorHandle` on the Next.js / Web Fetch wrapper surface, `ctx.operatorHandle` inside `Checkout` hooks) returns the stable pairwise `oph_...` handle for the ACCOUNT behind the request's operator token.
+`getOperatorHandle(ctx)` (per-adapter; `gate.operatorHandle` on the Next.js / Web Fetch wrapper surface, `ctx.operatorHandle` inside `Checkout` hooks, readable from `computePricing` onward; the gate that populates it runs AFTER `preValidate`, so a `preValidate` read is always `undefined` and zero-settles whatever keys on it) returns the stable pairwise `oph_...` handle for the ACCOUNT behind the request's operator token.
 
 **Key state on this, never on the token.** An `opc_` lives 24h and rotates silently off a 90-day refresh, so anything keyed on the token instance is stranded daily, and revoking a leaked token would forfeit a prepaid balance. The handle derives from the account, so rotation, expiry and revocation are all free. It is pairwise per consuming merchant, so the same buyer presents an unrelated handle at every store and handles never correlate across them.
 
