@@ -26,7 +26,7 @@ export function llmsTxtIdentitySection({
     return '';
   }
   const aipBullet = aip
-    ? '\n- **`Agent-Identity: <JWT>` + RFC 9421 signature** — present an Agent Identity Token (AIP) ' +
+    ? '\n- **`Agent-Identity: <JWT>` + RFC 9421 signature**: present an Agent Identity Token (AIP) ' +
       'from a trusted issuer (AgentScore is always trusted). Short-lived and bound to your key; sign ' +
       'the request (`Signature-Input` + `Signature` over `@method @authority @path agent-identity`, ' +
       'tag `agent-identity`) to prove possession. No long-lived token on the wire. Mint one with ' +
@@ -46,11 +46,11 @@ export function llmsTxtIdentitySection({
     : '';
   return `## Identity
 
-AgentScore identity is reusable across every AgentScore-gated merchant — one KYC, no re-verification per site. Pick a header:
+AgentScore identity is reusable across every AgentScore-gated merchant: one KYC, no re-verification per site. Pick a header:
 
-- **\`X-Wallet-Address: 0x...\` or base58** — works on signing rails (Tempo, x402, Solana MPP). The wallet you claim must sign the payment.
-- **\`X-Operator-Token: opc_...\`** — works on every rail, including Stripe SPT. Reusable across AgentScore merchants until expiry.${aipBullet}
-- **Neither** — you get a 403 with \`verify_url\`. Complete the session flow once and reuse the resulting \`opc_...\` everywhere.${complianceNote}`;
+- **\`X-Wallet-Address: 0x...\` or base58**: works on signing rails (Tempo, x402, Solana MPP). The wallet you claim must sign the payment.
+- **\`X-Operator-Token: opc_...\`**: works on every rail, including Stripe SPT. Reusable across AgentScore merchants until expiry.${aipBullet}
+- **Neither**: you get a 403 with \`verify_url\`. Complete the session flow once and reuse the resulting \`opc_...\` everywhere.${complianceNote}`;
 }
 
 interface LlmsTxtPaymentSectionConfig {
@@ -94,16 +94,16 @@ function llmsTxtPaymentSectionCompact(input: LlmsTxtPaymentSectionConfig): strin
   const lines: string[] = ['## Payment', ''];
   const rails = input.rails;
   if (hasRailFamily(rails, 'tempo-')) {
-    lines.push('- **Tempo USDC via MPP** — `tempo request -X POST -H "X-Operator-Token: opc_..." --json \'{...}\' --max-spend N ' + input.appUrl + '`');
+    lines.push('- **Tempo USDC via MPP**: `tempo request -X POST -H "X-Operator-Token: opc_..." --json \'{...}\' --max-spend N ' + input.appUrl + '`');
   }
   if (hasRailFamily(rails, 'x402-base-')) {
-    lines.push('- **x402 USDC on Base** (EIP-3009) — `agentscore-pay pay POST ' + input.appUrl + ' --chain base -H "X-Operator-Token: opc_..." -d \'{...}\'`');
+    lines.push('- **x402 USDC on Base** (EIP-3009): `agentscore-pay pay POST ' + input.appUrl + ' --chain base -H "X-Operator-Token: opc_..." -d \'{...}\'`');
   }
   if (hasRailFamily(rails, 'mpp-solana-')) {
-    lines.push('- **USDC on Solana** — `agentscore-pay pay POST ' + input.appUrl + ' --chain solana -H "X-Operator-Token: opc_..." -d \'{...}\'`');
+    lines.push('- **USDC on Solana**: `agentscore-pay pay POST ' + input.appUrl + ' --chain solana -H "X-Operator-Token: opc_..." -d \'{...}\'`');
   }
   if (rails.includes('stripe-spt')) {
-    lines.push('- **Stripe Shared Payment Token** — agent mints SPT (own Stripe account scoped to networkId, OR `link-cli spend-request create --credential-type shared_payment_token --network-id <profileId> ...`)');
+    lines.push('- **Stripe Shared Payment Token**: agent mints SPT (own Stripe account scoped to networkId, OR `link-cli spend-request create --credential-type shared_payment_token --network-id <profileId> ...`)');
   }
   lines.push('');
   lines.push('IMPORTANT: Do NOT use raw on-chain transfers. Use the CLI commands above so the payment credential is signed and submitted via the protocol handshake.');

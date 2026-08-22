@@ -170,7 +170,7 @@ export function buildHowToPay({
       stripe.what_it_does_link_cli =
         'Mints a one-time-use SharedPaymentToken scoped to this purchase (user approves in Link wallet), then submits it as the payment credential.';
     } else if (linkCliBlocked) {
-      stripe.note = `link-cli SPT path not available for this purchase — Stripe link-cli caps spend requests at $500.00 ($50000 cents); your total is $${totalNum}. Use your own Stripe account with the SharedPaymentToken API instead.`;
+      stripe.note = `link-cli SPT path not available for this purchase: Stripe link-cli caps spend requests at $500.00 ($50000 cents); your total is $${totalNum}. Use your own Stripe account with the SharedPaymentToken API instead.`;
     }
     block.stripe = stripe;
   }

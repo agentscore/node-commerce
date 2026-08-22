@@ -251,13 +251,16 @@ describe('buildSkillMd', () => {
       expect(out).not.toContain('Stripe Shared Payment Token');
     });
 
-    it("renders '—' when a rail's compatible-clients list is explicitly empty", () => {
+    it("renders 'none' when a rail's compatible-clients list is explicitly empty", () => {
       const out = buildSkillMd({
         ...baseInput,
         acceptedRails: ['x402_base'],
         compatibleClients: { x402_base: [] },
       });
-      expect(out).toMatch(/x402 on Base.+\| —/);
+      // 'none' rather than an em-dash: this table is served on every store's
+      // skill.md, and the org rule bars em-dashes on external surfaces.
+      expect(out).toMatch(/x402 on Base.+\| none/);
+      expect(out).not.toContain('—');
     });
   });
 
