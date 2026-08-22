@@ -130,7 +130,7 @@ const RAIL_NOTES: Record<RailKey, string> = {
   tempo_mpp: 'USDC. Use `agentscore-pay pay --chain tempo` (or `tempo request`); MPP credential goes in `Authorization: Payment`.',
   x402_base: 'USDC (EIP-3009). Use `agentscore-pay pay --chain base`; X-Payment header carries the signed credential.',
   solana_mpp: 'USDC (SPL). Use `agentscore-pay pay --chain solana`; MPP credential goes in `Authorization: Payment`.',
-  stripe: 'Card via Link wallet. Use `@stripe/link-cli` — `agentscore-pay` emits the handoff hint when this rail is picked.',
+  stripe: 'Card via Link wallet. Use `@stripe/link-cli`; `agentscore-pay` emits the handoff hint when this rail is picked.',
 };
 
 const NAME_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -144,7 +144,7 @@ function validateInput(input: BuildSkillMdInput): void {
   }
   if (!NAME_RE.test(input.name)) {
     throw new Error(
-      `buildSkillMd: name "${input.name}" is invalid — must be lowercase alphanumeric and hyphens, no leading/trailing/consecutive hyphens (agentskills.io spec)`,
+      `buildSkillMd: name "${input.name}" is invalid: must be lowercase alphanumeric and hyphens, no leading/trailing/consecutive hyphens (agentskills.io spec)`,
     );
   }
   if (!input.description || input.description.length === 0) {
@@ -222,7 +222,7 @@ function paymentSection(input: BuildSkillMdInput): string {
   }
   const rows: string[] = ['| Rail | Notes | Compatible clients |', '|---|---|---|'];
   for (const r of input.acceptedRails) {
-    const list = (clients[r] ?? []).join(', ') || '—';
+    const list = (clients[r] ?? []).join(', ') || 'none';
     rows.push(`| **${RAIL_LABELS[r]}** | ${RAIL_NOTES[r]} | ${list} |`);
   }
   return [
@@ -253,7 +253,7 @@ function identitySection(input: BuildSkillMdInput): string {
     ? '\n\nThis merchant accepts AIP Agent Identity Tokens. If you hold an AIT from a trusted issuer ' +
       '(AgentScore is always trusted), present the JWT in an `Agent-Identity` header plus an RFC 9421 ' +
       'HTTP Message Signature (`Signature-Input` + `Signature` over `@method @authority @path agent-identity`, ' +
-      'tag `agent-identity`) signed with the token-bound cnf key — it satisfies identity in one round trip, ' +
+      'tag `agent-identity`) signed with the token-bound cnf key, satisfying identity in one round trip, ' +
       'no separate AgentScore credential needed. `agentscore-pay pay --identity aip` does this automatically.'
     : '';
   return [
@@ -261,7 +261,7 @@ function identitySection(input: BuildSkillMdInput): string {
     '',
     `${reqLine}${aipNote}`,
     '',
-    'Denial bodies carry an `agent_instructions` block describing the recovery action — read the `action` field and follow it. See the identity-bootstrap skill for the canonical denial-code → action table.',
+    'Denial bodies carry an `agent_instructions` block describing the recovery action: read the `action` field and follow it. See the identity-bootstrap skill for the canonical denial-code → action table.',
   ].join('\n');
 }
 
@@ -321,7 +321,7 @@ function titleBlock(input: BuildSkillMdInput): string {
 }
 
 /**
- * Render an agentskills.io-compatible `skill.md` for an agent-commerce merchant.
+ * Render an agentskills.io-compatible `skill.md` for an agentic-commerce merchant.
  *
  * Output is YAML frontmatter (`name` / `description` / optional `license` /
  * `compatibility` / `allowed-tools` / `metadata`) followed by markdown sections

@@ -56,7 +56,7 @@ export async function createBazaarDiscovery(config: BazaarDiscoveryConfig): Prom
   /* v8 ignore start -- peer-dep-absence guard; @x402/extensions is installed in test env */
   if (!bazaar?.declareDiscoveryExtension) {
     throw new Error(
-      '@x402/extensions not installed — `npm install @x402/extensions` for createBazaarDiscovery.',
+      '@x402/extensions not installed. Run `npm install @x402/extensions` for createBazaarDiscovery.',
     );
   }
   /* v8 ignore stop */

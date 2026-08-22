@@ -103,17 +103,17 @@ export function buildAgentscoreOnboardingSteps(opts: {
     'Install agentscore-pay if you don\'t already have a compatible client for your funded chain: ' +
     '`npm i -g @agent-score/pay` (or `brew install agentscore/tap/agentscore-pay`). ' +
     `${merchantName} accepts: ${railsHuman}. agentscore-pay speaks every supported rail; ` +
-    (compatibleFragment ? `the rails table also lists per-rail \`compatible_clients\` — ${compatibleFragment}. ` : '') +
+    (compatibleFragment ? `the rails table also lists per-rail \`compatible_clients\`: ${compatibleFragment}. ` : '') +
     'Any spec-compliant client for an individual rail works too.';
   const bootstrapStep =
     'First-run only: bootstrap wallet + Passport. Run `agentscore-pay agent-guide --json` ' +
-    'for the canonical cold-start path — it walks `agentscore-pay init` ' +
+    'for the canonical cold-start path; it walks `agentscore-pay init` ' +
     '(creates keystore + per-chain wallet), `agentscore-pay passport login` ' +
     `(one-time KYC${requiresKyc ? '; required for this merchant' : ''}; the human completes a verify URL once and pay caches the operator_token), ` +
     'and `agentscore-pay balance` to see which chain has USDC. Skip if your wallet+Passport are already provisioned.';
   const stripeFallbackStep =
     'If your only payment method is a Stripe / Link card (no crypto), install `@stripe/link-cli` ' +
-    'instead of agentscore-pay and use it on the SPT rail. Identity gating still applies — the ' +
+    'instead of agentscore-pay and use it on the SPT rail. Identity gating still applies: the ' +
     'merchant\'s 403 with `verify_url` lets you bootstrap a Passport even with no crypto wallet involved.';
   const returningUserStep =
     'Returning user note: if you\'ve paid an AgentScore-gated merchant before from this wallet, ' +

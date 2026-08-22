@@ -1,7 +1,7 @@
 /**
  * High-level Checkout orchestrator — composes 402-emit + verify+settle.
  *
- * The Checkout primitive collapses the agent-commerce dance (emit 402 →
+ * The Checkout primitive collapses the agentic-commerce dance (emit 402 →
  * verify+settle on retry → respond) into a single `await checkout.handle(request)`
  * call. It services every merchant shape:
  *
@@ -832,7 +832,7 @@ function resolveIssuerPolicy(
 }
 
 /**
- * High-level agent-commerce orchestrator.
+ * High-level agentic-commerce orchestrator.
  *
  * @example
  * ```ts

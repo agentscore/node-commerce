@@ -25,7 +25,7 @@ const X402_WARNING =
   'Do NOT send USDC manually to the deposit addresses. Use `agentscore-pay pay` so the credential is signed and submitted; otherwise the request will not complete even though the deposit lands.';
 
 const TEMPO_TOOL = '`tempo request` for Tempo USDC';
-const AGENTSCORE_PAY_TOOL = '`agentscore-pay` — Base + Solana + Tempo from one CLI';
+const AGENTSCORE_PAY_TOOL = '`agentscore-pay`, one CLI for Base, Solana and Tempo';
 
 const DEFAULT_WALLET_COMPATIBILITY =
   'Any client that can produce a valid MPP credential (Authorization: Payment) or x402 X-Payment header. Use the CLI commands above; sign-it-yourself is also fine.';
