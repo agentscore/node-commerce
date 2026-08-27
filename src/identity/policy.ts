@@ -37,7 +37,27 @@ export type EnforcementMode = 'hard' | 'soft';
 /** Per-order trust level captured at settle time. */
 export type IdentityStatus = 'verified' | 'unverified' | 'anonymous' | 'denied';
 
-/** Compliance fields a merchant attaches per product / per tier. All optional. */
+/**
+ * Compliance fields a merchant attaches per product / per tier. All optional.
+ *
+ * THESE ARE SDK FIELD NAMES, NOT THE WIRE FORMAT. The AgentScore API expects
+ * snake_case, and this SDK translates the five compliance fields at the request
+ * boundary (`buildGateFromPolicy` in `../core.ts`). Sending these names to
+ * `POST /v1/assess` directly is rejected with a 400 `invalid_policy`.
+ *
+ * That rejection is deliberate and recent. The API previously ignored a key it
+ * did not recognise, which meant a camelCase policy matched no rule, ran no
+ * check, and came back `decision: "allow"`, a silent pass from a compliance
+ * gate. It now fails loudly instead, and the 400 names the correct spelling.
+ *
+ * So if you are hand-rolling the HTTP request rather than using this SDK, use
+ * the snake_case names: `require_kyc`, `require_sanctions_clear`, `min_age`,
+ * `blocked_jurisdictions`, `allowed_jurisdictions`.
+ *
+ * Note also that only those five cross the wire. `enforcement`,
+ * `allowedShippingCountries` and `allowedShippingStates` are merchant-side
+ * concerns this SDK acts on locally and never sends.
+ */
 export interface PolicyBlock {
   enforcement?: EnforcementMode;
   requireKyc?: boolean;
