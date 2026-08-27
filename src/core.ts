@@ -891,16 +891,70 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
 
     const decision = data.decision as string | null | undefined;
     const decisionReasons = (data.decision_reasons as string[]) ?? [];
-    const allow = decision === 'allow' || decision == null;
+
+    // FAIL CLOSED on a response we cannot read as an approval.
+    //
+    // This previously read `decision === 'allow' || decision == null`, so a
+    // response carrying no decision at all was treated as an approval. Combined
+    // with the API silently ignoring an unrecognised policy key, a merchant
+    // could send a misspelled rule and have both layers agree to let the request
+    // through. Only the literal string 'allow' is an approval now; null,
+    // undefined, and any value we add later are not.
+    //
+    // The two failures below are deliberately NOT handled the same way, because
+    // they are not the same kind of failure.
+    const decisionIsAllow = decision === 'allow';
+    const decisionIsUnreadable = decision == null;
+
+    // Computed here rather than after the allow decision: the fail-closed
+    // branches below return early and still owe the adapter these verdicts.
+    const signerVerdict = buildSignerVerdict(identity, data);
+    const operatorHandle = readOperatorHandle(data);
+
+    // A policy we SENT must come back evaluated and passing. `policy_result` is
+    // null for every ungated call, which is correct and must stay an allow, so
+    // this is conditioned on having sent a policy rather than on the field being
+    // null. Denying on a null policy_result unconditionally would deny every
+    // ungated merchant request in production.
+    const policySent = Object.keys(policy).length > 0;
+    const policyResult = data.policy_result as { all_passed?: boolean } | null | undefined;
+    const policySatisfied = !policySent || policyResult?.all_passed === true;
+
+    if (decisionIsUnreadable) {
+      // No decision field. Indistinguishable from a truncated or proxied
+      // response, so this is an INFRASTRUCTURE failure and honours the
+      // merchant's explicit `failOpen` choice, exactly as an unreachable API
+      // does above. What changed is that it is no longer a silent allow for
+      // merchants who did NOT opt into that.
+      console.warn('[gate] /v1/assess returned no decision; treating as api_error');
+      if (failOpen) return { kind: 'allow', degraded: true, infraReason: 'api_error' };
+      return { kind: 'deny', reason: { code: 'api_error' } };
+    }
+
+    if (decisionIsAllow && !policySatisfied) {
+      // An allow carrying no passing policy_result, for a request that DID send
+      // a policy. Not an availability problem: the gate was asked to enforce
+      // something and the answer does not show it was enforced. Denies
+      // regardless of `failOpen`, because failing open here would reinstate the
+      // exact hole this closes.
+      console.warn('[gate] /v1/assess allowed a request whose policy was not evaluated; denying');
+      return {
+        kind: 'deny',
+        reason: {
+          code: 'api_error',
+          decision: decision ?? undefined,
+          reasons: decisionReasons,
+          data: data as unknown as AssessResult,
+        },
+        ...(signerVerdict !== undefined && { signerVerdict }),
+        ...(operatorHandle !== undefined && { operatorHandle }),
+      };
+    }
+
+    const allow = decisionIsAllow && policySatisfied;
 
     cache.set(cacheKey, { allow, decision: decision ?? undefined, reasons: decisionReasons, raw: data });
 
-    // Compose the per-request signer verdicts and ride them on the RETURN VALUE so the adapter can
-    // stash them on its per-request state (NOT a shared slot — see buildSignerVerdict). guard:
-    // wallet-only identity (operator-token / AIT win and signer-match is deliberately not enforced).
-    const signerVerdict = buildSignerVerdict(identity, data);
-    // Rides the same assess response, so reading it later costs nothing extra.
-    const operatorHandle = readOperatorHandle(data);
 
     if (allow) {
       // SDK populates `quota` on the assess response from X-Quota-* headers when the
