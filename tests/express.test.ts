@@ -377,13 +377,145 @@ describe('agentscoreGate middleware — cache', () => {
 });
 
 
-describe('agentscoreGate middleware — decision null/undefined treated as allow', () => {
+describe('agentscoreGate middleware — a response with no decision fails closed', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('allows when decision is null', async () => {
+  // These two previously asserted the OPPOSITE, under the name "decision
+  // null/undefined treated as allow": a response carrying no decision was let
+  // through. A penetration test found that combined with the API silently
+  // ignoring an unrecognised policy key, so a misspelled rule could pass both
+  // layers. A missing decision is now indistinguishable-from-broken and is
+  // treated as an infrastructure failure, which denies unless the merchant has
+  // explicitly opted into failOpen.
+  it('denies when decision is null', async () => {
     mockFetchOk({ ...ALLOW_RESPONSE, decision: null });
+    const mw = agentscoreGate({ apiKey: API_KEY });
+    const req = makeReq(WALLET);
+    const { res, status, json } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledWith(503);
+    // api_error at 503, not wallet_not_trusted at 403: the response was
+    // unreadable, which is our failure and retryable, not a compliance verdict
+    // against the buyer. The distinction matters to an agent choosing whether to
+    // retry or to go and get verified.
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({
+      error: expect.objectContaining({ code: 'api_error' }),
+    }));
+  });
+
+  it('denies when the decision field is missing (undefined)', async () => {
+    const { decision: _, ...noDecision } = ALLOW_RESPONSE;
+    mockFetchOk(noDecision);
+    const mw = agentscoreGate({ apiKey: API_KEY });
+    const req = makeReq(WALLET);
+    const { res, status } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledWith(503);
+  });
+
+  // The merchant's explicit availability choice still applies here, exactly as
+  // it does for an unreachable API: a missing decision is an unreadable
+  // response, not a compliance verdict.
+  it('honours failOpen when the merchant opted into it', async () => {
+    mockFetchOk({ ...ALLOW_RESPONSE, decision: null });
+    const mw = agentscoreGate({ apiKey: API_KEY, failOpen: true });
+    const req = makeReq(WALLET);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  // An unrecognised decision value must not be an allow either, so adding a new
+  // decision on the API side cannot silently open the gate on old SDKs. This one
+  // denies at 403 rather than 503: the API returned a READABLE decision that is
+  // simply not an approval, which is a verdict rather than an infrastructure
+  // failure, so it is not retryable and must not honour failOpen.
+  it('denies an unrecognised decision value', async () => {
+    mockFetchOk({ ...ALLOW_RESPONSE, decision: 'review' });
+    const mw = agentscoreGate({ apiKey: API_KEY });
+    const req = makeReq(WALLET);
+    const { res, status } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledWith(403);
+  });
+});
+
+describe('agentscoreGate middleware — a sent policy must come back evaluated', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // The other half of the same finding. The API used to ignore an unrecognised
+  // policy key and answer allow with policy_result null, so the gate approved a
+  // request whose policy never ran. The API rejects that now, but the gate must
+  // not depend on the API being correct: if we ASKED for enforcement and the
+  // answer does not show it happened, that is a deny.
+  it('denies an allow whose policy_result is null when a policy was sent', async () => {
+    mockFetchOk({ ...ALLOW_RESPONSE, decision: 'allow', policy_result: null });
+    const mw = agentscoreGate({ apiKey: API_KEY, requireKyc: true });
+    const req = makeReq(WALLET);
+    const { res, status } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledWith(503);
+  });
+
+  it('denies an allow whose policy_result did not pass', async () => {
+    mockFetchOk({
+      ...ALLOW_RESPONSE,
+      decision: 'allow',
+      policy_result: { all_passed: false, checks: [] },
+    });
+    const mw = agentscoreGate({ apiKey: API_KEY, requireKyc: true });
+    const req = makeReq(WALLET);
+    const { res, status } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(status).toHaveBeenCalledWith(503);
+  });
+
+  // failOpen is an AVAILABILITY setting. It must not reinstate the hole: we
+  // asked for enforcement and did not get it, which is not an outage.
+  it('denies even under failOpen, because this is not an availability failure', async () => {
+    mockFetchOk({ ...ALLOW_RESPONSE, decision: 'allow', policy_result: null });
+    const mw = agentscoreGate({ apiKey: API_KEY, failOpen: true, requireKyc: true });
+    const req = makeReq(WALLET);
+    const { res } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  // The guard is conditioned on having SENT a policy. A null policy_result is
+  // the correct, normal response for every ungated call, and denying on it
+  // unconditionally would deny every ungated merchant request in production.
+  it('still allows an ungated request whose policy_result is null', async () => {
+    mockFetchOk({ ...ALLOW_RESPONSE, decision: 'allow', policy_result: null });
     const mw = agentscoreGate({ apiKey: API_KEY });
     const req = makeReq(WALLET);
     const { res } = makeRes();
@@ -394,10 +526,13 @@ describe('agentscoreGate middleware — decision null/undefined treated as allow
     expect(next).toHaveBeenCalledOnce();
   });
 
-  it('allows when decision field is missing (undefined)', async () => {
-    const { decision: _, ...noDecision } = ALLOW_RESPONSE;
-    mockFetchOk(noDecision);
-    const mw = agentscoreGate({ apiKey: API_KEY });
+  it('allows when a sent policy came back passing', async () => {
+    mockFetchOk({
+      ...ALLOW_RESPONSE,
+      decision: 'allow',
+      policy_result: { all_passed: true, checks: [{ passed: true, rule: 'require_kyc' }] },
+    });
+    const mw = agentscoreGate({ apiKey: API_KEY, requireKyc: true });
     const req = makeReq(WALLET);
     const { res } = makeRes();
     const next = makeNext();
