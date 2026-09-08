@@ -74,6 +74,13 @@ export interface CreateSessionOnMissing<TCtx = unknown> {
   baseUrl?: string;
   context?: string;
   productName?: string;
+  /** Session kind sent to `POST /v1/sessions`. `'kyc'` (the API default) runs identity
+   *  verification; `'sign_in'` is registration-only (the buyer signs in with an AgentScore
+   *  account, no identity documents) and mints a `sign_in`-scoped credential. Use it when the
+   *  gate runs with an EMPTY compliance policy and only needs an account to key state on
+   *  (a prepaid balance, say): a KYC session there asks the buyer for documents nothing
+   *  will ever check. The denial's default `error.message` follows the kind. */
+  kind?: 'kyc' | 'sign_in';
   /** Per-request override of `context` / `productName`. Invoked with the framework context. */
   getSessionOptions?: (ctx: TCtx) => Promise<{ context?: string; productName?: string }>
                                   |          { context?: string; productName?: string };
@@ -569,9 +576,10 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
   async function tryMintSessionDenial(ctx: unknown): Promise<DenialReason | undefined> {
     if (!createSessionOnMissing) return undefined;
     try {
-      const sessionBody: { context?: string; product_name?: string } = {};
+      const sessionBody: { context?: string; product_name?: string; kind?: 'kyc' | 'sign_in' } = {};
       if (createSessionOnMissing.context != null) sessionBody.context = createSessionOnMissing.context;
       if (createSessionOnMissing.productName != null) sessionBody.product_name = createSessionOnMissing.productName;
+      if (createSessionOnMissing.kind != null) sessionBody.kind = createSessionOnMissing.kind;
 
       if (createSessionOnMissing.getSessionOptions && ctx !== undefined) {
         try {
@@ -589,6 +597,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       const data = (await sessionSdk.createSession({
         ...(sessionBody.context !== undefined ? { context: sessionBody.context } : {}),
         ...(sessionBody.product_name !== undefined ? { product_name: sessionBody.product_name } : {}),
+        ...(sessionBody.kind !== undefined ? { kind: sessionBody.kind } : {}),
       })) as unknown as Record<string, unknown>;
 
       // Validate required fields before trusting the response. A misbehaving (or mocked-wrong)
@@ -629,6 +638,11 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       const apiNextSteps = data.next_steps as Record<string, unknown> | undefined;
       return {
         code: 'identity_verification_required',
+        // The per-code default message talks about KYC, which a sign_in session never runs;
+        // say what this session actually asks for so a merchant's default 403 is not a lie.
+        ...(sessionBody.kind === 'sign_in' && {
+          message: 'Sign-in is required to access this resource. Visit verify_url to sign in with an AgentScore account (no identity documents), then poll poll_url for the operator token and retry.',
+        }),
         verify_url: data.verify_url as string,
         session_id: data.session_id as string,
         poll_secret: data.poll_secret as string,

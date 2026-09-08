@@ -70,6 +70,8 @@ const _gate = agentscoreGate({
   minAge: 21,
   allowedJurisdictions: ["US"],
   createSessionOnMissing: { apiKey: process.env.AGENTSCORE_API_KEY!, context: "wine-purchase" },
+  // With an EMPTY policy (no KYC), add kind: "sign_in" so the minted session is a plain
+  // account sign-in (no identity documents) that still yields an operator token.
 });
 
 // Run the gate CONDITIONALLY: only when a payment credential is already attached.

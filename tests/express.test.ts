@@ -1416,6 +1416,32 @@ describe('agentscoreGate middleware — createSessionOnMissing', () => {
     });
   });
 
+  it('sends kind in the POST body and swaps the KYC default message for the sign_in one', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValueOnce(SESSION_RESPONSE),
+    } as unknown as globalThis.Response);
+
+    const mw = agentscoreGate({
+      apiKey: API_KEY,
+      createSessionOnMissing: { apiKey: 'ask_session_key', kind: 'sign_in' },
+    });
+    const req = makeReq();
+    const { res, status, json } = makeRes();
+    const next = makeNext();
+
+    await mw(req, res, next);
+
+    const fetchCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(JSON.parse(fetchCall[1].body as string)).toEqual({ kind: 'sign_in' });
+    expect(status).toHaveBeenCalledWith(403);
+    const bodyArg = (json as ReturnType<typeof vi.fn>).mock.calls[0]![0] as { error: { code: string; message: string } };
+    expect(bodyArg.error.code).toBe('identity_verification_required');
+    expect(bodyArg.error.message).toContain('sign in with an AgentScore account');
+    expect(bodyArg.error.message).not.toContain('KYC');
+  });
+
   it('uses custom baseUrl for session creation', async () => {
     global.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
