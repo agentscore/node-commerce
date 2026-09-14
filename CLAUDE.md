@@ -144,7 +144,7 @@ bun run build
 
 ## Dev: linked sdk
 
-During local development the sdk dep is `link:@agent-score/sdk`. Run `bun link` in `agentscore/node-sdk` and `bun link @agent-score/sdk` here.
+The sdk dep is a registry range on the published `@agent-score/sdk`. To develop against an unreleased sdk, run `bun link` in `agentscore/node-sdk` and `bun link @agent-score/sdk` here, and restore the range before committing.
 
 ## Workflow
 
