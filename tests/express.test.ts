@@ -426,7 +426,7 @@ describe('agentscoreGate middleware — a response with no decision fails closed
   // The merchant's explicit availability choice still applies here, exactly as
   // it does for an unreachable API: a missing decision is an unreadable
   // response, not a compliance verdict.
-  it('honours failOpen when the merchant opted into it', async () => {
+  it('honors failOpen when the merchant opted into it', async () => {
     mockFetchOk({ ...ALLOW_RESPONSE, decision: null });
     const mw = agentscoreGate({ apiKey: API_KEY, failOpen: true });
     const req = makeReq(WALLET);
@@ -442,7 +442,7 @@ describe('agentscoreGate middleware — a response with no decision fails closed
   // decision on the API side cannot silently open the gate on old SDKs. This one
   // denies at 403 rather than 503: the API returned a READABLE decision that is
   // simply not an approval, which is a verdict rather than an infrastructure
-  // failure, so it is not retryable and must not honour failOpen.
+  // failure, so it is not retryable and must not honor failOpen.
   it('denies an unrecognised decision value', async () => {
     mockFetchOk({ ...ALLOW_RESPONSE, decision: 'review' });
     const mw = agentscoreGate({ apiKey: API_KEY });

@@ -46,7 +46,7 @@ export type IdentityStatus = 'verified' | 'unverified' | 'anonymous' | 'denied';
  * `POST /v1/assess` directly is rejected with a 400 `invalid_policy`.
  *
  * That rejection is deliberate and recent. The API previously ignored a key it
- * did not recognise, which meant a camelCase policy matched no rule, ran no
+ * did not recognize, which meant a camelCase policy matched no rule, ran no
  * check, and came back `decision: "allow"`, a silent pass from a compliance
  * gate. It now fails loudly instead, and the 400 names the correct spelling.
  *
