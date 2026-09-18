@@ -114,7 +114,7 @@ describe('buildX402AcceptsFor402', () => {
     expect(accept.extra).toEqual({ name: 'USD Coin', version: '2' });
   });
 
-  it('honours scheme + maxTimeoutSeconds + extensions when supplied', async () => {
+  it('honors scheme + maxTimeoutSeconds + extensions when supplied', async () => {
     let captured: { config?: Record<string, unknown>; extensions?: unknown } = {};
     const fakeServer = {
       register: () => {},

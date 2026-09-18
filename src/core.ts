@@ -936,7 +936,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
 
     if (decisionIsUnreadable) {
       // No decision field. Indistinguishable from a truncated or proxied
-      // response, so this is an INFRASTRUCTURE failure and honours the
+      // response, so this is an INFRASTRUCTURE failure and honors the
       // merchant's explicit `failOpen` choice, exactly as an unreachable API
       // does above. What changed is that it is no longer a silent allow for
       // merchants who did NOT opt into that.
