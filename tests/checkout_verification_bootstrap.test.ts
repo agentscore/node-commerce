@@ -8,7 +8,8 @@
  * keep getting a plain 402 and mint nothing.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Checkout, VERIFICATION_SESSION_HEADER, type CheckoutRequest } from '../src/checkout';
+import { Checkout, type CheckoutRequest } from '../src/checkout';
+import { VERIFICATION_SESSION_HEADER } from '../src/index';
 import type { StripeRailSpec, X402BaseRailSpec } from '../src/payment/rail_spec';
 
 const { sessionCalls, assessCalls } = vi.hoisted(() => ({

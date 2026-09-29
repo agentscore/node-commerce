@@ -110,7 +110,6 @@ export {
   type ReferenceIdFn,
   type RunGateFn,
   type SettleOutcome,
-  VERIFICATION_SESSION_HEADER,
   buildAipTrustedIssuers,
   getIdentityStatus,
   makeMppxComposeHook,
@@ -161,12 +160,18 @@ export {
 } from './quote_cache';
 export { createDefaultOnDenied, defaultReadOnlyOnDenied, type CreateDefaultOnDeniedOptions, type DefaultOnDeniedResult } from './identity/default_denied';
 export {
+  VERIFICATION_SESSION_HEADER,
+  VERIFICATION_SESSION_VALUE,
+  hasIdentityHeader,
   hasMppxHeader,
   hasPaymentHeader,
   hasX402Header,
   malformedPaymentCredential,
+  requestsVerificationSession,
+  shouldRunConditionalGate,
   type MalformedPaymentCredential,
 } from './payment/payment_header';
+export { buildIdentityBootstrap, type IdentityBootstrapBlock } from './challenge/identity';
 // AIP (Agentic Identity Protocol) — AIT verification (verifier role) + RFC 9421 signing.
 export {
   AGENT_IDENTITY_HEADER,

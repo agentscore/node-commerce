@@ -55,6 +55,39 @@ export function hasPaymentHeader(input: Request | HeadersLike): boolean {
 
 /** True when the request carries an x402 payment credential (`X-Payment` or
  *  `Payment-Signature`). Use to dispatch to the x402 settle path. */
+/** Request header that asks an identity gate for a verification session without paying first.
+ *  Opt-in so crawlers replaying a valid example body never mint sessions or pending orders. */
+export const VERIFICATION_SESSION_HEADER = 'X-Verification-Session';
+export const VERIFICATION_SESSION_VALUE = 'create';
+
+/** True when the request carries an identity: an operator token, a wallet address, or an AIP
+ *  `Agent-Identity` token. */
+export function hasIdentityHeader(input: Request | HeadersLike): boolean {
+  const headers = asHeaders(input);
+  return Boolean(
+    readHeader(headers, 'x-operator-token') ||
+    readHeader(headers, 'x-wallet-address') ||
+    readHeader(headers, 'agent-identity')?.split(',').some((s) => s.trim().length > 0),
+  );
+}
+
+/** True when the request asks for a verification session: `X-Verification-Session: create`
+ *  (case-insensitive) with no identity and no payment credential. */
+export function requestsVerificationSession(input: Request | HeadersLike): boolean {
+  const headers = asHeaders(input);
+  return (
+    readHeader(headers, VERIFICATION_SESSION_HEADER)?.trim().toLowerCase() === VERIFICATION_SESSION_VALUE &&
+    !hasIdentityHeader(headers) &&
+    !hasPaymentHeader(headers)
+  );
+}
+
+/** Whether a conditional (settle-leg) identity gate should run: a payment credential is attached,
+ *  or the request asks for a verification session before paying. */
+export function shouldRunConditionalGate(input: Request | HeadersLike): boolean {
+  return hasPaymentHeader(input) || requestsVerificationSession(input);
+}
+
 export function hasX402Header(input: Request | HeadersLike): boolean {
   const headers = asHeaders(input);
   return Boolean(readHeader(headers, 'payment-signature') || readHeader(headers, 'x-payment'));

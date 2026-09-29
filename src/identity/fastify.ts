@@ -3,7 +3,7 @@ import { denialReasonToBody } from '../_response';
 import { buildAipErrorBody, evaluateAipParts, type AipGateOptions } from '../aip/gate';
 import { hasAgentIdentityHeaderNode } from '../aip/request';
 import { createAgentScoreCore } from '../core';
-import { hasPaymentHeader } from '../payment/payment_header';
+import { shouldRunConditionalGate } from '../payment/payment_header';
 import { extractPaymentSignerFromAuth } from '../signer';
 import type { VerifiedAit } from '../aip/verify';
 import type {
@@ -215,7 +215,10 @@ export default agentscoreGatePlugin;
 /** Plugin variant of `agentscoreGate` that only runs the preHandler when a
  *  payment credential is attached. Discovery legs (no payment header) flow
  *  through to the handler unauthenticated; settle legs trigger the full gate
- *  evaluation. Replaces the hand-rolled
+ *  evaluation.
+ *  It also fires on an `X-Verification-Session: create` request with no identity and no payment
+ *  (`requestsVerificationSession`), so a buyer can get a verify_url before paying.
+ *  Replaces the hand-rolled
  *  `addHook('preHandler', (req, reply) => hasPaymentHeader(req.headers) ? gate(...) : undefined)`
  *  wrap pattern. */
 const conditionalAgentscoreGatePlugin: FastifyPluginAsync<AgentScoreGateOptions> = async (fastify, options) => {
@@ -223,7 +226,7 @@ const conditionalAgentscoreGatePlugin: FastifyPluginAsync<AgentScoreGateOptions>
   const core = createAgentScoreCore(coreOptions as AgentScoreCoreOptions);
 
   fastify.addHook('preHandler', async (request, reply) => {
-    if (!hasPaymentHeader(request.headers as Record<string, string | string[] | undefined>)) return;
+    if (!shouldRunConditionalGate(request.headers as Record<string, string | string[] | undefined>)) return;
     const identity = extractIdentity(request);
     (request as unknown as Record<string, unknown>)[GATE_STATE_KEY] = {
       core,

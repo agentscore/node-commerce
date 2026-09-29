@@ -1,3 +1,5 @@
+import { VERIFICATION_SESSION_HEADER, VERIFICATION_SESSION_VALUE } from '../payment/payment_header';
+
 export type IdentityMode = 'wallet' | 'operator_token';
 
 export interface SignerMatchResultLike {
@@ -48,4 +50,26 @@ export function buildIdentityMetadata({
     'Payment must be signed with the claimed wallet OR any same-operator linked wallet listed in linked_wallets.';
 
   return block;
+}
+
+export interface IdentityBootstrapBlock {
+  header: string;
+  value: string;
+  instructions: string;
+}
+
+/**
+ * Build the `identity_bootstrap` block an identity-gated 402 carries when the request has no
+ * identity header: it names the `X-Verification-Session: create` request that returns the gate's
+ * session-bearing 403 (verify_url + poll data) without a payment credential. `Checkout` attaches it
+ * automatically; merchants building their own 402 with `build402Body` spread it into `extra`.
+ */
+export function buildIdentityBootstrap(): IdentityBootstrapBlock {
+  return {
+    header: VERIFICATION_SESSION_HEADER,
+    value: VERIFICATION_SESSION_VALUE,
+    instructions:
+      `This purchase requires a verified identity. Without an operator token, repeat this same request with the header ${VERIFICATION_SESSION_HEADER}: ${VERIFICATION_SESSION_VALUE} and no payment credential. ` +
+      'The response is a 403 carrying verify_url, session_id, poll_secret and poll_url: give verify_url to the buyer, poll poll_url for an operator_token, then pay with X-Operator-Token set.',
+  };
 }

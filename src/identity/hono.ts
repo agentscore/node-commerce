@@ -3,7 +3,7 @@ import { denialReasonToBody } from '../_response';
 import { buildAipErrorBody, evaluateAipRequest, type AipGateOptions } from '../aip/gate';
 import { hasAgentIdentityHeader } from '../aip/request';
 import { createAgentScoreCore } from '../core';
-import { hasPaymentHeader } from '../payment/payment_header';
+import { shouldRunConditionalGate } from '../payment/payment_header';
 import { extractPaymentSigner, readX402PaymentHeader } from '../signer';
 import type { VerifiedAit } from '../aip/verify';
 import type {
@@ -221,6 +221,8 @@ export function getSignerVerdict(c: Context): SignerVerdict | undefined {
  *  attached to the request. Discovery legs (no payment header) flow through
  *  unauthenticated and the handler emits a 402 with all rails; settle legs
  *  trigger the full gate.
+ *  It also fires on an `X-Verification-Session: create` request with no identity and no payment
+ *  (`requestsVerificationSession`), so a buyer can get a verify_url before paying.
  *
  *  Replaces the hand-rolled `if (!hasPaymentHeader(...)) { await next(); return; }`
  *  wrap pattern in consumer codebases.
@@ -228,7 +230,7 @@ export function getSignerVerdict(c: Context): SignerVerdict | undefined {
 export function conditionalAgentscoreGate(options: AgentScoreGateOptions): MiddlewareHandler {
   const gate = agentscoreGate(options);
   return async (c, next) => {
-    if (!hasPaymentHeader(c.req.raw)) {
+    if (!shouldRunConditionalGate(c.req.raw)) {
       await next();
       return;
     }
