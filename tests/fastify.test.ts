@@ -355,6 +355,53 @@ describe('Fastify conditional gate — settle-leg allow paths', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('X-Verification-Session: create with no identity runs the gate and returns the session 403', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: vi.fn().mockResolvedValue({
+        session_id: 'sess_boot',
+        poll_secret: 'poll_boot',
+        verify_url: 'https://www.agentscore.com/verify?session=sess_boot',
+        poll_url: 'https://api.agentscore.com/v1/sessions/sess_boot',
+      }),
+    });
+    global.fetch = fetchSpy as unknown as typeof fetch;
+    const app = Fastify();
+    await app.register(conditionalAgentscoreGate, {
+      apiKey: API_KEY,
+      requireKyc: true,
+      createSessionOnMissing: { apiKey: API_KEY },
+    });
+    app.post('/purchase', async () => ({ ok: true }));
+
+    const res = await app.inject({
+      method: 'POST', url: '/purchase',
+      headers: { 'x-verification-session': 'create' },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ verify_url: 'https://www.agentscore.com/verify?session=sess_boot', session_id: 'sess_boot' });
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain('/v1/sessions');
+  });
+
+  it('X-Verification-Session with an identity header flows through like any discovery leg', async () => {
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as unknown as typeof fetch;
+    const app = Fastify();
+    await app.register(conditionalAgentscoreGate, { apiKey: API_KEY, createSessionOnMissing: { apiKey: API_KEY } });
+    app.post('/purchase', async () => ({ ok: true }));
+
+    const res = await app.inject({
+      method: 'POST', url: '/purchase',
+      headers: { 'x-verification-session': 'create', 'x-operator-token': 'opc_x' },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(200);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('settle leg with payment header: fail-open quota_exceeded marks degraded', async () => {
     mockFetchStatus(429);
     const app = Fastify();

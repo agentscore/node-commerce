@@ -3,7 +3,7 @@ import { denialReasonToBody } from '../_response';
 import { buildAipErrorBody, evaluateAipRequest, type AipGateOptions } from '../aip/gate';
 import { hasAgentIdentityHeader } from '../aip/request';
 import { createAgentScoreCore } from '../core';
-import { hasPaymentHeader } from '../payment/payment_header';
+import { shouldRunConditionalGate } from '../payment/payment_header';
 import { extractPaymentSigner, readX402PaymentHeader } from '../signer';
 import type { VerifiedAit } from '../aip/verify';
 import type {
@@ -208,11 +208,13 @@ export function withAgentScoreGate<TCtx = unknown>(
 
 /** Wrap `createAgentScoreGate(...)` so it only fires when a payment credential
  *  is attached. Discovery legs flow through allowed (with `data: undefined`)
- *  and the handler emits a 402 with all rails; settle legs run the full gate. */
+ *  and the handler emits a 402 with all rails; settle legs run the full gate.
+ *  It also fires on an `X-Verification-Session: create` request with no identity and no payment
+ *  (`requestsVerificationSession`), so a buyer can get a verify_url before paying. */
 export function createConditionalAgentScoreGate(options: AgentScoreGateOptions): (req: Request) => Promise<GuardResult> {
   const guard = createAgentScoreGate(options);
   return async (req: Request): Promise<GuardResult> => {
-    if (!hasPaymentHeader(req)) return { allowed: true };
+    if (!shouldRunConditionalGate(req)) return { allowed: true };
     return guard(req);
   };
 }
@@ -225,7 +227,7 @@ export function withConditionalAgentScoreGate<TCtx = unknown>(
 ): (req: Request, ctx: TCtx) => Promise<Response> {
   const wrapped = withAgentScoreGate<TCtx>(options, handler);
   return async (req: Request, ctx: TCtx): Promise<Response> => {
-    if (!hasPaymentHeader(req)) return handler(req, {}, ctx);
+    if (!shouldRunConditionalGate(req)) return handler(req, {}, ctx);
     return wrapped(req, ctx);
   };
 }

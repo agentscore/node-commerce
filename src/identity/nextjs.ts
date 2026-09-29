@@ -1,4 +1,4 @@
-import { hasPaymentHeader } from '../payment/payment_header';
+import { shouldRunConditionalGate } from '../payment/payment_header';
 import { createAgentScoreGate } from './web';
 import type { AssessResult, FailOpenInfraReason, GateQuotaInfo, OperatorHandle, SignerVerdict } from '../core';
 
@@ -106,14 +106,16 @@ export function agentscoreMiddleware(options: Parameters<typeof createAgentScore
 
 /** Wrapper variant of `withAgentScoreGate` that only invokes the gate when a
  *  payment credential is attached. Discovery legs flow through to `handler`
- *  with an empty `gate` arg so the handler emits a 402 with all rails. */
+ *  with an empty `gate` arg so the handler emits a 402 with all rails.
+ *  It also fires on an `X-Verification-Session: create` request with no identity and no payment
+ *  (`requestsVerificationSession`), so a buyer can get a verify_url before paying. */
 export function withConditionalAgentScoreGate<TReq extends Request = Request, TCtx = unknown>(
   options: Parameters<typeof withAgentScoreGate<TReq, TCtx>>[0],
   handler: Parameters<typeof withAgentScoreGate<TReq, TCtx>>[1],
 ): (req: TReq, ctx?: TCtx) => Promise<Response> {
   const wrapped = withAgentScoreGate<TReq, TCtx>(options, handler);
   return async (req: TReq, ctx?: TCtx): Promise<Response> => {
-    if (!hasPaymentHeader(req as unknown as Request)) {
+    if (!shouldRunConditionalGate(req as unknown as Request)) {
       const result = handler(req, {}, ctx);
       return result instanceof Promise ? result : Promise.resolve(result);
     }
@@ -127,7 +129,7 @@ export function withConditionalAgentScoreGate<TReq extends Request = Request, TC
 export function conditionalAgentscoreMiddleware(options: Parameters<typeof createAgentScoreGate>[0]): (req: Request) => Promise<Response | undefined> {
   const guard = createAgentScoreGate(options);
   return async (req: Request) => {
-    if (!hasPaymentHeader(req)) return undefined;
+    if (!shouldRunConditionalGate(req)) return undefined;
     const result = await guard(req);
     return result.allowed ? undefined : result.response;
   };

@@ -74,14 +74,16 @@ const _gate = agentscoreGate({
   // account sign-in (no identity documents) that still yields an operator token.
 });
 
-// Run the gate CONDITIONALLY: only when a payment credential is already attached.
-// Anonymous discovery (no payment header) flows through to the handler so any spec-
-// compliant x402 wallet can read the 402 challenge with rails + pricing without first
-// proving identity. Identity is verified at settle time on the retry leg.
-import { hasPaymentHeader } from "@agent-score/commerce/payment";
+// Run the gate CONDITIONALLY: when a payment credential is attached, or when the buyer asks
+// for a verification session with `X-Verification-Session: create` and no identity. Anonymous
+// discovery flows through to the handler so any spec-compliant x402 wallet can read the 402
+// challenge with rails + pricing without first proving identity; identity is verified at settle
+// time, or earlier on request. Advertise the early path by spreading `buildIdentityBootstrap()`
+// into your 402 body as `identity_bootstrap` (Checkout does this for you).
+import { shouldRunConditionalGate } from "@agent-score/commerce/payment";
 
 app.use("/purchase", async (c, next) => {
-  if (!hasPaymentHeader(c.req.raw)) { await next(); return; }
+  if (!shouldRunConditionalGate(c.req.raw)) { await next(); return; }
   return _gate(c, next);
 });
 

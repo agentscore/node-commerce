@@ -45,7 +45,7 @@ import { type RailKey, buildAgentInstructions } from './challenge/agent_instruct
 import { firstEncounterAgentMemory } from './challenge/agent_memory';
 import { build402Body, type X402ResourceInfo } from './challenge/body';
 import { buildHowToPay } from './challenge/how_to_pay';
-import { type IdentityMetadataBlock, buildIdentityMetadata } from './challenge/identity';
+import { type IdentityMetadataBlock, buildIdentityBootstrap, buildIdentityMetadata } from './challenge/identity';
 import { buildPricingBlock, type PricingBlock } from './challenge/pricing';
 import { respond402 } from './challenge/respond_402';
 import { buildValidationError } from './challenge/validation_error';
@@ -66,7 +66,7 @@ import { lazyMppxServer, lazyX402Server } from './payment/lazy';
 import { classifyMppxFailure } from './payment/mppx_failures';
 import { runWithMppxFailureCapture, type MppxRailSpec } from './payment/mppx_server';
 import { isEvmNetwork, isSolanaNetwork } from './payment/network_kind';
-import { hasMppxHeader, hasX402Header, malformedPaymentCredential } from './payment/payment_header';
+import { hasIdentityHeader, hasMppxHeader, hasX402Header, malformedPaymentCredential, requestsVerificationSession } from './payment/payment_header';
 import {
   resolveRecipient,
   type RecipientLike,
@@ -572,21 +572,6 @@ function stripPaymentHeadersFromRaw(raw: unknown): unknown {
   const auth = headers.get('authorization');
   if (auth !== null && auth.startsWith('Payment ')) headers.delete('authorization');
   return new Request(raw.url, { method: raw.method, headers });
-}
-
-/** Request header that asks an identity-gated Checkout for a verification session without paying
- *  first. The discovery 402 advertises it; a request carrying it and no identity or payment
- *  credential runs the gate, which answers with its session-bearing 403 (verify_url + poll data).
- *  Opt-in so crawlers replaying a valid example body never mint sessions or pending orders. */
-export const VERIFICATION_SESSION_HEADER = 'X-Verification-Session';
-const VERIFICATION_SESSION_VALUE = 'create';
-
-function carriesIdentity(headers: Record<string, string | undefined>): boolean {
-  return Boolean(headers['x-operator-token'] || headers['x-wallet-address'] || hasAgentIdentityHeaderNode(headers));
-}
-
-function requestsVerificationSession(headers: Record<string, string | undefined>): boolean {
-  return headers[VERIFICATION_SESSION_HEADER.toLowerCase()]?.trim().toLowerCase() === VERIFICATION_SESSION_VALUE;
 }
 
 function resolveIdentityMetadata(
@@ -1295,12 +1280,7 @@ export class Checkout {
     //      (dev/testnet pattern).
     const hasPaymentHeader =
       hasX402Header(request.headers) || hasMppxHeader(request.headers);
-    const lowerHeaders = normalizeHeadersToLowercase(request.headers);
-    const bootstrapsSession =
-      !hasPaymentHeader &&
-      this.hasIdentityGate() &&
-      !carriesIdentity(lowerHeaders) &&
-      requestsVerificationSession(lowerHeaders);
+    const bootstrapsSession = this.hasIdentityGate() && requestsVerificationSession(request.headers);
     if (hasPaymentHeader || bootstrapsSession) {
       const denial = this.gate !== undefined
         ? await this.runGate(ctx)
@@ -2155,15 +2135,7 @@ export class Checkout {
     // linked_wallets at discovery instead of at the 403 on retry.
     const identityMetadata = resolveIdentityMetadata(ctx);
     const identityBootstrap =
-      this.hasIdentityGate() && !carriesIdentity(normalizeHeadersToLowercase(ctx.request.headers))
-        ? {
-            header: VERIFICATION_SESSION_HEADER,
-            value: VERIFICATION_SESSION_VALUE,
-            instructions:
-              `This purchase requires a verified identity. Without an operator token, repeat this same request with the header ${VERIFICATION_SESSION_HEADER}: ${VERIFICATION_SESSION_VALUE} and no payment credential. ` +
-              'The response is a 403 carrying verify_url, session_id, poll_secret and poll_url: give verify_url to the buyer, poll poll_url for an operator_token, then pay with X-Operator-Token set.',
-          }
-        : undefined;
+      this.hasIdentityGate() && !hasIdentityHeader(ctx.request.headers) ? buildIdentityBootstrap() : undefined;
 
     // Enrich the declared Bazaar discovery extension with the request method +
     // route so info.input.method (required by the v2 discovery schema) and

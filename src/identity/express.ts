@@ -3,7 +3,7 @@ import { denialReasonToBody } from '../_response';
 import { buildAipErrorBody, evaluateAipParts, type AipGateOptions } from '../aip/gate';
 import { hasAgentIdentityHeaderNode } from '../aip/request';
 import { createAgentScoreCore } from '../core';
-import { hasPaymentHeader } from '../payment/payment_header';
+import { shouldRunConditionalGate } from '../payment/payment_header';
 import { extractPaymentSignerFromAuth } from '../signer';
 import type { VerifiedAit } from '../aip/verify';
 import type {
@@ -198,11 +198,13 @@ export function getSignerVerdict(req: Request): SignerVerdict | undefined {
 /** Wrap `agentscoreGate(...)` so it only fires when a payment credential is
  *  attached to the request. Discovery legs (no payment header) flow through
  *  unauthenticated and the handler emits a 402 with all rails; settle legs
- *  trigger the full gate. */
+ *  trigger the full gate.
+ *  It also fires on an `X-Verification-Session: create` request with no identity and no payment
+ *  (`requestsVerificationSession`), so a buyer can get a verify_url before paying. */
 export function conditionalAgentscoreGate(options: AgentScoreGateOptions) {
   const gate = agentscoreGate(options);
   return async function conditionalGateMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
-    if (!hasPaymentHeader(req.headers as Record<string, string | string[] | undefined>)) {
+    if (!shouldRunConditionalGate(req.headers as Record<string, string | string[] | undefined>)) {
       next();
       return;
     }
