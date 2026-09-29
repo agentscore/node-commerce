@@ -31,6 +31,11 @@ export interface MultichainPaymentIntentResult {
   depositAddresses: Record<string, string>;
 }
 
+// Concurrent creates under one idempotency key collide at Stripe as a resource-specific 429
+// (`stripe-should-retry: false`), so identical requests racing in one process (a crawler replaying
+// the same example body in parallel) share the first call instead of each sending their own.
+const inFlightByIdempotencyKey = new Map<string, Promise<MultichainPaymentIntentResult>>();
+
 /**
  * Create a Stripe PaymentIntent with `deposit_options.networks` set to multiple chains,
  * returning the PI id + deposit addresses per network. The agent sends funds to the
@@ -41,7 +46,21 @@ export interface MultichainPaymentIntentResult {
  * Distinct from the Stripe SPT (Shared Payment Token) flow, which is handled via
  * `createMppxStripe` + the agent's own Stripe account or `link-cli`.
  */
-export async function createMultichainPaymentIntent({
+export function createMultichainPaymentIntent(
+  params: Parameters<typeof createMultichainPaymentIntentOnce>[0],
+): Promise<MultichainPaymentIntentResult> {
+  const key = params.idempotencyKey;
+  if (key === undefined) return createMultichainPaymentIntentOnce(params);
+  const existing = inFlightByIdempotencyKey.get(key);
+  if (existing) return existing;
+  const pending = createMultichainPaymentIntentOnce(params).finally(() => {
+    inFlightByIdempotencyKey.delete(key);
+  });
+  inFlightByIdempotencyKey.set(key, pending);
+  return pending;
+}
+
+async function createMultichainPaymentIntentOnce({
   stripe,
   amount,
   currency = 'usd',
