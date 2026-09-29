@@ -574,6 +574,21 @@ function stripPaymentHeadersFromRaw(raw: unknown): unknown {
   return new Request(raw.url, { method: raw.method, headers });
 }
 
+/** Request header that asks an identity-gated Checkout for a verification session without paying
+ *  first. The discovery 402 advertises it; a request carrying it and no identity or payment
+ *  credential runs the gate, which answers with its session-bearing 403 (verify_url + poll data).
+ *  Opt-in so crawlers replaying a valid example body never mint sessions or pending orders. */
+export const VERIFICATION_SESSION_HEADER = 'X-Verification-Session';
+const VERIFICATION_SESSION_VALUE = 'create';
+
+function carriesIdentity(headers: Record<string, string | undefined>): boolean {
+  return Boolean(headers['x-operator-token'] || headers['x-wallet-address'] || hasAgentIdentityHeaderNode(headers));
+}
+
+function requestsVerificationSession(headers: Record<string, string | undefined>): boolean {
+  return headers[VERIFICATION_SESSION_HEADER.toLowerCase()]?.trim().toLowerCase() === VERIFICATION_SESSION_VALUE;
+}
+
 function resolveIdentityMetadata(
   ctx: CheckoutContext,
 ): IdentityMetadataBlock | undefined {
@@ -1280,7 +1295,13 @@ export class Checkout {
     //      (dev/testnet pattern).
     const hasPaymentHeader =
       hasX402Header(request.headers) || hasMppxHeader(request.headers);
-    if (hasPaymentHeader) {
+    const lowerHeaders = normalizeHeadersToLowercase(request.headers);
+    const bootstrapsSession =
+      !hasPaymentHeader &&
+      this.hasIdentityGate() &&
+      !carriesIdentity(lowerHeaders) &&
+      requestsVerificationSession(lowerHeaders);
+    if (hasPaymentHeader || bootstrapsSession) {
       const denial = this.gate !== undefined
         ? await this.runGate(ctx)
         : await this.runWalletSanctionsOnly(ctx);
@@ -2133,6 +2154,16 @@ export class Checkout {
     // wallet intent. Saves agents a round trip: they learn required_signer +
     // linked_wallets at discovery instead of at the 403 on retry.
     const identityMetadata = resolveIdentityMetadata(ctx);
+    const identityBootstrap =
+      this.hasIdentityGate() && !carriesIdentity(normalizeHeadersToLowercase(ctx.request.headers))
+        ? {
+            header: VERIFICATION_SESSION_HEADER,
+            value: VERIFICATION_SESSION_VALUE,
+            instructions:
+              `This purchase requires a verified identity. Without an operator token, repeat this same request with the header ${VERIFICATION_SESSION_HEADER}: ${VERIFICATION_SESSION_VALUE} and no payment credential. ` +
+              'The response is a 403 carrying verify_url, session_id, poll_secret and poll_url: give verify_url to the buyer, poll poll_url for an operator_token, then pay with X-Operator-Token set.',
+          }
+        : undefined;
 
     // Enrich the declared Bazaar discovery extension with the request method +
     // route so info.input.method (required by the v2 discovery schema) and
@@ -2165,7 +2196,9 @@ export class Checkout {
         ...(this.gate?.aip !== undefined && { aipTrustedIssuers: aipTrustedIssuerSet(this.gate.aip) }),
       }),
       ...(ctx.pricing.product ? { product: ctx.pricing.product as { id: string; name: string } } : {}),
-      ...(ctx.pricing.bodyExtras ? { extra: ctx.pricing.bodyExtras } : {}),
+      ...(ctx.pricing.bodyExtras || identityBootstrap
+        ? { extra: { ...(identityBootstrap && { identity_bootstrap: identityBootstrap }), ...ctx.pricing.bodyExtras } }
+        : {}),
       ...(x402Accepts.length > 0 ? {
         x402: {
           accepts: x402Accepts,

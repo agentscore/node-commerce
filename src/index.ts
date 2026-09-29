@@ -110,6 +110,7 @@ export {
   type ReferenceIdFn,
   type RunGateFn,
   type SettleOutcome,
+  VERIFICATION_SESSION_HEADER,
   buildAipTrustedIssuers,
   getIdentityStatus,
   makeMppxComposeHook,

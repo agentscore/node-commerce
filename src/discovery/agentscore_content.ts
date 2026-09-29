@@ -113,8 +113,9 @@ export function buildAgentscoreOnboardingSteps(opts: {
     'and `agentscore-pay balance` to see which chain has USDC. Skip if your wallet+Passport are already provisioned.';
   const stripeFallbackStep =
     'If your only payment method is a Stripe / Link card (no crypto), install `@stripe/link-cli` ' +
-    'instead of agentscore-pay and use it on the SPT rail. Identity gating still applies: the ' +
-    'merchant\'s 403 with `verify_url` lets you bootstrap a Passport even with no crypto wallet involved.';
+    'instead of agentscore-pay and use it on the SPT rail. Identity gating still applies: send the ' +
+    'purchase request with `X-Verification-Session: create` before minting a token, and the ' +
+    'merchant\'s 403 with `verify_url` bootstraps a Passport even with no crypto wallet involved.';
   const returningUserStep =
     'Returning user note: if you\'ve paid an AgentScore-gated merchant before from this wallet, ' +
     'the wallet is already in your Passport\'s `linked_wallets[]` and identity flows through ' +

@@ -50,7 +50,7 @@ AgentScore identity is reusable across every AgentScore-gated merchant: one KYC,
 
 - **\`X-Wallet-Address: 0x...\` or base58**: works on signing rails (Tempo, x402, Solana MPP). The wallet you claim must sign the payment.
 - **\`X-Operator-Token: opc_...\`**: works on every rail, including Stripe SPT. Reusable across AgentScore merchants until expiry.${aipBullet}
-- **Neither**: you get a 403 with \`verify_url\`. Complete the session flow once and reuse the resulting \`opc_...\` everywhere.${complianceNote}`;
+- **Neither**: send the purchase request with \`X-Verification-Session: create\` and no payment credential, and the 403 carries \`verify_url\`. Complete the session flow once and reuse the resulting \`opc_...\` everywhere.${complianceNote}`;
 }
 
 interface LlmsTxtPaymentSectionConfig {
