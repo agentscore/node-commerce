@@ -386,7 +386,7 @@ export interface CheckoutGateConfig {
   failOpen?: boolean;
   /** How long to cache results in seconds. Default 300. */
   cacheSeconds?: number;
-  /** Optional chain filter for scoring. */
+  /** Optional chain passed to the assess call. */
   chain?: string;
   /** Session-mint config for missing-identity bootstrap. Hooks receive the
    *  CheckoutContext so `getSessionOptions` and `onBeforeSession` can read
