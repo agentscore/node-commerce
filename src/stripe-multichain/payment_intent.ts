@@ -85,7 +85,7 @@ async function createMultichainPaymentIntentOnce({
     {
       amount,
       currency,
-      payment_method_types: ['crypto'],
+      allowed_payment_method_types: ['crypto'],
       payment_method_data: { type: 'crypto' },
       payment_method_options: {
         crypto: {
