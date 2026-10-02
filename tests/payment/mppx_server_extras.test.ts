@@ -54,7 +54,7 @@ describe('createMppxServer — additional rail branches', () => {
       rails: {
         tempo: {
           recipient: '0x0000000000000000000000000000000000000001',
-          token: '0xCustomCurrencyAddress',
+          token: '0x20c0000000000000000000000000000000000abc',
         } as TempoRailSpec,
       },
       secretKey: 'mpp_test_secret_key_padded_to_32_bytes',

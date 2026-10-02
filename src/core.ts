@@ -111,7 +111,7 @@ export interface AgentScoreCoreOptions {
   cacheSeconds?: number;
   /** AgentScore API base URL. Defaults to "https://api.agentscore.com". */
   baseUrl?: string;
-  /** Optional chain to filter scoring to. */
+  /** Optional chain passed to the assess call. */
   chain?: string;
   /** Prepended to the default User-Agent as `"{userAgent} (@agent-score/commerce@{version})"`. Use to attribute API calls to your app. */
   userAgent?: string;

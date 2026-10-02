@@ -27,6 +27,19 @@ describe('createMultichainPaymentIntent', () => {
     expect(callArgs.payment_method_options.crypto.deposit_options.networks).toEqual(['tempo', 'base', 'solana']);
   });
 
+  // Stripe's 2026-09-30.preview API rejects payment_method_types ("no longer supported");
+  // allowed_payment_method_types is accepted on that version and on the earlier previews.
+  it('restricts the intent to crypto with allowed_payment_method_types', async () => {
+    const stripe = fakeStripe({
+      id: 'pi_types',
+      next_action: { crypto_display_details: { deposit_addresses: { base: { address: '0xb' } } } },
+    });
+    await createMultichainPaymentIntent({ stripe, amount: 100 });
+    const params = stripe._create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(params.allowed_payment_method_types).toEqual(['crypto']);
+    expect(params).not.toHaveProperty('payment_method_types');
+  });
+
   it('passes idempotencyKey + metadata through', async () => {
     const stripe = fakeStripe({
       id: 'pi_x',
