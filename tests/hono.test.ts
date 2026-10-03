@@ -625,8 +625,9 @@ describe('Hono adapter: error paths', () => {
 
     const res = await app.request('/test', { headers: { 'x-wallet-address': WALLET } });
     expect(res.status).toBe(503);
-    const body = await res.json() as { error: { code: string }; agent_instructions: string };
+    const body = await res.json() as { error: { code: string; message: string }; agent_instructions: string };
     expect(body.error.code).toBe('api_error');
+    expect(body.error.message).toContain('Retrying will not help');
     const instructions = JSON.parse(body.agent_instructions);
     expect(instructions.action).toBe('contact_merchant');
     expect(instructions.steps[0]).toContain('merchant-side issue');
