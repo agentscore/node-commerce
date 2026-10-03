@@ -46,6 +46,10 @@ export {
   type A2AAgentInterface,
   type A2AAgentProvider,
   type A2AAgentSkill,
+  type A2AAgentCardSkill,
+  type A2ASecurityRequirement,
+  type A2ASupportedInterface,
+  toSecurityRequirements,
 } from './identity/a2a';
 export {
   AGENTSCORE_UCP_CAPABILITY,

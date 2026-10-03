@@ -323,11 +323,11 @@ describe('UCP signing — float canonicalization defense', () => {
 });
 
 describe('UCP signing — additional hardening', () => {
-  it('signUCPProfile throws when kid is not in profile.signing_keys[]', async () => {
+  it('signUCPProfile throws when kid is not in profile.keys[]', async () => {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'real' });
     const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
     await expect(signUCPProfile(profile, { signingKey: privateKey, kid: 'wrong' }))
-      .rejects.toThrow(/not present in profile.signing_keys/);
+      .rejects.toThrow(/not present in profile.keys/);
   });
 
   it('verifyUCPProfile rejects malformed JWKS shape (missing keys array)', async () => {

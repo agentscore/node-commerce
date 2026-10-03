@@ -152,7 +152,6 @@ const checkout = new Checkout({
 // directly inside the route handler.)
 checkout.mountUcpRoutesHono(app, {
   name: "Merchant",
-  wellKnownUcpUrl: "https://merchant.example/.well-known/ucp",
   services: defaultA2aServices({ agentCardUrl: "https://merchant.example/.well-known/agent-card.json" }),
   signingKid: "merchant-2026-05",
 });
@@ -297,14 +296,14 @@ const card = buildA2AAgentCard({
 
 // Google Universal Commerce Protocol; publish at /.well-known/ucp
 // Output shape: { ucp: { version, services, capabilities, payment_handlers,
-// name?, supported_versions? }, signing_keys: [...], signature?: "..." }
+// name?, supported_versions? }, keys: [...], signature?: "..." }
 //, services / capabilities / payment_handlers are MAPS keyed by reverse-DNS
 // service / capability / handler name (UCP spec §3 + §6).
 const profile = buildUCPProfile({
   name,
   services: {
     'dev.ucp.shopping': [
-      { version: '2026-04-08', spec: 'https://ucp.dev/2026-04-08/specification/overview',
+      { version: '2026-08-25', spec: 'https://ucp.dev/2026-08-25/specification/overview',
         transport: 'mcp', endpoint: 'https://merchant.example/api/ucp/mcp',
         schema: 'https://ucp.dev/services/shopping/mcp.openrpc.json' },
     ],
@@ -314,7 +313,7 @@ const profile = buildUCPProfile({
     ...x402PaymentHandler({ networks: [{ network: 'base-8453', recipient: BASE_ADDR }] }),
     ...stripeSptPaymentHandler({ spec: { profileId: 'profile_5xKvNqM9BaH' } }),
   },
-  signing_keys,
+  keys,
   // Optional: declare the merchant's gate policy as an `com.agentscore.identity` capability
   // binding inside the public profile. Static policy declaration only, no per-operator data.
   // Per-operator identity attestation lives on the AP2 risk-signal endpoint, not here.
@@ -328,7 +327,7 @@ UCP §6 doesn't mandate profile-body JWS signing; production UCP merchants commo
 import { buildJWKSResponse, generateUCPSigningKey, signUCPProfile, verifyUCPProfile, UCPVerificationError } from "@agent-score/commerce";
 
 const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: "merchant-2026-05" });
-const profile = buildUCPProfile({ name, services, payment_handlers, signing_keys: [publicJWK] });
+const profile = buildUCPProfile({ name, services, payment_handlers, keys: [publicJWK] });
 const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: publicJWK.kid, alg: "EdDSA" });
 const jwks = buildJWKSResponse([publicJWK]);
 ```

@@ -45,7 +45,8 @@ import type {
 
 const UCP_CACHE_SECONDS = 60;
 const JWKS_CACHE_SECONDS = 300;
-const UCP_SHOPPING_SPEC_2026_04_08 = 'https://ucp.dev/2026-04-08/specification/overview';
+const UCP_VERSION = '2026-08-25';
+const UCP_SHOPPING_SPEC = `https://ucp.dev/${UCP_VERSION}/specification/overview`;
 
 /**
  * Framework-neutral response shape for discovery endpoints.
@@ -175,13 +176,15 @@ function misconfiguredResponse(
  * Cache-Control) when no payment handlers can be derived from rails.
  *
  * `services` is the spec-compliant services map (keyed by reverse-DNS service
- * name). `wellKnownUcpUrl` is the canonical URL of this profile, surfaced as
- * the value in `supported_versions`.
+ * name). The profile publishes only the current UCP version: `supported_versions`
+ * maps OLDER versions to complete profiles for them, and this serves none.
  */
 export async function buildSignedUcpResponse(opts: {
   checkout: Checkout;
   name: string;
-  wellKnownUcpUrl: string;
+  /** @deprecated No longer published: it fed `supported_versions`, which UCP reserves for
+   *  older versions' own profiles. Accepted so existing callers keep compiling. */
+  wellKnownUcpUrl?: string;
   services: Record<string, UCPServiceBinding[]>;
   requestHeaders?: Headers | Record<string, string>;
   signingKid?: string;
@@ -190,7 +193,6 @@ export async function buildSignedUcpResponse(opts: {
   const {
     checkout,
     name,
-    wellKnownUcpUrl,
     services,
     requestHeaders,
     signingKid = 'merchant-default',
@@ -207,11 +209,10 @@ export async function buildSignedUcpResponse(opts: {
 
   const profile = buildUCPProfile({
     name,
-    supported_versions: { '2026-04-08': wellKnownUcpUrl },
     agentscore_gate: agentscoreGate,
     services,
     payment_handlers: handlers,
-    signing_keys: [signingKeyEntry],
+    keys: [signingKeyEntry],
   });
   const signed = await signUCPProfile(profile, {
     signingKey: key.privateKey,
@@ -301,7 +302,7 @@ export function wellKnownPreflightResponse(
 /**
  * Canonical UCP services map for a merchant publishing an A2A agent card.
  *
- * Returns `{"dev.ucp.shopping": [UCPServiceBinding(version: '2026-04-08',
+ * Returns `{"dev.ucp.shopping": [UCPServiceBinding(version: '2026-08-25',
  * spec: <UCP shopping spec>, transport: 'a2a', endpoint: agentCardUrl)]}`;
  * the binding every UCP-publishing merchant declares when their primary agent
  * surface is the A2A v1.0 `/.well-known/agent-card.json` (versus a UCP MCP or
@@ -316,8 +317,8 @@ export function defaultA2aServices(opts: {
   return {
     'dev.ucp.shopping': [
       {
-        version: '2026-04-08',
-        spec: UCP_SHOPPING_SPEC_2026_04_08,
+        version: UCP_VERSION,
+        spec: UCP_SHOPPING_SPEC,
         transport: 'a2a',
         endpoint: opts.agentCardUrl,
       },

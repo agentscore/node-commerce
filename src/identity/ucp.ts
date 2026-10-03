@@ -2,7 +2,7 @@
  * UCP (Universal Commerce Protocol) profile builder.
  *
  * Compose the JSON payload published at `/.well-known/ucp` per the UCP spec.
- * Output shape matches the spec example: top-level `{ ucp: {...}, signing_keys: [...] }`
+ * Output shape matches the spec example: top-level `{ ucp: {...}, keys: [...] }`
  * envelope, with `services` / `capabilities` / `payment_handlers` as MAPs keyed by
  * reverse-DNS service / capability / handler name.
  *
@@ -182,13 +182,14 @@ export interface UCPProfileBody {
 }
 
 /** Full UCP profile body as published at `/.well-known/ucp`. Top-level shape:
- *  `{ ucp: {...}, signing_keys: [...], signature?: "..." }`. */
+ *  `{ ucp: {...}, keys: [...], signature?: "..." }`. */
 export interface UCPProfile {
   /** UCP body. ALL UCP-spec fields nest here per spec. */
   ucp: UCPProfileBody;
-  /** JWKS — public keys at the OUTER level per UCP spec. Verifiers fetch this profile,
+  /** The profile's signing keys as a JWK Set, at the OUTER level. UCP 2026-08-25 made
+   *  `keys` the one canonical field and removed `signing_keys`. Verifiers fetch this profile,
    *  match the kid from a JWS / RFC 9421 signature header against this list, and validate. */
-  signing_keys: UCPSigningKey[];
+  keys: UCPSigningKey[];
   /** Set when JWS-signed via `signUCPProfile` — JWS Compact Serialization with detached
    *  payload (header..signature; payload is the canonicalized body minus this field). */
   signature?: string;
@@ -197,7 +198,7 @@ export interface UCPProfile {
 }
 
 interface BuildUCPProfileInput {
-  /** UCP spec version. Default `'2026-04-08'` (the latest published UCP spec date). MUST match a published UCP spec version, not a free-form date. */
+  /** UCP spec version. Default `'2026-08-25'` (the latest published UCP spec date). MUST match a published UCP spec version, not a free-form date. */
   version?: string;
   /** Display name for the merchant / agent surface. */
   name?: string;
@@ -209,8 +210,11 @@ interface BuildUCPProfileInput {
   capabilities?: Record<string, UCPCapabilityBinding[]>;
   /** Payment handlers map, keyed by handler reverse-DNS name. */
   payment_handlers?: Record<string, UCPPaymentHandlerBinding[]>;
-  /** JWKS — public keys the merchant signs with. REQUIRED by spec. */
-  signing_keys: UCPSigningKey[];
+  /** Public keys the merchant signs with, published as the profile's `keys`. One of
+   *  `keys` or the older `signing_keys` is required. */
+  keys?: UCPSigningKey[];
+  /** @deprecated The name UCP used before 2026-08-25; accepted and published as `keys`. */
+  signing_keys?: UCPSigningKey[];
   /** Merchant gate policy declaration. When provided, the SDK auto-injects an
    *  `com.agentscore.identity` capability binding into `capabilities`, with the
    *  policy as the binding's `config`. Static merchant declaration only — no
@@ -225,13 +229,13 @@ interface BuildUCPProfileInput {
   /** `supported_versions` map at the profile root for backwards-compat across
    *  spec dates. Pattern: `{ "<date>": "<base>/.well-known/ucp/<date>" }`. */
   supported_versions?: Record<string, string>;
-  /** Vendor-specific extras at the OUTER level (alongside `ucp` + `signing_keys`). */
+  /** Vendor-specific extras at the OUTER level (alongside `ucp` + `keys`). */
   extras?: Record<string, unknown>;
   /** Vendor-specific extras INSIDE the `ucp` envelope (alongside `version`, `services`, etc.). */
   ucp_extras?: Record<string, unknown>;
 }
 
-const DEFAULT_VERSION = '2026-04-08';
+const DEFAULT_VERSION = '2026-08-25';
 // Reverse-DNS namespacing per UCP convention (`^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9_]*)+$`).
 // The bare `agentscore-identity` form fails the spec regex; vendor-namespacing under
 // `com.agentscore` is honest about the capability being our extension, not UCP-canonical.
@@ -269,6 +273,7 @@ const AGENTSCORE_EXTENDS = ['dev.ucp.shopping.checkout', 'dev.ucp.shopping.cart'
 
 const RESERVED_TOP_LEVEL = new Set([
   'ucp',
+  'keys',
   'signing_keys',
   'signature',
   '__proto__',
@@ -290,7 +295,7 @@ const RESERVED_UCP_FIELDS = new Set([
 /**
  * Compose a UCP profile body for `/.well-known/ucp` publication. Returns the spec-
  * compliant shape: `{ ucp: { version, services, capabilities, payment_handlers, ... },
- * signing_keys: [...] }`. Pass through `signUCPProfile` to attach a JWS signature for
+ * keys: [...] }`. Pass through `signUCPProfile` to attach a JWS signature for
  * trust-mode verifiers.
  *
  * Auto-injects `com.agentscore.identity` as a vendor capability extending both
@@ -309,7 +314,7 @@ const RESERVED_UCP_FIELDS = new Set([
  *   name: 'Example Merchant',
  *   services: {
  *     'dev.ucp.shopping': [
- *       { version: '2026-04-08', spec: 'https://ucp.dev/2026-04-08/specification/overview',
+ *       { version: '2026-08-25', spec: 'https://ucp.dev/2026-08-25/specification/overview',
  *         transport: 'mcp', endpoint: 'https://merchant.example/api/ucp/mcp',
  *         schema: 'https://ucp.dev/services/shopping/mcp.openrpc.json' },
  *     ],
@@ -317,7 +322,7 @@ const RESERVED_UCP_FIELDS = new Set([
  *   payment_handlers: {
  *     ...mppPaymentHandler({ networks: [{ network: 'tempo-mainnet', chain_id: 4217, recipient: TEMPO_ADDR }] }),
  *   },
- *   signing_keys: [signingKey],
+ *   keys: [signingKey],
  *   agentscore_gate: { require_kyc: true, min_age: 21, allowed_jurisdictions: ['US'] },
  * });
  * ```
@@ -396,10 +401,9 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
     Object.assign(ucp, input.ucp_extras);
   }
 
-  const profile: UCPProfile = {
-    ucp,
-    signing_keys: input.signing_keys,
-  };
+  const keys = input.keys ?? input.signing_keys;
+  if (!keys) throw new Error('buildUCPProfile: `keys` is required (the public keys the profile is signed with).');
+  const profile: UCPProfile = { ucp, keys };
   if (input.extras) {
     // `__proto__`, `constructor`, `prototype` reserved so vendor extras can't slip
     // prototype-pollution payloads into the canonical body.
