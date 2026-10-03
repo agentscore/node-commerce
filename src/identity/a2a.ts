@@ -1,10 +1,10 @@
 /**
- * Google A2A (Agent-to-Agent) v1.0 Agent Card builder.
+ * A2A (Agent-to-Agent) v1.0 Agent Card builder.
  *
  * Compose the JSON payload for an A2A v1.0 Agent Card matching the canonical
- * `AgentCard` type from `@a2a-js/sdk`. Returned object is the unsigned card body:
- * wrap with an `A2AAgentCardSignature` (RFC 7515 JWS) to sign vendor-side before
- * publishing at /.well-known/agent-card.json.
+ * `AgentCard` type from `@a2a-js/sdk`. Returned object is the unsigned card body; to sign
+ * it vendor-side, attach `A2AAgentCardSignature` entries (RFC 7515 JWS) as `signatures`
+ * before publishing at /.well-known/agent-card.json.
  *
  * Why publish: A2A is a Linux Foundation standard. Agent Cards let any
  * A2A-compatible reader discover an agent's capabilities + protocol bindings without
