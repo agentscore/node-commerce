@@ -25,12 +25,12 @@ import type { UCPProfile, UCPSigningKey } from './ucp';
 
 /** Output of `generateUCPSigningKey()`. The private key is what you sign with; the
  *  public JWK is what you publish at `/.well-known/jwks.json` and reference in the
- *  UCP profile's `signing_keys[]`.
+ *  UCP profile's `keys[]`.
  */
 export interface GeneratedUCPKey {
   /** Private key (KeyLike, opaque) — pass to `signUCPProfile()`. Never publish. */
   privateKey: unknown;
-  /** Public key as JWK — publish at `/.well-known/jwks.json` and inline in UCP `signing_keys[]`. */
+  /** Public key as JWK: publish at `/.well-known/jwks.json` and inline in UCP `keys[]`. */
   publicJWK: UCPSigningKey;
 }
 
@@ -53,7 +53,7 @@ const JOSE_INSTALL_HINT = 'Install the optional peer dependency: `npm install jo
 
 /** UCP §6 + RFC 8725 §3.1 — restrict accepted JWS algorithms. Anything outside this
  *  list (HS, RS, none, etc.) is rejected to prevent alg-confusion attacks where a
- *  hostile JWK published in the profile's signing_keys[] is used with an unintended
+ *  hostile JWK published in the profile's keys[] is used with an unintended
  *  algorithm. */
 const ALLOWED_ALGS = ['EdDSA', 'ES256'] as const;
 type AllowedAlg = (typeof ALLOWED_ALGS)[number];
@@ -212,7 +212,7 @@ function stableStringify(value: unknown): string {
  * `signUCPProfile()`. Never log or transmit the private key.
  *
  * The `publicJWK` is what you publish at `/.well-known/jwks.json` and inline in the
- * UCP profile's `signing_keys[]` array.
+ * UCP profile's `keys[]` array.
  *
  * Example:
  * ```ts
@@ -224,7 +224,7 @@ function stableStringify(value: unknown): string {
  * ```
  */
 export async function generateUCPSigningKey(opts: {
-  /** Key ID (kid). Must be unique per key; you'll reference this in the UCP profile's `signing_keys[]`. */
+  /** Key ID (kid). Must be unique per key; you'll reference this in the UCP profile's `keys[]`. */
   kid: string;
   /** Signing algorithm. Default `EdDSA`. */
   alg?: 'EdDSA' | 'ES256';
@@ -251,13 +251,13 @@ export async function generateUCPSigningKey(opts: {
  * itself, with keys sorted at every level). Trust-mode UCP verifiers reconstruct the
  * canonical body, look up the key referenced by the JWS header's `kid`, and validate.
  *
- * The profile's `signing_keys[]` MUST already include a JWK with the matching `kid`
+ * The profile's `keys[]` MUST already include a JWK with the matching `kid`
  * — otherwise verifiers can't find the public key. Add the `publicJWK` from
- * `generateUCPSigningKey()` to your `signing_keys[]` before calling this.
+ * `generateUCPSigningKey()` to your `keys[]` before calling this.
  *
  * Example:
  * ```ts
- * const profile = buildUCPProfile({ ..., signing_keys: [publicJWK] });
+ * const profile = buildUCPProfile({ ..., keys: [publicJWK] });
  * const signed = await signUCPProfile(profile, { signingKey: privateKey, kid: 'merchant-2026-05' });
  * c.json(signed);
  * ```
@@ -271,7 +271,7 @@ export async function signUCPProfile(
   }: {
     /** Private signing key — opaque KeyLike from `generateUCPSigningKey()` or `importJWK()`. */
     signingKey: unknown;
-    /** Key ID (must match a `kid` in the profile's `signing_keys[]`). */
+    /** Key ID (must match a `kid` in the profile's `keys[]`). */
     kid: string;
     /** Signing algorithm — `EdDSA` (default) or `ES256`. */
     alg?: 'EdDSA' | 'ES256';
@@ -285,17 +285,17 @@ export async function signUCPProfile(
     );
   }
 
-  // Sign-time kid sanity check: the profile's `signing_keys[]` MUST contain a
+  // Sign-time kid sanity check: the profile's `keys[]` MUST contain a
   // JWK with the matching kid; otherwise verifiers can't resolve the public
   // key and the profile is dead-on-arrival. Catch this at sign-time rather
   // than at verifier-time in production.
   if (typeof kid !== 'string' || !kid) {
     throw new Error('signUCPProfile: kid must be a non-empty string.');
   }
-  const kids = (profile.signing_keys ?? []).map((k) => (k as Record<string, unknown>).kid);
+  const kids = ((profile.keys ?? profile.signing_keys ?? []) as unknown[]).map((k) => (k as Record<string, unknown>).kid);
   if (!kids.includes(kid)) {
     throw new Error(
-      `signUCPProfile: kid ${JSON.stringify(kid)} is not present in profile.signing_keys[] (declared kids: ${JSON.stringify(kids)}). Verifiers will not find the key.`,
+      `signUCPProfile: kid ${JSON.stringify(kid)} is not present in profile.keys[] (declared kids: ${JSON.stringify(kids)}). Verifiers will not find the key.`,
     );
   }
 

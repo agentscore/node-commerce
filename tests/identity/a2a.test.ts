@@ -58,15 +58,21 @@ describe('buildA2AAgentCard (A2A v1.0 wire format)', () => {
     });
     expect(card.name).toBe('Example Merchant');
     expect(card.description).toBe('Buy regulated goods via agent payments.');
-    expect(card.url).toBe('https://agents.example.com');
-    expect(card.preferredTransport).toBe('HTTP+JSON');
-    expect(card.protocolVersion).toBe('1.0');
+    expect(card.supportedInterfaces).toEqual([{ url: 'https://agents.example.com', protocolBinding: 'HTTP+JSON', protocolVersion: '1.0' }]);
     expect(card.version).toBe('1.0.0');
     expect(card.capabilities).toEqual({});
     expect(card.defaultInputModes).toEqual(['application/json']);
     expect(card.defaultOutputModes).toEqual(['application/json']);
     expect(card.skills).toHaveLength(1);
-    expect(card.additionalInterfaces).toBeUndefined();
+  });
+
+  it('carries none of the 0.3 top-level fields A2A 1.0 removed', () => {
+    const card = buildA2AAgentCard({
+      name: 'X', description: 'y', url: 'https://x.example', skills: [DEFAULT_SKILL], extendedAgentCard: true, security: [{ bearer: [] }],
+    }) as Record<string, unknown>;
+    for (const gone of ['url', 'preferredTransport', 'protocolVersion', 'additionalInterfaces', 'supportsAuthenticatedExtendedCard', 'security']) {
+      expect(card[gone], gone).toBeUndefined();
+    }
   });
 
   it('does NOT emit any snake_case keys (canonical wire format is camelCase)', () => {
@@ -139,11 +145,11 @@ describe('buildA2AAgentCard (A2A v1.0 wire format)', () => {
       skills: [DEFAULT_SKILL],
       streaming: true,
       pushNotifications: false,
-      stateTransitionHistory: true,
+      extendedAgentCard: true,
     });
     expect(card.capabilities.streaming).toBe(true);
     expect(card.capabilities.pushNotifications).toBe(false);
-    expect(card.capabilities.stateTransitionHistory).toBe(true);
+    expect(card.capabilities.extendedAgentCard).toBe(true);
   });
 
   it('capability flags omitted when unset', () => {
@@ -152,19 +158,19 @@ describe('buildA2AAgentCard (A2A v1.0 wire format)', () => {
     });
     expect(card.capabilities.streaming).toBeUndefined();
     expect(card.capabilities.pushNotifications).toBeUndefined();
-    expect(card.capabilities.stateTransitionHistory).toBeUndefined();
+    expect(card.capabilities.extendedAgentCard).toBeUndefined();
   });
 
-  it('supportsAuthenticatedExtendedCard lives at AgentCard top level, NOT inside capabilities', () => {
+  it('the extended-card flag lives inside capabilities in 1.0, not at the card top level', () => {
     const card = buildA2AAgentCard({
       name: 'X',
       description: 'y',
       url: 'https://x.example',
       skills: [DEFAULT_SKILL],
-      supportsAuthenticatedExtendedCard: true,
+      extendedAgentCard: true,
     });
-    expect(card.supportsAuthenticatedExtendedCard).toBe(true);
-    expect((card.capabilities as Record<string, unknown>).supportsAuthenticatedExtendedCard).toBeUndefined();
+    expect(card.capabilities.extendedAgentCard).toBe(true);
+    expect((card as Record<string, unknown>).supportsAuthenticatedExtendedCard).toBeUndefined();
   });
 
   it('provider emitted when set', () => {
@@ -236,7 +242,7 @@ describe('buildA2AAgentCard (A2A v1.0 wire format)', () => {
     expect(card.defaultOutputModes).toEqual(['text/plain']);
   });
 
-  it('preferredTransport overridable on the AgentCard top level', () => {
+  it('preferredTransport sets the first interface\'s binding', () => {
     const card = buildA2AAgentCard({
       name: 'X',
       description: 'y',
@@ -245,7 +251,7 @@ describe('buildA2AAgentCard (A2A v1.0 wire format)', () => {
       preferredTransport: 'GRPC',
       protocolVersion: '1.0',
     });
-    expect(card.preferredTransport).toBe('GRPC');
+    expect(card.supportedInterfaces[0]).toEqual({ url: 'https://x.example', protocolBinding: 'GRPC', protocolVersion: '1.0' });
   });
 
   it('additionalInterfaces emitted when set (multi-binding agents)', () => {
@@ -260,7 +266,11 @@ describe('buildA2AAgentCard (A2A v1.0 wire format)', () => {
       skills: [DEFAULT_SKILL],
       additionalInterfaces: ifaces,
     });
-    expect(card.additionalInterfaces).toEqual(ifaces);
+    expect(card.supportedInterfaces).toEqual([
+      { url: 'https://x.example', protocolBinding: 'HTTP+JSON', protocolVersion: '1.0' },
+      { url: 'https://x.example/grpc', protocolBinding: 'GRPC', protocolVersion: '1.0' },
+      { url: 'https://x.example/jsonrpc', protocolBinding: 'JSONRPC', protocolVersion: '1.0' },
+    ]);
   });
 
   it('additionalInterfaces omitted when empty', () => {
@@ -271,7 +281,7 @@ describe('buildA2AAgentCard (A2A v1.0 wire format)', () => {
       skills: [DEFAULT_SKILL],
       additionalInterfaces: [],
     });
-    expect(card.additionalInterfaces).toBeUndefined();
+    expect(card.supportedInterfaces).toHaveLength(1);
   });
 
   it('skills carry optional inputModes / outputModes / examples / security', () => {
@@ -290,7 +300,8 @@ describe('buildA2AAgentCard (A2A v1.0 wire format)', () => {
     });
     expect(card.skills[0]?.inputModes).toEqual(['application/json']);
     expect(card.skills[0]?.outputModes).toEqual(['text/plain']);
-    expect(card.skills[0]?.security).toEqual([{ bearer: [] }]);
+    expect(card.skills[0]?.securityRequirements).toEqual([{ schemes: { bearer: { list: [] } } }]);
+    expect((card.skills[0] as Record<string, unknown>).security).toBeUndefined();
   });
 
   it('extras merge at top level', () => {
@@ -313,7 +324,7 @@ describe('buildA2AAgentCard (A2A v1.0 wire format)', () => {
       security: [{ bearer: [] }],
       securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } },
     });
-    expect(card.security).toEqual([{ bearer: [] }]);
+    expect(card.securityRequirements).toEqual([{ schemes: { bearer: { list: [] } } }]);
     expect(card.securitySchemes).toEqual({ bearer: { type: 'http', scheme: 'bearer' } });
   });
 });
@@ -352,8 +363,8 @@ describe('A2AAgentCardSignature shape', () => {
 });
 
 describe('UCP A2A extension helper', () => {
-  it('exports the canonical UCP A2A extension URI pinned to 2026-04-08', () => {
-    expect(UCP_A2A_EXTENSION_URI).toBe('https://ucp.dev/2026-04-08/specification/reference');
+  it('exports the canonical UCP A2A extension URI pinned to 2026-08-25', () => {
+    expect(UCP_A2A_EXTENSION_URI).toBe('https://ucp.dev/2026-08-25/specification/reference');
   });
 
   it('exports A2A protocol version + default transport', () => {

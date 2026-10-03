@@ -757,7 +757,7 @@ describe('defaultA2aServices', () => {
     const services = defaultA2aServices({ agentCardUrl: 'https://x/.well-known/agent-card.json' });
     expect(services['dev.ucp.shopping']).toBeDefined();
     expect(services['dev.ucp.shopping'][0]).toMatchObject({
-      version: '2026-04-08',
+      version: '2026-08-25',
       transport: 'a2a',
       endpoint: 'https://x/.well-known/agent-card.json',
     });
@@ -1030,6 +1030,31 @@ describe('xPaymentInfoFromCheckout', () => {
     expect(protocols.some((p) => 'mpp' in p && p.mpp.method === 'stripe')).toBe(true);
     expect(protocols.some((p) => 'x402' in p)).toBe(true);
     expect(protocols.some((p) => 'mpp' in p && p.mpp.method === 'solana')).toBe(true);
+  });
+
+  it('also carries MPP offers, each priced in its rail\'s smallest unit, so an MPP client can read it', async () => {
+    const { xPaymentInfoFromCheckout } = await import('../src/discovery/openapi');
+    const checkout = {
+      rails: {
+        tempo: { recipient: RECIPIENT, network: 'tempo-mainnet', token: '0xtokenT' },
+        base: { recipient: RECIPIENT, network: 'eip155:8453', token: 'USDC' },
+        stripe: { profileId: 'profile_abc' },
+        solana: { recipient: 'SoLaNaReCiPiEnT', network: 'solana:5eykt4', token: 'SoLaNaMiNt' },
+      },
+    };
+    const fixed = xPaymentInfoFromCheckout({ checkout, price: { mode: 'fixed', currency: 'USD', amount: '1.25' } })['x-payment-info'];
+    // x402 has no MPP offer; the token rails are 6-decimal USDC, Stripe is cents.
+    expect(fixed.offers).toEqual([
+      { intent: 'charge', method: 'tempo', amount: '1250000', currency: '0xtokenT' },
+      { intent: 'charge', method: 'stripe', amount: '125', currency: 'usd' },
+      { intent: 'charge', method: 'solana', amount: '1250000', currency: 'SoLaNaMiNt' },
+    ]);
+    // x402scan still reads its own keys from the same object.
+    expect(fixed.price).toEqual({ mode: 'fixed', currency: 'USD', amount: '1.25' });
+    expect(fixed.protocols.some((p) => 'x402' in p)).toBe(true);
+
+    const dynamic = xPaymentInfoFromCheckout({ checkout, price: { mode: 'dynamic', currency: 'USD', min: '0.01', max: '1.00' } })['x-payment-info'];
+    expect(dynamic.offers?.every((o) => o.amount === null)).toBe(true);
   });
 });
 

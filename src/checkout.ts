@@ -2647,7 +2647,9 @@ interface FastifyLikeReply {
  *  (GET ucp + GET jwks + OPTIONS preflights) every time. */
 export interface MountUcpRoutesOptions {
   name: string;
-  wellKnownUcpUrl: string;
+  /** @deprecated No longer published (it fed `supported_versions`, which UCP reserves for
+   *  older versions' own profiles). Accepted so existing callers keep compiling. */
+  wellKnownUcpUrl?: string;
   services: Record<string, unknown[]>;
   signingKid?: string;
   agentscoreGate?: unknown;
@@ -2664,7 +2666,6 @@ async function _ucpSignedResp(
   return await buildSignedUcpResponse({
     checkout,
     name: opts.name,
-    wellKnownUcpUrl: opts.wellKnownUcpUrl,
     services: opts.services as Parameters<typeof buildSignedUcpResponse>[0]['services'],
     requestHeaders: reqHeaders,
     ...(opts.signingKid !== undefined && { signingKid: opts.signingKid }),

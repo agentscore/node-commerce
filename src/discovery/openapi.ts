@@ -7,6 +7,8 @@
  * full spec.
  */
 
+import { usdToAtomic } from '../payment/amounts';
+
 /**
  * Standard AgentScore identity security schemes. Plug into `components.securitySchemes`.
  *
@@ -203,30 +205,74 @@ export interface XPaymentInfoMppProtocol {
 
 export type XPaymentInfoProtocol = XPaymentInfoX402Protocol | XPaymentInfoMppProtocol;
 
+/**
+ * One way to pay for an operation, in MPP's payment-discovery form
+ * (`draft-payment-discovery`): `amount` is an integer string in the currency's
+ * smallest unit, or `null` when the price depends on the request.
+ */
+export interface XPaymentInfoOffer {
+  intent: 'charge' | 'session';
+  method: string;
+  amount: string | null;
+  currency?: string;
+  description?: string;
+}
+
+/**
+ * Carries both readers' shapes in one object, because MPP and x402scan define the
+ * same `x-payment-info` extension differently and neither reads the other's keys:
+ * x402scan reads `price` + `protocols`, MPP reads `offers`.
+ */
 export interface XPaymentInfoBlock {
   authMode: 'payment';
   price: XPaymentInfoPrice;
   protocols: XPaymentInfoProtocol[];
+  offers?: XPaymentInfoOffer[];
   description?: string;
 }
 
 export function xPaymentInfoExtension({
   price,
   protocols,
+  offers,
   description,
 }: {
   price: XPaymentInfoPrice;
   protocols: XPaymentInfoProtocol[];
+  /** MPP payment offers. Defaults to one per MPP protocol entry, priced from `price`. */
+  offers?: XPaymentInfoOffer[];
   description?: string;
 }): { 'x-payment-info': XPaymentInfoBlock } {
+  const derived = offers ?? offersFrom(price, protocols);
   return {
     'x-payment-info': {
       authMode: 'payment',
       price,
       protocols,
+      ...(derived.length > 0 && { offers: derived }),
       ...(description !== undefined && { description }),
     },
   };
+}
+
+/**
+ * MPP offers for the MPP entries in `protocols`, priced in each method's smallest unit
+ * the way the 402 challenge prices it: Stripe in cents, the token rails (Tempo USDC.e,
+ * Solana USDC) in 6-decimal base units. x402 entries have no MPP offer; a dynamic price
+ * is `null`, which MPP defines as "depends on the request".
+ */
+export function offersFrom(price: XPaymentInfoPrice, protocols: XPaymentInfoProtocol[]): XPaymentInfoOffer[] {
+  const offers: XPaymentInfoOffer[] = [];
+  for (const p of protocols) {
+    if (!('mpp' in p)) continue;
+    const [method, slashIntent] = p.mpp.method.split('/');
+    const intent = (slashIntent ?? p.mpp.intent) === 'session' ? 'session' : 'charge';
+    const currency = typeof p.mpp.currency === 'string' ? p.mpp.currency : undefined;
+    const decimals = method === 'stripe' ? 2 : 6;
+    const amount = price.mode === 'fixed' && price.currency.toUpperCase() === 'USD' ? usdToAtomic(price.amount, { decimals }).toString() : null;
+    offers.push({ intent, method: method!, amount, ...(currency !== undefined && { currency }) });
+  }
+  return offers;
 }
 
 /**

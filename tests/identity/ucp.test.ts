@@ -26,10 +26,12 @@ const agentscoreCap = (profile: ReturnType<typeof buildUCPProfile>): UCPCapabili
 };
 
 describe('buildUCPProfile (spec-compliant shape)', () => {
-  it('emits the spec envelope with `ucp` body + outer `signing_keys`', () => {
+  it('emits the spec envelope with `ucp` body + outer `keys` (UCP 2026-08-25)', () => {
     const profile = buildUCPProfile(baseInput);
     expect(profile.ucp).toBeDefined();
-    expect(profile.signing_keys).toEqual(baseInput.signing_keys);
+    expect(profile.keys).toEqual(baseInput.signing_keys);
+    expect((profile as Record<string, unknown>).signing_keys).toBeUndefined();
+    expect(profile.ucp.version).toBe('2026-08-25');
     expect(profile.ucp.version).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(profile.ucp.services).toEqual(baseInput.services);
     expect(profile.ucp.capabilities).toEqual({});
@@ -170,6 +172,12 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     expect(agentscoreCap(profile)?.spec).toBe('https://custom.example/spec');
   });
 
+  it('takes `keys` directly, and refuses a profile with no keys at all', () => {
+    const { signing_keys: k, ...rest } = baseInput;
+    expect(buildUCPProfile({ ...rest, keys: k }).keys).toEqual(k);
+    expect(() => buildUCPProfile(rest)).toThrow(/`keys` is required/);
+  });
+
   it('emits supported_versions map under ucp body when supplied', () => {
     const profile = buildUCPProfile({
       ...baseInput,
@@ -181,7 +189,7 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     expect(profile.ucp.supported_versions?.['2026-04-08']).toContain('/2026-04-08');
   });
 
-  it.each([['ucp'], ['signing_keys'], ['signature'], ['__proto__'], ['constructor'], ['prototype']])(
+  it.each([['ucp'], ['keys'], ['signing_keys'], ['signature'], ['__proto__'], ['constructor'], ['prototype']])(
     'rejects extras key "%s" as a reserved top-level collision',
     (k) => {
       expect(() => buildUCPProfile({ ...baseInput, extras: { [k]: 'attacker' } })).toThrow(

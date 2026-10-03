@@ -23,8 +23,8 @@ const DEFAULT_OUTPUT_MODE = 'application/json';
 
 /** Canonical UCP A2A extension URI — verifiers look for this exact URI in
  *  `capabilities.extensions[]` to detect UCP support on the agent card. Pinned
- *  to the 2026-04-08 spec snapshot. */
-export const UCP_A2A_EXTENSION_URI = 'https://ucp.dev/2026-04-08/specification/reference';
+ *  to the 2026-08-25 spec snapshot. */
+export const UCP_A2A_EXTENSION_URI = 'https://ucp.dev/2026-08-25/specification/reference';
 
 /** Canonical URI for the AIP (Agentic Identity Protocol) A2A agent-card extension — points at the
  *  issuer-discovery well-known so a reader can resolve the protocol. */
@@ -126,12 +126,28 @@ export function aipA2AExtension(
   };
 }
 
-/** Optional capabilities the agent supports. */
+/** Optional capabilities the agent supports (A2A 1.0 `AgentCapabilities`). */
 export interface A2AAgentCardCapabilities {
   extensions?: A2AAgentCardExtension[];
   pushNotifications?: boolean;
-  stateTransitionHistory?: boolean;
   streaming?: boolean;
+  /** The agent serves an extended card to authenticated callers (1.0 moved this here from the
+   *  card's top level, where 0.3 called it `supportsAuthenticatedExtendedCard`). */
+  extendedAgentCard?: boolean;
+}
+
+/** One endpoint and the protocol binding it speaks (A2A 1.0 `AgentInterface`). */
+export interface A2ASupportedInterface {
+  url: string;
+  /** `JSONRPC`, `GRPC` or `HTTP+JSON`. */
+  protocolBinding: string;
+  protocolVersion: string;
+  tenant?: string;
+}
+
+/** A2A 1.0 `SecurityRequirement`: scheme name to the scopes it needs. */
+export interface A2ASecurityRequirement {
+  schemes: Record<string, { list: string[] }>;
 }
 
 /** JWS signature embedded in an Agent Card. Multiple signatures MAY be attached;
@@ -146,73 +162,65 @@ export interface A2AAgentCardSignature {
   header?: Record<string, unknown>;
 }
 
-/** A2A v1.0 Agent Card body, matching `AgentCard` from `@a2a-js/sdk`. */
+/** A2A 1.0 Agent Card body, matching `message AgentCard` in the A2A specification
+ *  (`specification/a2a.proto`) and `AgentCard` in `@a2a-js/sdk`. */
 export interface A2AAgentCard {
   name: string;
   description: string;
-  /** Preferred endpoint URL — MUST support `preferredTransport`. */
-  url: string;
-  /** Transport at the primary `url`. Defaults to `JSONRPC` per spec when omitted by a reader. */
-  preferredTransport?: string;
-  /** A2A protocol version, e.g. `"1.0"`. Distinct from the agent's own `version`. */
-  protocolVersion: string;
-  /** Additional transport+URL bindings beyond the primary. */
-  additionalInterfaces?: A2AAgentInterface[];
+  /** Every endpoint the agent serves, first one preferred. REQUIRED, and where 1.0 moved the
+   *  endpoint URL, transport and protocol version that 0.3 carried at the top level. */
+  supportedInterfaces: A2ASupportedInterface[];
   /** Agent's own version, e.g. `"1.0.0"`. */
   version: string;
   capabilities: A2AAgentCardCapabilities;
   defaultInputModes: string[];
   defaultOutputModes: string[];
   /** REQUIRED non-empty. */
-  skills: A2AAgentSkill[];
+  skills: A2AAgentCardSkill[];
   provider?: A2AAgentProvider;
   documentationUrl?: string;
   iconUrl?: string;
-  /** Agent can provide an extended card with additional details to authenticated users.
-   *  Defaults to `false`. */
-  supportsAuthenticatedExtendedCard?: boolean;
   /** JWS signatures embedded in the card. Compute over the canonical card body MINUS
    *  this field, then attach. */
   signatures?: A2AAgentCardSignature[];
-  /** OpenAPI 3.0 security requirement objects (OR of ANDs). */
-  security?: Record<string, string[]>[];
+  /** Any one of these requirements satisfies the card (OR); each names the schemes it needs (AND). */
+  securityRequirements?: A2ASecurityRequirement[];
   /** Map of security scheme definitions (key = scheme name). */
   securitySchemes?: Record<string, unknown>;
   /** Vendor-specific extras merged at top level. */
   [k: string]: unknown;
 }
 
+/** A skill as the 1.0 card carries it: `security` became `securityRequirements`. */
+export type A2AAgentCardSkill = Omit<A2AAgentSkill, 'security'> & { securityRequirements?: A2ASecurityRequirement[] };
+
 interface BuildA2AAgentCardInput {
   /** Agent display name. REQUIRED. */
   name: string;
   /** Agent purpose/description. REQUIRED per spec. */
   description: string;
-  /** Primary endpoint URL — becomes `AgentCard.url`. The transport at this URL is
-   *  declared via `preferredTransport` (default `HTTP+JSON`). For multi-binding agents,
-   *  pass `additionalInterfaces` for the secondary transports. */
+  /** Primary endpoint URL, the first entry of `supportedInterfaces`, speaking
+   *  `preferredTransport` (default `HTTP+JSON`). */
   url: string;
   /** Top-level skill declarations — what the agent can do. REQUIRED per spec
    *  (proto field 12 [field_behavior=REQUIRED]); must have ≥1 entry. */
   skills: A2AAgentSkill[];
   /** Agent's own version, e.g. `"1.0.0"`. Distinct from the A2A `protocolVersion`. */
   version?: string;
-  /** Transport for the primary `url`. Defaults to `"HTTP+JSON"` for our merchants; the
-   *  canonical A2A spec default when omitted by a reader is `"JSONRPC"`. */
+  /** Protocol binding at `url`. Defaults to `"HTTP+JSON"` for our merchants. */
   preferredTransport?: string;
-  /** A2A protocol version. Defaults to `"1.0"`. */
+  /** A2A protocol version each interface declares. Defaults to `"1.0"`. */
   protocolVersion?: string;
-  /** Additional transport+URL bindings beyond the primary. */
+  /** Further endpoints beyond `url`, each with its own binding; they follow it in `supportedInterfaces`. */
   additionalInterfaces?: A2AAgentInterface[];
-  /** A2A v1.0 capability extensions. Build the UCP entry with `ucpA2AExtension()`. */
+  /** A2A capability extensions. Build the UCP entry with `ucpA2AExtension()`. */
   extensions?: A2AAgentCardExtension[];
   /** Capability flag: agent supports streaming responses (SSE). */
   streaming?: boolean;
   /** Capability flag: agent supports push notifications for async task updates. */
   pushNotifications?: boolean;
-  /** Capability flag: agent provides task state-transition history. */
-  stateTransitionHistory?: boolean;
-  /** AgentCard top-level flag: agent serves an extended card to authenticated users. */
-  supportsAuthenticatedExtendedCard?: boolean;
+  /** Capability flag: agent serves an extended card to authenticated callers. */
+  extendedAgentCard?: boolean;
   /** Provider org for the agent. */
   provider?: A2AAgentProvider;
   /** URL to additional human-readable documentation. */
@@ -225,7 +233,8 @@ interface BuildA2AAgentCardInput {
   defaultInputModes?: string[];
   /** Default output media types (defaults to `["application/json"]`). */
   defaultOutputModes?: string[];
-  /** OpenAPI 3.0 security requirement objects (OR of ANDs). */
+  /** Security requirements in the OpenAPI form (OR of ANDs, scheme name to scopes); emitted as
+   *  1.0 `securityRequirements`. */
   security?: Record<string, string[]>[];
   /** Per-scheme security details (key = scheme name). */
   securitySchemes?: Record<string, unknown>;
@@ -233,16 +242,20 @@ interface BuildA2AAgentCardInput {
   extras?: Record<string, unknown>;
 }
 
+/** OpenAPI-form requirements (OR of ANDs) in the A2A 1.0 shape. */
+export function toSecurityRequirements(security: Record<string, string[]>[]): A2ASecurityRequirement[] {
+  return security.map((req) => ({ schemes: Object.fromEntries(Object.entries(req).map(([name, scopes]) => [name, { list: scopes }])) }));
+}
+
 /**
- * Compose an A2A v1.0 Agent Card body matching `AgentCard` from `@a2a-js/sdk`.
+ * Compose an A2A 1.0 Agent Card body (`message AgentCard` in the A2A specification).
  *
  * Returns the UNSIGNED card. To attach identity claims, sign the serialized body
  * as an RFC 7515 JWS (`A2AAgentCardSignature`). Vendors can also add an identity-flavored
  * extension to `capabilities.extensions[]`.
  *
- * The `url` argument becomes the top-level `AgentCard.url`; `preferredTransport`
- * declares the transport at that URL (default `HTTP+JSON`). For multi-binding agents,
- * pass `additionalInterfaces`.
+ * `url` becomes the first entry of `supportedInterfaces`, speaking `preferredTransport`
+ * (default `HTTP+JSON`); `additionalInterfaces` follow it.
  *
  * Example:
  * ```ts
@@ -268,35 +281,31 @@ export function buildA2AAgentCard(input: BuildA2AAgentCardInput): A2AAgentCard {
     );
   }
 
+  const protocolVersion = input.protocolVersion ?? PROTOCOL_VERSION;
   const capabilities: A2AAgentCardCapabilities = {};
   if (input.streaming !== undefined) capabilities.streaming = input.streaming;
   if (input.pushNotifications !== undefined) capabilities.pushNotifications = input.pushNotifications;
-  if (input.stateTransitionHistory !== undefined) capabilities.stateTransitionHistory = input.stateTransitionHistory;
+  if (input.extendedAgentCard !== undefined) capabilities.extendedAgentCard = input.extendedAgentCard;
   if (input.extensions && input.extensions.length > 0) capabilities.extensions = input.extensions;
 
   const card: A2AAgentCard = {
     name: input.name,
     description: input.description,
-    url: input.url,
-    preferredTransport: input.preferredTransport ?? 'HTTP+JSON',
-    protocolVersion: input.protocolVersion ?? PROTOCOL_VERSION,
+    supportedInterfaces: [
+      { url: input.url, protocolBinding: input.preferredTransport ?? 'HTTP+JSON', protocolVersion },
+      ...(input.additionalInterfaces ?? []).map((i) => ({ url: i.url, protocolBinding: i.transport, protocolVersion })),
+    ],
     version: input.version ?? '1.0.0',
     capabilities,
     defaultInputModes: input.defaultInputModes ?? [DEFAULT_INPUT_MODE],
     defaultOutputModes: input.defaultOutputModes ?? [DEFAULT_OUTPUT_MODE],
-    skills: input.skills,
+    skills: input.skills.map(({ security, ...skill }) => (security ? { ...skill, securityRequirements: toSecurityRequirements(security) } : skill)),
   };
-  if (input.additionalInterfaces !== undefined && input.additionalInterfaces.length > 0) {
-    card.additionalInterfaces = input.additionalInterfaces;
-  }
   if (input.provider !== undefined) card.provider = input.provider;
   if (input.documentationUrl !== undefined) card.documentationUrl = input.documentationUrl;
   if (input.iconUrl !== undefined) card.iconUrl = input.iconUrl;
-  if (input.supportsAuthenticatedExtendedCard !== undefined) {
-    card.supportsAuthenticatedExtendedCard = input.supportsAuthenticatedExtendedCard;
-  }
   if (input.signatures !== undefined && input.signatures.length > 0) card.signatures = input.signatures;
-  if (input.security !== undefined) card.security = input.security;
+  if (input.security !== undefined) card.securityRequirements = toSecurityRequirements(input.security);
   if (input.securitySchemes !== undefined) card.securitySchemes = input.securitySchemes;
   if (input.extras) {
     for (const [k, v] of Object.entries(input.extras)) {

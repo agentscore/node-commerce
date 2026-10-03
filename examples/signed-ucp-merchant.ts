@@ -70,7 +70,6 @@ app.use('*', rateLimitHono());
 // CORS + X-Request-ID headers per UCP §6.
 checkout.mountUcpRoutesHono(app, {
   name: 'My Agent Service',
-  wellKnownUcpUrl: 'https://agents.example.com/.well-known/ucp',
   services: defaultA2aServices({
     agentCardUrl: 'https://agents.example.com/.well-known/agent-card.json',
   }),
@@ -92,7 +91,7 @@ app.get('/_selftest/ucp', async (c: Context) => {
     await verifyUCPProfile(profile as never, jwks);
     return c.json({
       ok: true,
-      kid: ((profile.signing_keys as Array<{ kid?: string }> | undefined)?.[0])?.kid,
+      kid: ((profile.keys as Array<{ kid?: string }> | undefined)?.[0])?.kid,
     });
   } catch (err) {
     if (err instanceof UCPVerificationError) {
