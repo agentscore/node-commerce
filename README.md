@@ -340,7 +340,7 @@ const jwks = buildJWKSResponse([publicJWK]);
 
 **Key rotation.** Mint a new key with a new `kid`, add the public JWK to your JWKS endpoint alongside the old one, then sign new profiles with the new key. Verifiers fetching the JWKS pick up both; any in-flight envelopes signed by the old key still verify until you remove that JWK from the JWKS. Set `Cache-Control: public, max-age=300` on `/.well-known/jwks.json` and wait at least that long after publishing the new key before removing the old JWK.
 
-**Inline JWK in the profile vs separate JWKS endpoint.** UCP §6 mandates the separate `/.well-known/jwks.json` endpoint as the canonical trust source. The profile's `signing_keys[]` is informational; verifiers MUST resolve the kid against the JWKS (not the embedded copy), to prevent a swap-after-sign attack where a hostile actor replaces the inline key with their own.
+**Inline JWK in the profile vs separate JWKS endpoint.** UCP §6 mandates the separate `/.well-known/jwks.json` endpoint as the canonical trust source. The profile's `keys[]` is informational; verifiers MUST resolve the kid against the JWKS (not the embedded copy), to prevent a swap-after-sign attack where a hostile actor replaces the inline key with their own.
 
 ACP (Stripe + OpenAI Agentic Commerce Protocol) is a transactional checkout protocol with no identity-publishing surface; ACP merchants integrate via the existing `build402Body` + `buildPaymentHeaders` + Stripe SPT rail.
 
