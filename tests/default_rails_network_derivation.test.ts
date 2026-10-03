@@ -11,7 +11,7 @@ import { buildDefaultCheckoutRails } from '../src/payment/default_rails';
 import { networks } from '../src/payment/networks';
 import { USDC } from '../src/payment/usdc';
 
-describe('buildDefaultCheckoutRails — x402Base network/token derivation', () => {
+describe('buildDefaultCheckoutRails: x402Base network/token derivation', () => {
   it('Sepolia override flips chainId + token to Sepolia USDC even when token not pinned', () => {
     const rails = buildDefaultCheckoutRails({
       x402Base: { network: networks.base.sepolia.caip2 },
@@ -68,7 +68,7 @@ describe('buildDefaultCheckoutRails — x402Base network/token derivation', () =
   });
 });
 
-describe('buildDefaultCheckoutRails — tempo testnet field-pinned branches', () => {
+describe('buildDefaultCheckoutRails: tempo testnet field-pinned branches', () => {
   it('testnet: true with explicit token/chainId/network keeps the overrides (defined branches)', () => {
     const rails = buildDefaultCheckoutRails({
       tempo: {
@@ -91,7 +91,7 @@ describe('buildDefaultCheckoutRails — tempo testnet field-pinned branches', ()
   });
 });
 
-describe('buildDefaultCheckoutRails — solanaMpp network/mint derivation', () => {
+describe('buildDefaultCheckoutRails: solanaMpp network/mint derivation', () => {
   it('devnet CAIP-2 flips mint to devnet USDC', () => {
     const rails = buildDefaultCheckoutRails({
       solanaMpp: { network: networks.solana.devnet.caip2 },

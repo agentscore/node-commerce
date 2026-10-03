@@ -137,7 +137,7 @@ describe('sampleX402AcceptForNetwork', () => {
   });
 });
 
-describe('buildDiscoveryProbeResponse — x402Sample branch', () => {
+describe('buildDiscoveryProbeResponse: x402Sample branch', () => {
   it('emits payment-required header + body accepts when networks shorthand is supplied', () => {
     const probe = buildDiscoveryProbeResponse({
       realm: 'merchant.example',

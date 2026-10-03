@@ -95,7 +95,7 @@ function solanaDefaultRpcUrl(network: SolanaMppNetwork): string {
  * Keys are rail names (`tempo` / `solana` / `tempo_session` / `stripe`); values
  * are the matching `*RailSpec` types every other helper also consumes.
  *
- * `mppx` is an OPTIONAL peer dependency — install it only if you accept MPP rails.
+ * `mppx` is an OPTIONAL peer dependency: install it only if you accept MPP rails.
  */
 export async function createMppxServer({
   rails,
@@ -109,7 +109,7 @@ export async function createMppxServer({
   const mppx = await dynamicImport<MppxModule>('mppx/server');
   /* v8 ignore start -- peer-dep-absence guard; mppx is installed in the test env */
   if (!mppx?.Mppx?.create) {
-    throw new Error('mppx not installed — `npm install mppx` to use createMppxServer.');
+    throw new Error('mppx not installed: `npm install mppx` to use createMppxServer.');
   }
   /* v8 ignore stop */
 
@@ -138,7 +138,7 @@ export async function createMppxServer({
 function registerTempo(mppx: MppxModule, spec: TempoRailSpec, _name: string): unknown {
   /* v8 ignore start -- peer-dep version-mismatch guard; current mppx ships tempo.charge */
   if (!mppx.tempo?.charge) {
-    throw new Error('mppx.tempo.charge not available — check installed mppx version.');
+    throw new Error('mppx.tempo.charge not available: check installed mppx version.');
   }
   /* v8 ignore stop */
   const defaultCurrency = spec.testnet ? USDC.tempo.testnet.address : USDC.tempo.mainnet.address;
@@ -158,7 +158,7 @@ async function registerTempoSession(mppx: MppxModule, spec: TempoSessionRailSpec
   /* v8 ignore start -- peer-dep version-mismatch guard; current mppx ships tempo.session */
   if (!mppx.tempo?.session) {
     throw new Error(
-      'mppx.tempo.session not available — your mppx version may not support sessions yet. Upgrade with `npm install mppx@latest`.',
+      'mppx.tempo.session not available: your mppx version may not support sessions yet. Upgrade with `npm install mppx@latest`.',
     );
   }
   /* v8 ignore stop */
@@ -177,7 +177,7 @@ async function registerSolana(spec: SolanaMppRailSpec): Promise<unknown> {
   const solanaMpp = await dynamicImport<SolanaMppModule>('@solana/mpp/server');
   if (!solanaMpp?.charge) {
     throw new Error(
-      '@solana/mpp not installed — `npm install @solana/mpp @solana/kit` to use the solana rail.',
+      '@solana/mpp not installed: `npm install @solana/mpp @solana/kit` to use the solana rail.',
     );
   }
   const network = solanaNetworkFromCAIP2(spec.network);
@@ -289,7 +289,7 @@ export function wrapSolanaChargeWithFinalizedBlockhash(
 
 /**
  * Result shape of `composeMppxRequest`. mppx's `mppx.compose(...)(request)`
- * resolves to one of two variants — type-narrowed here so consumers can
+ * resolves to one of two variants: type-narrowed here so consumers can
  * `if (result.status === 200) { result.withReceipt(...) }` without an
  * `as any` cast.
  */

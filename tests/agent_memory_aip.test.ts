@@ -3,7 +3,7 @@
  *
  * The cross-merchant memory hint advertises the AIT identity path ONLY when the merchant opted
  * into AIP (passed a non-empty trusted-issuer list). Merchants that don't accept AITs must not
- * tell agents to present one — that would be wrong guidance and leak a capability the route
+ * tell agents to present one: that would be wrong guidance and leak a capability the route
  * doesn't honor. Verifies both branches.
  */
 import { describe, expect, it } from 'vitest';

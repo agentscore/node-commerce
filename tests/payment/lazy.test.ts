@@ -51,7 +51,7 @@ describe('lazyMppxServer', () => {
     expect(typeof getter).toBe('function');
   });
 
-  it('memoizes — concurrent first-calls share the same promise', async () => {
+  it('memoizes: concurrent first-calls share the same promise', async () => {
     // Spy on createMppxServer's lazy import. Without ioredis-style mocks for
     // mppx peer dep, we just confirm the getter is callable and returns the
     // same shape (memoization is internal).
@@ -61,7 +61,7 @@ describe('lazyMppxServer', () => {
     });
     const a = getter();
     const b = getter();
-    // Both calls should share the in-flight promise — settle them either way.
+    // Both calls should share the in-flight promise: settle them either way.
     await Promise.allSettled([a, b]);
   });
 
@@ -73,7 +73,7 @@ describe('lazyMppxServer', () => {
   });
 });
 
-describe('lazyX402Server — memoized getter invocation (stub facilitator)', () => {
+describe('lazyX402Server: memoized getter invocation (stub facilitator)', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('constructs the x402 server on first getter call and caches it for subsequent calls', async () => {

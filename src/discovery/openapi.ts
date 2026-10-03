@@ -3,7 +3,7 @@
  * OpenAPI 3.1 document (typically /openapi.json) so MPPScan and similar agent registries
  * can validate the merchant's auth + denial schemas correctly.
  *
- * Each helper returns a piece of an OpenAPI document — vendors compose them into their
+ * Each helper returns a piece of an OpenAPI document: vendors compose them into their
  * full spec.
  */
 
@@ -330,7 +330,7 @@ export function xServiceInfoExtension(opts: {
 /**
  * Derive an `x-payment-info` extension from a configured `Checkout` instance.
  *
- * Walks `checkout.rails` and emits one entry in `protocols[]` per rail —
+ * Walks `checkout.rails` and emits one entry in `protocols[]` per rail:
  * Tempo MPP, x402 (Base), Solana MPP, Stripe SPT. Saves merchants from
  * enumerating protocols by hand and keeps the OpenAPI doc in sync with the
  * actual rails the Checkout serves.
@@ -381,7 +381,7 @@ export function xPaymentInfoFromCheckout(opts: {
     } else if (network.startsWith('solana:')) {
       // Per MPP solana/charge spec (paymentauth.org/draft-solana-charge-00):
       // `currency` = SPL mint address (base58) for tokens, `"sol"` for native.
-      // No `asset` field in the spec — token symbols are not part of the
+      // No `asset` field in the spec: token symbols are not part of the
       // discovery contract.
       protocols.push({
         mpp: {

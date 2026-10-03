@@ -2,15 +2,15 @@
  * Universal denial helpers shared across every adapter.
  *
  * What lives here:
- *   - `FIXABLE_DENIAL_REASONS` / `isFixableDenial` — classifier for compliance reasons that can
+ *   - `FIXABLE_DENIAL_REASONS` / `isFixableDenial`: classifier for compliance reasons that can
  *     be resolved by re-completing KYC (vs sanctions / age failures which are permanent).
- *   - `denialReasonStatus` — picks the right HTTP status code per denial code (401 for credential
+ *   - `denialReasonStatus`: picks the right HTTP status code per denial code (401 for credential
  *     problems, 503 for transient API errors, 403 for everything else).
- *   - `buildSignerMismatchBody` — produces the standard 403 body for a non-pass signer_match
+ *   - `buildSignerMismatchBody`: produces the standard 403 body for a non-pass signer_match
  *     verdict (read via `getSignerVerdict`).
- *   - `buildContactSupportNextSteps` — standard `next_steps.action: "contact_support"` shape for
+ *   - `buildContactSupportNextSteps`: standard `next_steps.action: "contact_support"` shape for
  *     unfixable compliance denials.
- *   - `verificationAgentInstructions` — the canned `agent_instructions` block for
+ *   - `verificationAgentInstructions`: the canned `agent_instructions` block for
  *     identity-verification 403s. Vendors can override individual fields.
  *
  * Adapters use `denialReasonStatus` inside their default `onDenied` so vendors get the right
@@ -24,10 +24,10 @@ import type { DenialReason, VerifyWalletSignerResult } from './core';
  * Compliance denial reasons that can be resolved by re-completing KYC. The API emits these
  * when KYC is missing/pending/failed; the user can re-verify and retry.
  *
- * `jurisdiction_restricted` is NOT in this set — the API only emits it AFTER KYC is verified,
+ * `jurisdiction_restricted` is NOT in this set: the API only emits it AFTER KYC is verified,
  * meaning the user's KYC'd country is in the merchant's blocked list (or absent from the
  * allowed list). Re-doing KYC won't change the country, so it's permanent. Same shape as
- * `sanctions_flagged` and `age_insufficient` — surface contact_support, don't waste a
+ * `sanctions_flagged` and `age_insufficient`: surface contact_support, don't waste a
  * /v1/sessions mint.
  */
 export const FIXABLE_DENIAL_REASONS: ReadonlySet<string> = new Set([
@@ -40,7 +40,7 @@ export const FIXABLE_DENIAL_REASONS: ReadonlySet<string> = new Set([
  * Returns true when a `wallet_not_trusted` denial's reasons are all fixable via KYC
  * re-verification. False when any reason is permanent (sanctions, age, jurisdiction_restricted).
  *
- * Empty reasons returns false — without a known reason we can't promise a fix, so default to
+ * Empty reasons returns false: without a known reason we can't promise a fix, so default to
  * the bare denial path (vendors can override via custom onDenied if they want different
  * behavior on empty reasons).
  */
@@ -161,7 +161,7 @@ export function buildContactSupportNextSteps(
 /**
  * The canonical `agent_instructions` block for identity-verification 403s. Tells the agent how to
  * present the verify_url, poll for the operator_token, and retry the original request. Universal
- * across every AgentScore-gated merchant — overrides let vendors add merchant-specific steps
+ * across every AgentScore-gated merchant: overrides let vendors add merchant-specific steps
  * (e.g. "include order_id when retrying").
  */
 export function verificationAgentInstructions({
@@ -177,12 +177,12 @@ export function verificationAgentInstructions({
   userAction?: string;
   /** Replace the generic "Retry the original merchant request..." step with a merchant-specific
    *  one (e.g. "Retry POST /purchase with X-Operator-Token AND include order_id..."). When set,
-   *  this REPLACES baseSteps[4] rather than appending — use it instead of `extraSteps[0]` when
+   *  this REPLACES baseSteps[4] rather than appending: use it instead of `extraSteps[0]` when
    *  your retry instruction is a refinement of the canonical retry, not an additional step. */
   retryStep?: string;
   /** Append additional steps after the retry step. Use this for genuinely additional steps
    *  (e.g. "After payment the same call returns 200 with the order"), not for re-stating the
-   *  retry — use `retryStep` for that. */
+   *  retry: use `retryStep` for that. */
   extraSteps?: string[];
   /** Override the poll cadence. Default 5 seconds. */
   pollIntervalSeconds?: number;
@@ -204,10 +204,10 @@ export function verificationAgentInstructions({
   [key: string]: unknown;
 } {
   const baseSteps = [
-    'Present the verify_url directly to the user — it is a complete, ready-to-open URL with the session token already embedded (e.g. https://www.agentscore.com/verify?session=sess_...). Do NOT modify or construct the URL yourself.',
+    'Present the verify_url directly to the user: it is a complete, ready-to-open URL with the session token already embedded (e.g. https://www.agentscore.com/verify?session=sess_...). Do NOT modify or construct the URL yourself.',
     `Immediately begin polling poll_url every ${pollIntervalSeconds} seconds with header X-Poll-Secret set to poll_secret. The user will complete verification in their browser while you poll in the background.`,
     'The user visits the URL, signs in, completes identity verification (photo ID + selfie via Stripe Identity), and closes the tab. They do NOT need to copy or paste anything back to you.',
-    'When your poll returns status "verified", extract operator_token from the response. This is a one-time value — save it immediately. Subsequent polls return status "consumed" without the token.',
+    'When your poll returns status "verified", extract operator_token from the response. This is a one-time value: save it immediately. Subsequent polls return status "consumed" without the token.',
     retryStep ?? 'Retry the original merchant request with header X-Operator-Token set to the operator_token value.',
   ];
 

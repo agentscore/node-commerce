@@ -176,7 +176,7 @@ export {
   type MalformedPaymentCredential,
 } from './payment/payment_header';
 export { buildIdentityBootstrap, type IdentityBootstrapBlock } from './challenge/identity';
-// AIP (Agentic Identity Protocol) — AIT verification (verifier role) + RFC 9421 signing.
+// AIP (Agentic Identity Protocol): AIT verification (verifier role) + RFC 9421 signing.
 export {
   AGENT_IDENTITY_HEADER,
   verifyAit,

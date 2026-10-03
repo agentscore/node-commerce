@@ -24,7 +24,7 @@ describe('isSolanaAddress', () => {
   });
 
   it('rejects EVM addresses (0x prefix collides with valid base58 chars)', () => {
-    // 0x... would otherwise match the base58 alphabet — the explicit !startsWith('0x')
+    // 0x... would otherwise match the base58 alphabet: the explicit !startsWith('0x')
     // disambiguation guards against routing an EVM address into the Solana code path.
     expect(isSolanaAddress('0x690BF056DA820EF2e74f8943B3Fe5ca4ADEe7a3e')).toBe(false);
   });
@@ -65,7 +65,7 @@ describe('normalizeAddress', () => {
 
   it('falls through to lowercase for unrecognized inputs (consistent with EVM-historical default)', () => {
     // Garbage input still returns SOMETHING (lowercased) so callers don't need an
-    // is-valid guard before normalizing — DB writes are guarded separately.
+    // is-valid guard before normalizing: DB writes are guarded separately.
     expect(normalizeAddress('NotAnAddress')).toBe('notanaddress');
   });
 });

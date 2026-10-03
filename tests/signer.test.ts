@@ -9,7 +9,7 @@ const SIGNER_MIXED = '0xABCDEF0123456789ABCDEF0123456789ABCDEF01';
 
 // Monotonic cache-bust for dynamic imports. Using `Date.now()` would collide when
 // two tests run within the same millisecond (likely on fast CPUs or under CI load),
-// which would share a cached module and break the vi.doMock state — flake.
+// which would share a cached module and break the vi.doMock state: flake.
 let _importCounter = 0;
 const freshImportKey = () => `${Date.now()}-${++_importCounter}`;
 
@@ -44,7 +44,7 @@ describe('readX402PaymentHeader', () => {
   });
 });
 
-describe('extractPaymentSigner — x402 path', () => {
+describe('extractPaymentSigner: x402 path', () => {
   it('returns the lowercased `from` address from a valid x402 payload', async () => {
     const req = makeRequest();
     const header = encodeX402({ payload: { authorization: { from: SIGNER_MIXED } } });
@@ -75,7 +75,7 @@ describe('extractPaymentSigner — x402 path', () => {
   });
 });
 
-describe('extractPaymentSigner — MPP path', () => {
+describe('extractPaymentSigner: MPP path', () => {
   // mppx is an optional peer dep and is not installed in the gate's test env. The dynamic
   // import resolves to null and the helper falls through, leaving MPP extraction a no-op
   // for merchants who don't opt in to MPP.
@@ -366,7 +366,7 @@ describe('extractPaymentSigner — MPP path', () => {
   });
 });
 
-describe('extractPaymentSigner — Solana credentials are no longer extracted', () => {
+describe('extractPaymentSigner: Solana credentials are no longer extracted', () => {
   it('returns null for a credential carrying a Solana network (Solana goes through MPP solana/charge; gate signer-extraction skipped)', async () => {
     const header = encodeX402({
       accepted: { network: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp' },

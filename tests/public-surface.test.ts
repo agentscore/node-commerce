@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-describe('public-surface — top-level @agent-score/commerce barrel', () => {
+describe('public-surface: top-level @agent-score/commerce barrel', () => {
   it('exports the UCP env-loader (loadUCPSigningKeyFromEnv) from the top-level barrel', async () => {
     const topLevel = await import('../src/index.js');
     const module = await import('../src/identity/ucp-jwks.js');
@@ -34,7 +34,7 @@ describe('public-surface — top-level @agent-score/commerce barrel', () => {
   });
 });
 
-describe('public-surface — @agent-score/commerce/payment subpath', () => {
+describe('public-surface: @agent-score/commerce/payment subpath', () => {
   it('exports detectRailFromHeaders + zeroAmountCarveOut + usdToAtomic', async () => {
     const subpath = await import('../src/payment/index.js');
     expect(typeof subpath.detectRailFromHeaders).toBe('function');

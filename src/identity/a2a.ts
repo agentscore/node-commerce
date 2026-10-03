@@ -1,12 +1,12 @@
 /**
- * Google A2A (Agent-to-Agent) v1.0 Agent Card builder.
+ * A2A (Agent-to-Agent) v1.0 Agent Card builder.
  *
  * Compose the JSON payload for an A2A v1.0 Agent Card matching the canonical
- * `AgentCard` type from `@a2a-js/sdk`. Returned object is the unsigned card body —
- * wrap with an `A2AAgentCardSignature` (RFC 7515 JWS) to sign vendor-side before
- * publishing at /.well-known/agent-card.json.
+ * `AgentCard` type from `@a2a-js/sdk`. Returned object is the unsigned card body; to sign
+ * it vendor-side, attach `A2AAgentCardSignature` entries (RFC 7515 JWS) as `signatures`
+ * before publishing at /.well-known/agent-card.json.
  *
- * Why publish: A2A is a Linux Foundation standard. Signed Agent Cards let any
+ * Why publish: A2A is a Linux Foundation standard. Agent Cards let any
  * A2A-compatible reader discover an agent's capabilities + protocol bindings without
  * per-platform integration. Per UCP §A2A binding, agents serving UCP via the A2A
  * transport MUST declare the canonical UCP extension URI in `capabilities.extensions[]`
@@ -21,20 +21,19 @@ const DEFAULT_TRANSPORT = 'JSONRPC';
 const DEFAULT_INPUT_MODE = 'application/json';
 const DEFAULT_OUTPUT_MODE = 'application/json';
 
-/** Canonical UCP A2A extension URI — verifiers look for this exact URI in
+/** Canonical UCP A2A extension URI: verifiers look for this exact URI in
  *  `capabilities.extensions[]` to detect UCP support on the agent card. Pinned
  *  to the 2026-08-25 spec snapshot. */
 export const UCP_A2A_EXTENSION_URI = 'https://ucp.dev/2026-08-25/specification/reference';
 
-/** Canonical URI for the AIP (Agentic Identity Protocol) A2A agent-card extension — points at the
+/** Canonical URI for the AIP (Agentic Identity Protocol) A2A agent-card extension: points at the
  *  issuer-discovery well-known so a reader can resolve the protocol. */
 export const AIP_A2A_EXTENSION_URI = 'https://www.agentscore.com/.well-known/agent-identity';
 
-/** One transport+URL combination the agent exposes. Lives in `AgentCard.additionalInterfaces[]`
- *  for multi-binding agents; the PRIMARY transport+URL pair lives on `AgentCard.url` +
- *  `AgentCard.preferredTransport`. */
+/** One transport+URL combination beyond the primary `url`, passed as `additionalInterfaces`;
+ *  each becomes a `supportedInterfaces` entry after the primary one. */
 export interface A2AAgentInterface {
-  /** Open string — core values are `JSONRPC`, `GRPC`, `HTTP+JSON`. */
+  /** Open string: core values are `JSONRPC`, `GRPC`, `HTTP+JSON`. */
   transport: string;
   /** Absolute URL where this transport is available. */
   url: string;
@@ -98,7 +97,7 @@ export function ucpA2AExtension(
 
 /** Build the AIP entry for an A2A agent card's `capabilities.extensions[]`. Advertises that the
  *  agent accepts an Agent Identity Token (JWT) in an `Agent-Identity` header plus an RFC 9421
- *  proof-of-possession signature — so an agent discovering via the agent-card learns it can present
+ *  proof-of-possession signature: so an agent discovering via the agent-card learns it can present
  *  an AIT (matching what the merchant's mpp.json / llms.txt / skill.md already advertise). Optional
  *  `requiredTrustLevel` / `requiredAmr` surface a gate's human-presence requirement. */
 export function aipA2AExtension(
@@ -202,7 +201,7 @@ interface BuildA2AAgentCardInput {
   /** Primary endpoint URL, the first entry of `supportedInterfaces`, speaking
    *  `preferredTransport` (default `HTTP+JSON`). */
   url: string;
-  /** Top-level skill declarations — what the agent can do. REQUIRED per spec
+  /** Top-level skill declarations: what the agent can do. REQUIRED per spec
    *  (proto field 12 [field_behavior=REQUIRED]); must have ≥1 entry. */
   skills: A2AAgentSkill[];
   /** Agent's own version, e.g. `"1.0.0"`. Distinct from the A2A `protocolVersion`. */
@@ -315,7 +314,7 @@ export function buildA2AAgentCard(input: BuildA2AAgentCardInput): A2AAgentCard {
   return card;
 }
 
-// Make the convention explicit at the type level — `DEFAULT_TRANSPORT` is referenced for
-// the canonical-default helper consumers may want to introspect.
+// A2A_DEFAULT_TRANSPORT is the protocol's own default binding (JSONRPC). buildA2AAgentCard
+// defaults to HTTP+JSON instead, since our merchants serve REST-shaped endpoints.
 export const A2A_PROTOCOL_VERSION = PROTOCOL_VERSION;
 export const A2A_DEFAULT_TRANSPORT = DEFAULT_TRANSPORT;

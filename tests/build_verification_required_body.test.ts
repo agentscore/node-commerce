@@ -1,5 +1,5 @@
 /**
- * Tests for `buildVerificationRequiredBody` — the canonical body builder for
+ * Tests for `buildVerificationRequiredBody`: the canonical body builder for
  * `identity_verification_required` denials. Collapses the per-merchant body
  * mapping into one call (verify_url / session_id / poll_secret / poll_url /
  * agent_instructions spread from the reason; merchant supplies message +

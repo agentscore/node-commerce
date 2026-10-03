@@ -120,7 +120,7 @@ describe('processX402Settle', () => {
       }
     });
 
-    it('does NOT swallow settle errors as facilitator_error — settle_failed stays its own phase', async () => {
+    it('does NOT swallow settle errors as facilitator_error: settle_failed stays its own phase', async () => {
       const server = makeServer({ settlePayment: vi.fn().mockRejectedValue(new Error('on-chain rejection')) });
       const result = await processX402Settle({ x402Server: server, ...baseInput });
       expect(result.success).toBe(false);

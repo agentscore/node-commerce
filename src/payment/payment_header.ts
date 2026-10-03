@@ -6,9 +6,9 @@
  *  discovery leg flows through unauthenticated and gets a 402 with all rails.
  *
  *  Three credential channels are checked:
- *   - `Payment-Signature` — MPP credentials (Tempo, Solana, Stripe SPT)
- *   - `X-Payment` — x402 v1 EIP-3009 credentials
- *   - `Authorization: Payment <jwt>` — x402 v2 / paymentauth.org credentials
+ *   - `Payment-Signature`: MPP credentials (Tempo, Solana, Stripe SPT)
+ *   - `X-Payment`: x402 v1 EIP-3009 credentials
+ *   - `Authorization: Payment <jwt>`: x402 v2 / paymentauth.org credentials
  */
 
 type WebHeaders = { get(name: string): string | null };
@@ -128,7 +128,7 @@ export interface MalformedPaymentCredential {
  *
  * This is deliberately a SHAPE check only. Signature verification, payTo
  * binding, and challenge validation stay where they are (the x402 validator
- * and the mppx settle path) — those need per-request state the hooks produce.
+ * and the mppx settle path): those need per-request state the hooks produce.
  * A well-formed-but-invalid credential still reaches the real validators and
  * fails there.
  *

@@ -48,7 +48,7 @@ function writeFixture(name: string, env: FixtureEnvelope): void {
   console.warn(`wrote ${out}`);
 }
 
-// Spec-compliant binding helpers — each scenario uses these (or variants) so the
+// Spec-compliant binding helpers: each scenario uses these (or variants) so the
 // fixtures cover the full set of canonical UCP fields per binding type.
 function shopServiceMcp(host: string): UCPServiceBinding {
   return {
@@ -102,7 +102,7 @@ function stripeHandler(config: Record<string, unknown>): UCPPaymentHandlerBindin
 
 async function main(): Promise<void> {
   // -------------------------------------------------------------------------
-  // node-minimal — empty maps; just metadata + signing keys
+  // node-minimal: empty maps; just metadata + signing keys
   // -------------------------------------------------------------------------
   {
     const KID = 'node-minimal-EdDSA';
@@ -123,7 +123,7 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // node-es256-rails — multi-transport service + multi-rail + ES256 signing key
+  // node-es256-rails: multi-transport service + multi-rail + ES256 signing key
   // -------------------------------------------------------------------------
   {
     const KID = 'node-es256-rails-ES256';
@@ -153,7 +153,7 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // node-extras-int — payment_handler config with int + string fields
+  // node-extras-int: payment_handler config with int + string fields
   // -------------------------------------------------------------------------
   {
     const KID = 'node-extras-int-EdDSA';
@@ -177,7 +177,7 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // node-capability — hand-crafted vendor capability under com.agentscore.identity
+  // node-capability: hand-crafted vendor capability under com.agentscore.identity
   // -------------------------------------------------------------------------
   {
     const KID = 'node-capability-EdDSA';
@@ -186,7 +186,7 @@ async function main(): Promise<void> {
       version: '2026-04-08',
       spec: 'https://www.agentscore.com/specification/identity',
       schema: 'https://www.agentscore.com/schemas/ucp/com-agentscore-identity-v1.json',
-      // `extras` flat on the binding — kyc_required is a vendor field on this binding.
+      // `extras` flat on the binding: kyc_required is a vendor field on this binding.
       kyc_required: true,
     };
     const profile = buildUCPProfile({
@@ -209,7 +209,7 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // node-unicode — multi-byte UTF-8 in name / endpoint / config
+  // node-unicode: multi-byte UTF-8 in name / endpoint / config
   // -------------------------------------------------------------------------
   {
     const KID = 'node-unicode-EdDSA';
@@ -233,7 +233,7 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // node-multikey — JWKS with two keys, signed by the newer one
+  // node-multikey: JWKS with two keys, signed by the newer one
   // -------------------------------------------------------------------------
   {
     const oldKey = await generateUCPSigningKey({ kid: 'node-multikey-old' });
@@ -257,7 +257,7 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // node-emoji-keys — extras with non-ASCII object keys (BMP private use,
+  // node-emoji-keys: extras with non-ASCII object keys (BMP private use,
   // CJK compatibility, supplementary plane). Exercises codepoint-vs-UTF-16 sort.
   // Lives at top-level `extras` (outside the `ucp` envelope).
   // -------------------------------------------------------------------------
@@ -289,7 +289,7 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // node-int-boundary — exercises Number.MAX_SAFE_INTEGER round-trip via extras
+  // node-int-boundary: exercises Number.MAX_SAFE_INTEGER round-trip via extras
   // -------------------------------------------------------------------------
   {
     const KID = 'node-int-boundary-EdDSA';
@@ -317,7 +317,7 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // node-agentscore-gate-full — exercises buildUCPProfile with a full merchant
+  // node-agentscore-gate-full: exercises buildUCPProfile with a full merchant
   // gate policy declared via `agentscore_gate`. Both implementations MUST emit
   // identical canonical bytes so a profile signed in one verifies in the other.
   // -------------------------------------------------------------------------
@@ -346,7 +346,7 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // node-agentscore-gate-blocked — exercises blocked_jurisdictions
+  // node-agentscore-gate-blocked: exercises blocked_jurisdictions
   // (mutually exclusive with allowed_jurisdictions) for cross-lang parity.
   // -------------------------------------------------------------------------
   {

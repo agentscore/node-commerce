@@ -1079,7 +1079,7 @@ describe('loadSolanaFeePayer', () => {
       | { getBase58Codec?: () => { decode: (b: Uint8Array) => string } }
       | null;
     if (!kit?.getBase58Codec) {
-      return;  // peer dep missing — covered by the hex-input test
+      return;  // peer dep missing: covered by the hex-input test
     }
     const { loadSolanaFeePayer } = await import('../src/payment/solana');
     const seed = Uint8Array.from({ length: 32 }, (_, i) => i + 1);
@@ -1432,7 +1432,7 @@ describe('Checkout gate hooks', () => {
     ).rejects.toThrow();
   });
   it('perRequestPolicy returning null routes to the wallet-OFAC floor (no-op with no extractable signer → settle proceeds)', async () => {
-    // null override no longer fully skips the gate — it falls through to the
+    // null override no longer fully skips the gate: it falls through to the
     // always-on wallet OFAC floor. With an opaque MPP auth header (no
     // extractable signer), the floor is a no-op and settle proceeds. The
     // SDN-deny / clean-allow floor verdicts are covered in the core-mocked
@@ -1464,7 +1464,7 @@ describe('Checkout auto-derives composeMppx from mppxSecretKey', () => {
       mppxSecretKey: 'X'.repeat(32),
     });
     // Discovery leg should emit 402 with the auto-derived composeMppx producing
-    // a www-authenticate challenge — but our mock real `lazyMppxServer` will
+    // a www-authenticate challenge: but our mock real `lazyMppxServer` will
     // need mppx peer dep. So we only assert the constructor accepted the
     // auto-derive config (no throw).
     expect(checkout).toBeDefined();
@@ -1772,7 +1772,7 @@ describe('Checkout SDK gate path', () => {
   });
 });
 
-describe('Checkout SDK gate path — fully-populated gate config', () => {
+describe('Checkout SDK gate path: fully-populated gate config', () => {
   it('forwards every optional gate field + perRequestPolicy override into the core options', async () => {
     // A maximal gate config exercises the optional-spread branches that build
     // `coreOpts` (baseUrl / userAgent / requireKyc / requireSanctionsClear /
@@ -1900,7 +1900,7 @@ describe('Checkout SDK gate path — fully-populated gate config', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Wallet OFAC sanctions default (TEC-311) — gateless merchants
+// Wallet OFAC sanctions default (TEC-311): gateless merchants
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Checkout wallet OFAC default (no gate config)', () => {
@@ -2103,7 +2103,7 @@ describe('Checkout wallet OFAC default (no gate config)', () => {
       x402Server: _mockX402Server() as never,
       isCachedAddress: () => true,
       onSettled: async () => ({}),
-      // gate set, but apiKey NOT — pre-fix this was silent-allow
+      // gate set, but apiKey NOT: pre-fix this was silent-allow
       gate: { requireKyc: true },
     });
     const result = await checkout.handle({
@@ -2214,7 +2214,7 @@ function _x402PaymentHeader(payerAddress: string): string {
 describe('Checkout handleX402 happy path', () => {
   // These tests construct a gateless Checkout (no `gate` config) and exercise
   // the x402 settle path. Under the always-on wallet OFAC default, that path
-  // would call /v1/assess — but these tests don't mock the AgentScore API.
+  // would call /v1/assess: but these tests don't mock the AgentScore API.
   // Stub the env to opt these tests into the "no API key → log+skip" path so
   // the focus stays on the x402 mock surface, not on OFAC enforcement.
   beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
@@ -2626,7 +2626,7 @@ describe('Checkout mintRecipients - branch coverage', () => {
       computePricing: async () => ({ amountUsd: 1.0 }),
     });
     // Discovery leg should still emit 402 even with an empty-recipient rail
-    // (per-order mint pattern — the rail is dropped from accepts).
+    // (per-order mint pattern: the rail is dropped from accepts).
     const result = await checkout.handle({
       method: 'POST',
       url: 'https://api.example/purchase',
@@ -2960,7 +2960,7 @@ describe('Checkout zero-settle MPP carve-out', () => {
   it('zeroSettleCarveOut=true + $0 + hash credential keeps the carve-out (repriced-to-zero flow)', async () => {
     // A hash credential at $0 means the agent signed against a nonzero quote
     // that re-priced to $0 at settle (no-match / full-discount flows). Upstream
-    // cannot settle it at $0 — the carve-out absorbs it: 200, no compose call,
+    // cannot settle it at $0: the carve-out absorbs it: 200, no compose call,
     // nothing charged.
     const { Checkout } = await import('../src/checkout');
     const composeMppx = vi.fn(async () => ({
@@ -2991,7 +2991,7 @@ describe('Checkout zero-settle MPP carve-out', () => {
   });
 
   it('zeroSettleCarveOut=true + $0 + PROOF credential delegates to composeMppx', async () => {
-    // An agent that saw a $0 challenge signs a proof credential — that path
+    // An agent that saw a $0 challenge signs a proof credential: that path
     // delegates so mppx's native zero-amount verification runs; upstream
     // rejections surface as payment failures instead of a 200 with an
     // unverified signer.
@@ -3125,7 +3125,7 @@ describe('Checkout.mountUcpRoutes<Framework>', () => {
       );
       expect(captured2.status).toBe(204);
 
-      // GET /.well-known/jwks.json — covers the second mounted Express GET.
+      // GET /.well-known/jwks.json: covers the second mounted Express GET.
       const captured3: Record<string, any> = {};
       const res3 = {
         status: (c: number) => { captured3.status = c; return undefined; },
@@ -3138,7 +3138,7 @@ describe('Checkout.mountUcpRoutes<Framework>', () => {
       const jwksBody = JSON.parse(captured3.body) as { keys: { kid: string }[] };
       expect(jwksBody.keys[0].kid).toBe('mount-test');
 
-      // OPTIONS /.well-known/jwks.json — preflight on the jwks mount.
+      // OPTIONS /.well-known/jwks.json: preflight on the jwks mount.
       const captured4: Record<string, any> = {};
       const res4 = {
         status: (c: number) => { captured4.status = c; return undefined; },
@@ -3190,7 +3190,7 @@ describe('Checkout.mountUcpRoutes<Framework>', () => {
       await routes['OPTIONS /.well-known/ucp']({ headers: {} }, reply2);
       expect(captured2.status).toBe(204);
 
-      // GET /.well-known/jwks.json — same fastify reply chain as ucp.
+      // GET /.well-known/jwks.json: same fastify reply chain as ucp.
       const captured3: Record<string, any> = {};
       const reply3: any = {
         code: (c: number) => { captured3.status = c; return reply3; },
@@ -3203,7 +3203,7 @@ describe('Checkout.mountUcpRoutes<Framework>', () => {
       const jwksBody = JSON.parse(captured3.body) as { keys: { kid: string }[] };
       expect(jwksBody.keys[0].kid).toBe('mount-test');
 
-      // OPTIONS /.well-known/jwks.json — preflight on the second mount.
+      // OPTIONS /.well-known/jwks.json: preflight on the second mount.
       const captured4: Record<string, any> = {};
       const reply4: any = {
         code: (c: number) => { captured4.status = c; return reply4; },

@@ -23,7 +23,7 @@ const x402Config = (out: ReturnType<typeof x402PaymentHandler>): { networks: Rec
   return binding!.config as { networks: Record<string, unknown>[] };
 };
 
-describe('mppPaymentHandler — TempoRailSpec', () => {
+describe('mppPaymentHandler: TempoRailSpec', () => {
   it('static recipient is emitted verbatim under tempo-mainnet', () => {
     const out = mppPaymentHandler({ networks: [{ recipient: '0xfeedface' } as TempoRailSpec] });
     expect(mppConfig(out).networks).toEqual([
@@ -56,7 +56,7 @@ describe('mppPaymentHandler — TempoRailSpec', () => {
   });
 });
 
-describe('mppPaymentHandler — SolanaMppRailSpec', () => {
+describe('mppPaymentHandler: SolanaMppRailSpec', () => {
   it('mainnet CAIP-2 maps to solana-mainnet-beta UCP namespace', () => {
     const spec: SolanaMppRailSpec = {
       recipient: 'solanaaddr',
@@ -78,7 +78,7 @@ describe('mppPaymentHandler — SolanaMppRailSpec', () => {
   });
 });
 
-describe('mppPaymentHandler — mixed rails', () => {
+describe('mppPaymentHandler: mixed rails', () => {
   it('one call mixes Tempo, Solana MPP, and Tempo session entries', () => {
     const out = mppPaymentHandler({
       networks: [

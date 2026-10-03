@@ -12,7 +12,7 @@ export function wwwAuthenticateHeader(directives: string[]): string {
  * Opt-in helper: the 402 emitters (`paymentRequiredHeader` / `build402Body`) do NOT
  * call this. Strict x402 v2 settlement matches the agent's echoed requirement against
  * the server's rebuilt one by exact comparison, so an extra `maxAmountRequired` the
- * rebuild lacks silently fails settle — keep emitted `accepts` as `buildPaymentRequirements`
+ * rebuild lacks silently fails settle: keep emitted `accepts` as `buildPaymentRequirements`
  * produced them. Call this only for a client hardcoded to read `maxAmountRequired`
  * regardless of `x402Version`.
  */
@@ -35,7 +35,7 @@ export function aliasAmountFields(accepts: unknown[]): unknown[] {
  *
  * Note: do NOT add a v1↔v2 amount-field alias here. `@x402/core`'s
  * `findMatchingRequirements` uses `deepEqual` against the agent's signed
- * `accepted` payload — any field present on one side and missing on the other
+ * `accepted` payload: any field present on one side and missing on the other
  * (e.g. `maxAmountRequired` on the wire body but not in `buildPaymentRequirements`'s
  * output) makes the match silently fail at settle time. Keep `accepts` shape
  * identical to whatever `buildPaymentRequirements` produces server-side.

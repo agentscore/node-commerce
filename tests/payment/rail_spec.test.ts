@@ -58,7 +58,7 @@ describe('SolanaMppRailSpec', () => {
     expect(spec.tokenProgram).toBeUndefined();
   });
 
-  it('fee-payer signer roundtrips through the spec — opaque object', () => {
+  it('fee-payer signer roundtrips through the spec: opaque object', () => {
     const sentinel = { __sentinel: true };
     const spec: SolanaMppRailSpec = {
       recipient: 'GEQg2TM4VL315Bd4LLkGrhBjdNfoatKjCJYHBDPM3D74',
@@ -120,7 +120,7 @@ describe('resolveRecipient', () => {
     expect(calls).toBe(1);
   });
 
-  it('calls the factory exactly once per resolution — caching is caller-side', async () => {
+  it('calls the factory exactly once per resolution: caching is caller-side', async () => {
     let calls = 0;
     const factory = async () => {
       calls += 1;

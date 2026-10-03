@@ -34,7 +34,7 @@ const baseInput = {
   },
 };
 
-describe('UCP signing — generateUCPSigningKey', () => {
+describe('UCP signing: generateUCPSigningKey', () => {
   it('generates an Ed25519 keypair by default', async () => {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'test-key-1' });
     expect(privateKey).toBeDefined();
@@ -64,7 +64,7 @@ describe('UCP signing — generateUCPSigningKey', () => {
   });
 });
 
-describe('UCP signing — signUCPProfile / verifyUCPProfile round-trip', () => {
+describe('UCP signing: signUCPProfile / verifyUCPProfile round-trip', () => {
   it('signs an Ed25519-keyed profile and verifies against the matching JWKS', async () => {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'merchant-2026-05' });
     const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
@@ -124,7 +124,7 @@ describe('UCP signing — signUCPProfile / verifyUCPProfile round-trip', () => {
   });
 });
 
-describe('UCP signing — canonicalization', () => {
+describe('UCP signing: canonicalization', () => {
   it('signs the profile such that key-order in the JSON does not affect verification', async () => {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
     const profileA = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
@@ -132,7 +132,7 @@ describe('UCP signing — canonicalization', () => {
 
     // Hand-construct the same profile with keys in REVERSE insertion order so
     // canonicalization actually has work to do. JSON.parse(JSON.stringify(x))
-    // preserves the source order, which is a vacuous round-trip — this version
+    // preserves the source order, which is a vacuous round-trip: this version
     // genuinely re-orders.
     const reordered: Record<string, unknown> = {};
     const sortedKeys = Object.keys(signed).sort().reverse();
@@ -143,7 +143,7 @@ describe('UCP signing — canonicalization', () => {
   });
 });
 
-describe('UCP signing — buildJWKSResponse', () => {
+describe('UCP signing: buildJWKSResponse', () => {
   it('wraps keys in a `{ keys: [...] }` document', () => {
     const k1 = { kid: 'a', kty: 'OKP', crv: 'Ed25519', x: 'xxx', use: 'sig', alg: 'EdDSA' };
     const k2 = { kid: 'b', kty: 'EC', crv: 'P-256', x: 'xxx', y: 'yyy', use: 'sig', alg: 'ES256' };
@@ -156,10 +156,10 @@ describe('UCP signing — buildJWKSResponse', () => {
   });
 });
 
-describe('UCP signing — security: alg-confusion + typ + dup-kid', () => {
+describe('UCP signing: security: alg-confusion + typ + dup-kid', () => {
   // RFC 8725 §3.1: a verifier MUST restrict accepted JWS algorithms to the
   // set the application expects. A naive implementation that calls importJWK(jwk, header.alg)
-  // can be coerced into using HS256 (symmetric) with the public key as the secret —
+  // can be coerced into using HS256 (symmetric) with the public key as the secret:
   // a hostile signing_keys[] entry then mints valid-looking signatures.
   it('rejects HS256 signatures even when the JWKS contains an HS256 oct key', async () => {
     const jose = await import('jose');
@@ -296,7 +296,7 @@ describe('UCP signing — security: alg-confusion + typ + dup-kid', () => {
   });
 });
 
-describe('UCP signing — float canonicalization defense', () => {
+describe('UCP signing: float canonicalization defense', () => {
   it('throws when signing a profile that contains a non-integer Number anywhere', async () => {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
     const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
@@ -322,7 +322,7 @@ describe('UCP signing — float canonicalization defense', () => {
   });
 });
 
-describe('UCP signing — additional hardening', () => {
+describe('UCP signing: additional hardening', () => {
   it('signUCPProfile throws when kid is not in profile.keys[]', async () => {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'real' });
     const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
@@ -389,12 +389,12 @@ describe('UCP signing — additional hardening', () => {
 
     const { base64url } = await import('jose');
     // Valid protected header (passes the typ/alg/kid pre-checks), but the JWS has
-    // only two segments after it — jose's compactVerify rejects with JWSInvalid,
+    // only two segments after it: jose's compactVerify rejects with JWSInvalid,
     // which the inner catch wraps to malformed_jws (distinct from the pre-decode
     // header check that fires for an unparseable header segment).
     const headerJson = JSON.stringify({ alg: 'EdDSA', kid: 'k', typ: 'agentscore-profile+jws' });
     const headerB64 = base64url.encode(new TextEncoder().encode(headerJson));
-    // Two segments only (header.payload) — not a valid compact JWS (needs three).
+    // Two segments only (header.payload): not a valid compact JWS (needs three).
     const jws = `${headerB64}.${base64url.encode(new TextEncoder().encode('{}'))}`;
     const signed = { ...profile, signature: jws };
 
@@ -494,7 +494,7 @@ describe('UCPSigningKey.fromJWK', () => {
   });
 });
 
-describe('UCP signing — JCS-incompatible value rejection', () => {
+describe('UCP signing: JCS-incompatible value rejection', () => {
   // Probe the internal stableStringify by signing a profile that holds the
   // offending value. The signer canonicalizes via stableStringify, so any
   // rejection there bubbles up through signUCPProfile.
@@ -554,7 +554,7 @@ describe('UCP signing — JCS-incompatible value rejection', () => {
   });
 });
 
-describe('UCP signing — integer overflow defense', () => {
+describe('UCP signing: integer overflow defense', () => {
   async function signWith(extras: unknown): Promise<Awaited<ReturnType<typeof signUCPProfile>>> {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
     const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
@@ -587,7 +587,7 @@ describe('UCP signing — integer overflow defense', () => {
   });
 });
 
-describe('UCP signing — JWK alg / header alg consistency', () => {
+describe('UCP signing: JWK alg / header alg consistency', () => {
   it('rejects when matched JWK alg does not match JWS header alg', async () => {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'mismatch', alg: 'EdDSA' });
     const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
@@ -599,7 +599,7 @@ describe('UCP signing — JWK alg / header alg consistency', () => {
   });
 });
 
-describe('UCP signing — round-4 hardening', () => {
+describe('UCP signing: round-4 hardening', () => {
   it('rejects a JWK with use=enc as unusable_key', async () => {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'enc-key', alg: 'EdDSA' });
     const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
@@ -665,7 +665,7 @@ describe('UCP signing — round-4 hardening', () => {
   });
 });
 
-describe('UCP signing — verifier-side canonicalize must not leak raw Error', () => {
+describe('UCP signing: verifier-side canonicalize must not leak raw Error', () => {
   async function makeSigned(): Promise<{
     signed: Awaited<ReturnType<typeof signUCPProfile>>;
     jwks: ReturnType<typeof buildJWKSResponse>;
@@ -712,7 +712,7 @@ describe('UCP signing — verifier-side canonicalize must not leak raw Error', (
   });
 });
 
-describe('UCP signing — error precedence parity (profile-first)', () => {
+describe('UCP signing: error precedence parity (profile-first)', () => {
   it('null profile + malformed JWKS returns no_signature (profile-first)', async () => {
     await expect(verifyUCPProfile(null as never, 'not a jwks' as never))
       .rejects.toMatchObject({ name: 'UCPVerificationError', code: 'no_signature' });
@@ -812,7 +812,7 @@ describe('UCP signing — error precedence parity (profile-first)', () => {
   });
 });
 
-describe('UCP signing — U+2028 / U+2029 rejection', () => {
+describe('UCP signing: U+2028 / U+2029 rejection', () => {
   // Modern V8 emits U+2028 / U+2029 raw from JSON.stringify, so on today's Node
   // the divergence with Python json.dumps(ensure_ascii=False) is theoretical.
   // The rejection mirrors core/api/src/lib/canonicalize.ts so the contract
@@ -855,7 +855,7 @@ describe('UCP signing — U+2028 / U+2029 rejection', () => {
       .rejects.toThrow(/U\+2029/);
   });
 
-  it('accepts U+2027 (HYPHENATION POINT) as sanity case — different codepoint, not a target', async () => {
+  it('accepts U+2027 (HYPHENATION POINT) as sanity case: different codepoint, not a target', async () => {
     const { privateKey, publicJWK } = await generateUCPSigningKey({ kid: 'k' });
     const profile = buildUCPProfile({ ...baseInput, signing_keys: [publicJWK] });
     (profile as unknown as Record<string, unknown>).extras = { note: 'before‧after' };
@@ -886,7 +886,7 @@ describe('UCP signing — U+2028 / U+2029 rejection', () => {
   });
 });
 
-describe('UCP signing — JWK use/alg null treated as absent', () => {
+describe('UCP signing: JWK use/alg null treated as absent', () => {
   // RFC 7517 lists `use` and `alg` as optional. JSON null for these fields is
   // out-of-spec but harmless; treat null as absent so the Node verifier
   // matches Python's `is not None` semantics and a JWK with explicit nulls

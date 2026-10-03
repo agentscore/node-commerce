@@ -47,9 +47,9 @@ export function withAgentScoreGate<TReq extends Request = Request, TCtx = unknow
        *  quota. `undefined` on wallet or AIT paths, or when the API has no handle salt. */
       operatorHandle?: OperatorHandle;
       /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
-       *  (429/5xx/network timeout). Compliance was NOT enforced — log/alert in your handler. */
+       *  (429/5xx/network timeout). Compliance was NOT enforced: log/alert in your handler. */
       degraded?: boolean;
-      /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
+      /** Why the gate degraded: quota_exceeded / api_error / network_timeout. */
       infraReason?: FailOpenInfraReason;
       /** Per-account assess quota observability from X-Quota-* response headers. */
       quota?: GateQuotaInfo;
@@ -137,7 +137,7 @@ export function conditionalAgentscoreMiddleware(options: Parameters<typeof creat
 
 
 // ---------------------------------------------------------------------------
-// AIP gate (Agentic Identity Protocol) — Next.js App Router. Fetch-native, so these are
+// AIP gate (Agentic Identity Protocol): Next.js App Router. Fetch-native, so these are
 // thin re-exports of web's AIP gate (works with NextRequest, which extends Request).
 // ---------------------------------------------------------------------------
 export {

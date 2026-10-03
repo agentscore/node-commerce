@@ -3,7 +3,7 @@
  *
  * Composes the cents-denominated price components into the dollar-string shape that
  * 402 challenge bodies advertise. Standardizes the pricing block so every merchant
- * — current and future commerce-platform plugins (Commerce7, WooCommerce, Shopify) —
+ * (including current and future commerce-platform plugins such as Commerce7, WooCommerce, Shopify)
  * surfaces the same shape to agents.
  *
  * Shipping is included by default because most physical-goods merchants carry it; pass
@@ -22,7 +22,7 @@ export interface PricingBlock {
   discount?: string;
   /** Final total = subtotal + tax + shipping - discount, dollar-string. Floored at 0. */
   total: string;
-  /** Tax rate as a decimal fraction (e.g. `0.0775` for 7.75%). Optional — omit for tax-free merchants. */
+  /** Tax rate as a decimal fraction (e.g. `0.0775` for 7.75%). Optional: omit for tax-free merchants. */
   tax_rate?: number;
   /** ISO-3166-2 state code or jurisdiction name used for tax calc. Optional. */
   tax_state?: string;

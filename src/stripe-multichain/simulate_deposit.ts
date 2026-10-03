@@ -1,6 +1,6 @@
 /**
  * Stripe's documented magic test_helpers transaction hash that resolves the
- * PaymentIntent to `succeeded` within 15 seconds. Same value across all networks —
+ * PaymentIntent to `succeeded` within 15 seconds. Same value across all networks:
  * Stripe normalizes the format internally. Anything else (including network-shaped
  * placeholder bytes) is rejected with "not a valid testmode transaction hash".
  *
@@ -46,9 +46,9 @@ export async function simulateCryptoDeposit({
   network: 'tempo' | 'base' | 'solana';
   /** Optional simulated buyer wallet address. Defaults to a sensible placeholder per network. */
   buyerWallet?: string;
-  /** Token currency (e.g., 'usdc'). Optional — passed as a form param if set. */
+  /** Token currency (e.g., 'usdc'). Optional: passed as a form param if set. */
   tokenCurrency?: string;
-  /** Simulated transaction hash. Optional — passed as a form param if set. */
+  /** Simulated transaction hash. Optional: passed as a form param if set. */
   transactionHash?: string;
   /** Stripe secret key (for the test-helpers Authorization header). Must be a `sk_test_...` key. */
   stripeSecretKey: string;
@@ -84,7 +84,7 @@ export async function simulateCryptoDeposit({
  * Higher-level wrapper around {@link simulateCryptoDeposit} for the testnet/dev path.
  * Bundles the three steps every Stripe-multichain merchant repeats:
  *
- *   1. Gate on `sk_test_` key prefix — production keys reject the test_helpers endpoint
+ *   1. Gate on `sk_test_` key prefix: production keys reject the test_helpers endpoint
  *      with 400; live deposits reach Stripe's real crypto-deposit watcher instead.
  *   2. Resolve the PaymentIntent id from the deposit address (cache lookup).
  *   3. Call `simulate_crypto_deposit` with Stripe's documented success magic hash.
@@ -93,7 +93,7 @@ export async function simulateCryptoDeposit({
  * `[stripe] ✗ Failed to simulate <network> deposit for PI <id>: <err>` on failure.
  * Errors are caught + logged (never thrown) so a sim hiccup doesn't fail the order.
  *
- * Use case is exclusively dev/testnet end-to-end — production servers (sk_live_) no-op.
+ * Use case is exclusively dev/testnet end-to-end: production servers (sk_live_) no-op.
  */
 export async function simulateDepositIfTestMode({
   getPaymentIntentId,
@@ -104,7 +104,7 @@ export async function simulateDepositIfTestMode({
   stripeSecretKey,
   stripeVersion,
 }: {
-  /** Stripe PaymentIntent id resolver — given a deposit address, return the PI id (or undefined
+  /** Stripe PaymentIntent id resolver: given a deposit address, return the PI id (or undefined
    *  if the cache TTL expired between 402 emit and settlement). Typically `cache.getPaymentIntentId`. */
   getPaymentIntentId: (depositAddress: string) => string | undefined;
   /** The deposit address that was paid to (recipient). */
@@ -124,7 +124,7 @@ export async function simulateDepositIfTestMode({
   const piId = getPaymentIntentId(depositAddress);
   if (!piId) {
     console.warn(
-      `[stripe] Skipping deposit simulation — no PI cached for deposit address ${depositAddress.slice(0, 10)}… (network=${network}). The PI cache TTL may have expired between 402 emission and settlement.`,
+      `[stripe] Skipping deposit simulation: no PI cached for deposit address ${depositAddress.slice(0, 10)}… (network=${network}). The PI cache TTL may have expired between 402 emission and settlement.`,
     );
     return;
   }

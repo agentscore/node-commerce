@@ -103,8 +103,8 @@ app.get('/_selftest/ucp', async (c: Context) => {
 
 const port = Number(process.env.PORT ?? 3010);
 console.warn(`signed-ucp-merchant listening on :${port}`);
-console.warn('  /.well-known/ucp           — signed profile');
-console.warn('  /.well-known/jwks.json     — public key set');
-console.warn('  /_selftest/ucp             — local verify round-trip');
+console.warn('  /.well-known/ucp          : signed profile');
+console.warn('  /.well-known/jwks.json    : public key set');
+console.warn('  /_selftest/ucp            : local verify round-trip');
 
 Bun.serve({ port, fetch: app.fetch });

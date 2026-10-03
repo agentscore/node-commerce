@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { extractSignerForPrecheck } from '../../src/signer';
 
-describe('extractSignerForPrecheck — additional branches', () => {
+describe('extractSignerForPrecheck: additional branches', () => {
   it('returns null when no payment header at all', async () => {
     expect(await extractSignerForPrecheck({})).toBeNull();
     expect(await extractSignerForPrecheck({ 'user-agent': 'test' })).toBeNull();

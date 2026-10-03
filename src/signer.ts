@@ -3,13 +3,13 @@
  *
  * Shared between merchants and the gate. Three paths recover a wallet signer:
  *
- *   - **Tempo MPP** — `Authorization: Payment <base64>`; credential `source` is a DID of the
+ *   - **Tempo MPP**: `Authorization: Payment <base64>`; credential `source` is a DID of the
  *     form `did:pkh:eip155:<chain>:<address>`.
- *   - **Solana MPP `solana/charge`** — `Authorization: Payment <base64>`; recovery via either
+ *   - **Solana MPP `solana/charge`**: `Authorization: Payment <base64>`; recovery via either
  *     a `did:pkh:solana:<genesis>:<address>` source (when set by the client) or by decoding
  *     the credential's signed-tx payload and reading the SPL `TransferChecked` authority
- *     (pull mode only — `payload.type === 'transaction'`).
- *   - **x402 EIP-3009 (EVM, e.g. Base/Sepolia)** — `payment-signature` / `x-payment`;
+ *     (pull mode only: `payload.type === 'transaction'`).
+ *   - **x402 EIP-3009 (EVM, e.g. Base/Sepolia)**: `payment-signature` / `x-payment`;
  *     decoded payload carries `payload.authorization.from`.
  *
  * Optional peer deps: `mppx` for MPP credentials, `@solana/kit` for the Solana tx-decode
@@ -41,7 +41,7 @@ interface SolanaKitMinimal {
 
 /**
  * Decode a Solana MPP `solana/charge` credential's `payload.transaction` (base64-encoded
- * signed Solana tx) and return the SPL `TransferChecked` authority — the source-ATA owner,
+ * signed Solana tx) and return the SPL `TransferChecked` authority: the source-ATA owner,
  * which is the buyer's wallet. Pull mode only (`payload.type === 'transaction'`); push mode
  * (`payload.type === 'signature'`) returns null because recovery would require an RPC fetch.
  */
@@ -97,7 +97,7 @@ async function extractSolanaSignerFromCredential(credential: unknown): Promise<s
 export interface PaymentSigner {
   /** Recovered wallet address (EVM lowercased; Solana base58 preserved verbatim). */
   address: string;
-  /** Network family — used by `captureWallet` and downstream cross-chain attribution. */
+  /** Network family: used by `captureWallet` and downstream cross-chain attribution. */
   network: SignerNetwork;
 }
 
@@ -114,7 +114,7 @@ export async function extractPaymentSigner(
   request: Request,
   x402PaymentHeader?: string,
 ): Promise<PaymentSigner | null> {
-  // x402 — base64 JSON, EIP-3009 only. EVM `payload.authorization.from` is the signer.
+  // x402: base64 JSON, EIP-3009 only. EVM `payload.authorization.from` is the signer.
   // Tried before the MPP path so a request carrying both header families resolves the
   // x402 signer first, consistent with `extractSignerForPrecheck`.
   if (x402PaymentHeader) {
@@ -132,7 +132,7 @@ export async function extractPaymentSigner(
     }
   }
 
-  // MPP — Authorization: Payment <base64>
+  // MPP: Authorization: Payment <base64>
   const authHeader = request.headers.get('authorization');
   if (authHeader) {
     try {
@@ -170,7 +170,7 @@ export async function extractPaymentSigner(
  * (Express, Fastify, ASGI-bridged frameworks). Constructs a synthetic Request carrying
  * only the `authorization` header and delegates to {@link extractPaymentSigner}. Works
  * because the MPP and x402 paths only read `request.headers.get('authorization')` and
- * the explicit `x402PaymentHeader` arg — no body, query, or method semantics needed.
+ * the explicit `x402PaymentHeader` arg: no body, query, or method semantics needed.
  */
 export async function extractPaymentSignerFromAuth(
   authHeader: string | null | undefined,

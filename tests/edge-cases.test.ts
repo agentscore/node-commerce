@@ -284,7 +284,7 @@ describe('untyped SDK error fallbacks (defensive paths)', () => {
 
   async function gateWithAssessThrow(thrown: unknown, opts?: { failOpen?: boolean }) {
     // Mock the SDK so `assess` throws a raw error the SDK normally would have
-    // wrapped — exercising core's defensive untyped fallbacks. Keep the real
+    // wrapped: exercising core's defensive untyped fallbacks. Keep the real
     // error classes so the typed `instanceof` checks above still behave.
     vi.doMock('@agent-score/sdk', async () => {
       const real = await vi.importActual<typeof import('@agent-score/sdk')>('@agent-score/sdk');
@@ -366,8 +366,8 @@ describe('invalid wallet header edge cases', () => {
   });
 
   it('missing_identity body carries probe_identity_then_session instructions', async () => {
-    // Bare bootstrap denial describes the full probe strategy — wallet-first on
-    // signing rails, fall back to stored opc_..., fall back to session flow — so
+    // Bare bootstrap denial describes the full probe strategy: wallet-first on
+    // signing rails, fall back to stored opc_..., fall back to session flow: so
     // agents without durable memory recover in at most one extra round trip.
     const mw = agentscoreGate({ apiKey: API_KEY });
     const req = makeReq();
@@ -771,7 +771,7 @@ describe('compliance options edge cases', () => {
   });
 });
 
-describe('evaluate() — 401 passthrough edge cases', () => {
+describe('evaluate(): 401 passthrough edge cases', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -854,7 +854,7 @@ describe('evaluate() — 401 passthrough edge cases', () => {
 
     expect(status).toHaveBeenCalledWith(503);
     expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
-    // Used to be silent — schema drift would mask itself for hours. Now logs the
+    // Used to be silent: schema drift would mask itself for hours. Now logs the
     // unknown code so ops notice without crashing the request.
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('something_unknown'));
     warn.mockRestore();
@@ -863,7 +863,7 @@ describe('evaluate() — 401 passthrough edge cases', () => {
   it('emits invalid_credential 403 (not retry-suggesting api_error) for permanent token failures', async () => {
     // The API returns 401 invalid_credential when the token doesn't exist at all
     // (typo, never minted). Distinct from token_expired (which carries an auto-session)
-    // — invalid_credential has no recovery payload, the agent must switch tokens or
+    // invalid_credential has no recovery payload, the agent must switch tokens or
     // restart the session flow. Used to fall through to api_error → 503 retry which
     // looped forever on a permanent state.
     const apiBody = { error: { code: 'invalid_credential', message: 'Operator credential not found' } };
@@ -883,7 +883,7 @@ describe('evaluate() — 401 passthrough edge cases', () => {
     expect(status).toHaveBeenCalledWith(401);
     const body = json.mock.calls[0]![0] as Record<string, unknown>;
     expect(body.error.code).toBe('invalid_credential');
-    // No session fields — API didn't mint one for this case. Agent gets actionable copy.
+    // No session fields: API didn't mint one for this case. Agent gets actionable copy.
     expect(body).not.toHaveProperty('verify_url');
     expect(body).not.toHaveProperty('session_id');
     expect(body.agent_instructions).toBeDefined();

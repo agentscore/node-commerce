@@ -20,7 +20,7 @@ describe('memoizedRedis', () => {
     expect(await get()).toBeNull();
   });
 
-  it('memoizes — second call returns the same value without re-attempting', async () => {
+  it('memoizes: second call returns the same value without re-attempting', async () => {
     const get = memoizedRedis({ url: undefined, label: 'test' });
     const a = await get();
     const b = await get();
@@ -39,7 +39,7 @@ describe('memoizedRedis', () => {
     // either way the helper returns null cleanly when construction fails.
     const get = memoizedRedis({ url: 'redis://invalid:0', label: 'test' });
     const result = await get();
-    // We don't assert null specifically — only that memoization works (no throw).
+    // We don't assert null specifically: only that memoization works (no throw).
     const result2 = await get();
     expect(result2).toBe(result);
   });

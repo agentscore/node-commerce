@@ -29,10 +29,10 @@ function req(overrides: Partial<CheckoutRequest> = {}): CheckoutRequest {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 402 emit — every rail combination
+// 402 emit: every rail combination
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Checkout — 402 emit by rail combination', () => {
+describe('Checkout: 402 emit by rail combination', () => {
   it('x402-only, no MPP, no identity (API seller pattern)', async () => {
     const checkout = new Checkout({
       rails: { x402_base: { recipient: '0xTREASURY' } as X402BaseRailSpec },
@@ -76,7 +76,7 @@ describe('Checkout — 402 emit by rail combination', () => {
 // MPP compose path
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Checkout — composeMppx hook', () => {
+describe('Checkout: composeMppx hook', () => {
   it('200 from compose runs onSettled and returns success', async () => {
     const onSettled = vi.fn().mockResolvedValue(null);
     const composeMppx = vi.fn(
@@ -307,7 +307,7 @@ describe('Checkout — composeMppx hook', () => {
 // Custom hooks
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Checkout — custom hooks', () => {
+describe('Checkout: custom hooks', () => {
   it('computePricing can branch on identity', async () => {
     const price = (ctx: CheckoutContext): PricingResult => {
       if (ctx.request.assess?.identity_status === 'verified') {
@@ -359,7 +359,7 @@ describe('Checkout — custom hooks', () => {
 // Stripe SPT $0.50 minimum auto-drop on emit_402
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Checkout — stripe rail auto-drop on emit_402', () => {
+describe('Checkout: stripe rail auto-drop on emit_402', () => {
   it('drops stripe from accepted_methods when amountUsd < $0.50', async () => {
     const checkout = new Checkout({
       rails: {
@@ -395,7 +395,7 @@ describe('Checkout — stripe rail auto-drop on emit_402', () => {
 // Init guards
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Checkout — init guards', () => {
+describe('Checkout: init guards', () => {
   it('x402Server requires an X402BaseRailSpec in rails["x402_base"]', () => {
     expect(
       () =>
@@ -414,7 +414,7 @@ describe('Checkout — init guards', () => {
 // Solana rail dispatch (smoke test that Solana specs survive _emit_402 path)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Checkout — Solana rail compatibility', () => {
+describe('Checkout: Solana rail compatibility', () => {
   it('emits 402 with Solana MPP rail in accepted_methods', async () => {
     const checkout = new Checkout({
       rails: {
@@ -434,10 +434,10 @@ describe('Checkout — Solana rail compatibility', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// railsKeyForMppxMethod — maps mppx credential method → merchant rails-dict key
+// railsKeyForMppxMethod: maps mppx credential method → merchant rails-dict key
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Checkout — railsKeyForMppxMethod', () => {
+describe('Checkout: railsKeyForMppxMethod', () => {
   const buildCheckout = (rails: Record<string, unknown>) =>
     new Checkout({
       rails: rails as Parameters<typeof Checkout>[0]['rails'],
@@ -515,10 +515,10 @@ describe('Checkout — railsKeyForMppxMethod', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// handleMppx — railKey is derived from receipt method when available
+// handleMppx: railKey is derived from receipt method when available
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Checkout — MPP railKey end-to-end derivation', () => {
+describe('Checkout: MPP railKey end-to-end derivation', () => {
   const buildCheckout = (
     composeMppx: (ctx: CheckoutContext) => Promise<MppxComposeOutcome>,
     onSettled: (ctx: CheckoutContext, outcome: { railKey?: string }) => Promise<Record<string, unknown>>,
@@ -630,12 +630,12 @@ describe('Checkout — MPP railKey end-to-end derivation', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// resolveRecipients error handling — mintRecipients throwing
+// resolveRecipients error handling: mintRecipients throwing
 // CheckoutValidationError lands as a 4xx envelope; other errors rethrow
 // (covers the cross-bundle name-based catch added cross-bundle compat).
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Checkout — mintRecipients error handling', () => {
+describe('Checkout: mintRecipients error handling', () => {
   it('converts CheckoutValidationError from mintRecipients into a 4xx envelope', async () => {
     const { CheckoutValidationError } = await import('../src/errors');
     const checkout = new Checkout({
@@ -734,7 +734,7 @@ function x402Header(payTo: string, network = BIND_NETWORK): string {
   return Buffer.from(JSON.stringify(payload)).toString('base64');
 }
 
-describe('Checkout — x402 v2 resource metadata + extensions on the 402', () => {
+describe('Checkout: x402 v2 resource metadata + extensions on the 402', () => {
   beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
   afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
@@ -800,7 +800,7 @@ describe('Checkout — x402 v2 resource metadata + extensions on the 402', () =>
   });
 });
 
-describe('Checkout — x402 payTo binding to the configured static recipient', () => {
+describe('Checkout: x402 payTo binding to the configured static recipient', () => {
   beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
   afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
@@ -817,7 +817,7 @@ describe('Checkout — x402 payTo binding to the configured static recipient', (
   it('REJECTS a settle whose payTo is NOT the configured recipient (hostile redirect)', async () => {
     const server = makeFakeX402Server();
     const checkout = buildCheckout(server);
-    // Agent forges payTo = their own wallet (a VALID EVM address, so it clears the shape check —
+    // Agent forges payTo = their own wallet (a VALID EVM address, so it clears the shape check:
     // the rejection is specifically the recipient bind, not address validation). The permissive
     // default must NOT apply to a static-recipient merchant: rejected before the facilitator runs.
     const attacker = '0xbadbadbadbadbadbadbadbadbadbadbadbadbad0';
@@ -852,7 +852,7 @@ describe('Checkout — x402 payTo binding to the configured static recipient', (
       url: 'https://api.example/purchase',
       computePricing: () => ({ amountUsd: 0.01 }),
       x402Server: server as never,
-      // Custom lookup: only the per-order minted address is valid — NOT the static rail recipient.
+      // Custom lookup: only the per-order minted address is valid: NOT the static rail recipient.
       isCachedAddress: (addr) => addr.toLowerCase() === seen.toLowerCase(),
     });
     // The static rail recipient is now rejected (custom lookup overrides the static-set bind)...
@@ -889,7 +889,7 @@ describe('Checkout — x402 payTo binding to the configured static recipient', (
   });
 });
 
-describe('Checkout — zero-settle carve-out gates on the real amount (sub-cent guard)', () => {
+describe('Checkout: zero-settle carve-out gates on the real amount (sub-cent guard)', () => {
   beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
   afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
@@ -908,7 +908,7 @@ describe('Checkout — zero-settle carve-out gates on the real amount (sub-cent 
     const result = await checkout.handle(req({ headers: { 'x-payment': x402Header(BIND_RECIPIENT) } }));
     expect(result.status).toBe(200);
     expect(result.settled).toBe(true);
-    // Real settle ran — NOT the zero-settle carve-out (which never calls the facilitator).
+    // Real settle ran: NOT the zero-settle carve-out (which never calls the facilitator).
     expect(server.settlePayment).toHaveBeenCalled();
   });
 
@@ -929,12 +929,12 @@ describe('Checkout — zero-settle carve-out gates on the real amount (sub-cent 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Zero-settle carve-out — railKey resolves from the bound credential (no receipt
+// Zero-settle carve-out: railKey resolves from the bound credential (no receipt
 // exists on the $0 path, so the receipt-method derivation can't run) and the
 // x402 branch verifies the credential before honoring the carve-out.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Checkout — zero-settle railKey resolves from the bound credential', () => {
+describe('Checkout: zero-settle railKey resolves from the bound credential', () => {
   beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
   afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
@@ -984,8 +984,8 @@ describe('Checkout — zero-settle railKey resolves from the bound credential', 
   it('a Tempo credential resolves railKey to the tempo rail even when solana is declared first', async () => {
     // A hash/transaction credential at $0 means the agent signed against a
     // NONZERO quote that re-priced to $0 at settle (no-match flows). Upstream
-    // cannot settle those at $0, so the carve-out absorbs them — no compose
-    // call, no charge — and railKey derives from the recovered signer network,
+    // cannot settle those at $0, so the carve-out absorbs them: no compose
+    // call, no charge: and railKey derives from the recovered signer network,
     // order-independent of rail declaration.
     let observed: { railKey?: string; signerNetwork?: string | null } | undefined;
     const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({ status: 200, raw: {} }));
@@ -1060,7 +1060,7 @@ describe('Checkout — zero-settle railKey resolves from the bound credential', 
 
   it('a token-style (JWT-shaped) credential at $0 keeps the carve-out', async () => {
     // Stripe SPT and other token credentials pass the shape gate but have no
-    // $0 settle semantics upstream — carve-out, null signer, no compose call.
+    // $0 settle semantics upstream: carve-out, null signer, no compose call.
     let observed: { railKey?: string; signerNetwork?: string | null } | undefined;
     const composeMppx = vi.fn(async (): Promise<MppxComposeOutcome> => ({ status: 200, raw: {} }));
     const checkout = buildZeroCheckout(
@@ -1101,7 +1101,7 @@ describe('Checkout — zero-settle railKey resolves from the bound credential', 
   });
 });
 
-describe('Checkout — zero-settle x402 branch verifies the credential first', () => {
+describe('Checkout: zero-settle x402 branch verifies the credential first', () => {
   beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
   afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
@@ -1150,7 +1150,7 @@ describe('Checkout — zero-settle x402 branch verifies the credential first', (
 // stripping); the junk credential is never settled.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Checkout — credential shape gate (pre-hook)', () => {
+describe('Checkout: credential shape gate (pre-hook)', () => {
   beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
   afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 

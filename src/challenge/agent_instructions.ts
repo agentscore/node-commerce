@@ -2,7 +2,7 @@ import type { HowToPayBlock } from './how_to_pay';
 
 /** Map of rail key (e.g. 'x402_base', 'tempo_mpp', 'stripe') → list of client identifiers
  *  that have been smoke-verified by the merchant against the protocol shape they emit.
- *  Strings are display labels, not install commands — agents already get install commands
+ *  Strings are display labels, not install commands: agents already get install commands
  *  via `how_to_pay.<rail>.setup`. Use these as a "what's known to work" hint. */
 export type CompatibleClients = Record<string, string[]>;
 
@@ -53,7 +53,7 @@ function defaultWarnings(howToPay: HowToPayBlock): string[] {
  *
  * Verified state as of the SDK release. The same data is also published as a docs page
  * for humans (rationale, per-rail commands, why some clients don't fully work, last
- * verified date) — this default keeps the merchant-side surface in sync.
+ * verified date): this default keeps the merchant-side surface in sync.
  */
 /** Symbolic rail keys agent-facing surfaces use to talk about a rail without spelling out
  *  network/scheme details. Same keys as `CompatibleClients` map keys. */
@@ -67,7 +67,7 @@ const RAIL_CLIENTS: Record<RailKey, readonly string[]> = {
 };
 
 /** Returns the smoke-verified client list for a set of rail keys. The single source of
- *  truth for "which CLIs we've verified end-to-end on each rail" — consumed both by the
+ *  truth for "which CLIs we've verified end-to-end on each rail": consumed both by the
  *  402-body builder (`defaultCompatibleClients`) and by discovery surfaces (skill.md,
  *  llms.txt, etc.). Update here, every surface inherits. */
 export function compatibleClientsByRails(rails: readonly RailKey[]): CompatibleClients | undefined {
@@ -122,7 +122,7 @@ export function buildAgentInstructions({
   /** Recommended rail (e.g., 'tempo', 'x402_base'). Surfaced for agents to default to. */
   recommended?: string;
   /** Per-rail list of client names the merchant has verified work end-to-end. Vendors set
-   *  this from their own smoke matrix — defaults to none. When omitted, the field is not emitted. */
+   *  this from their own smoke matrix: defaults to none. When omitted, the field is not emitted. */
   compatibleClients?: CompatibleClients;
   /** Arbitrary additional fields the vendor wants merged into the agent_instructions object. */
   extra?: Record<string, unknown>;

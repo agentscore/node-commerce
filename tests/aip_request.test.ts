@@ -59,7 +59,7 @@ describe('hasAgentIdentityHeader', () => {
   });
 });
 
-describe('buildVerifyContextFromParts — @path derivation matches the signer', () => {
+describe('buildVerifyContextFromParts: @path derivation matches the signer', () => {
   const parts = (url: string, host = 'wine.example') => buildVerifyContextFromParts({
     method: 'POST', url, headers: { host, 'agent-identity': 'a.b.c', 'signature-input': 'si', signature: 'sig' },
   });

@@ -1,5 +1,5 @@
 /**
- * Checkout × AIP — assess forwarding contract.
+ * Checkout × AIP: assess forwarding contract.
  *
  * After the edge fail-fast verify passes, the gate must forward BOTH the `aip_token` AND the
  * RFC 9421 signature material to `/v1/assess`, so the API (the authoritative verifier) re-checks
@@ -105,7 +105,7 @@ async function signedReq(): Promise<CheckoutRequest> {
   };
 }
 
-describe('Checkout × AIP — assess forwarding', () => {
+describe('Checkout × AIP: assess forwarding', () => {
   it('forwards aip_token + the RFC 9421 signature material to /v1/assess', async () => {
     const checkout = new Checkout({
       rails: { x402_base: { recipient: '0xT', network: 'eip155:8453' } as X402BaseRailSpec },
@@ -127,11 +127,11 @@ describe('Checkout × AIP — assess forwarding', () => {
   });
 });
 
-describe('Checkout × AIP — policy-deny superset body', () => {
+describe('Checkout × AIP: policy-deny superset body', () => {
   it('emits the RFC 9457 + AgentScore superset (problem+json) when /v1/assess denies a verified AIT', async () => {
     // A verified AIT that /v1/assess then DENIES on compliance (e.g. sanctions). The body must be
     // BOTH schemes: the AgentScore `{ error.code, agent_instructions, reasons }` AND the spec's
-    // `type: urn:aip:error:insufficient_claims` / status 403 — content-negotiated as problem+json.
+    // `type: urn:aip:error:insufficient_claims` / status 403: content-negotiated as problem+json.
     assessState.response = { decision: 'deny', decision_reasons: ['sanctions_flagged'] };
     const checkout = new Checkout({
       rails: { x402_base: { recipient: '0xT', network: 'eip155:8453' } as X402BaseRailSpec },
@@ -150,7 +150,7 @@ describe('Checkout × AIP — policy-deny superset body', () => {
     expect((res.body as { detail?: string }).detail).toContain('sanctions_flagged');
     // Escalation hint derived from the gate's effective policy.
     expect((res.body as { required_claims?: string[] }).required_claims).toEqual(['sanctions_clear', 'age_over_21']);
-    // Rich AgentScore scheme preserved verbatim — still the source of truth for the agent.
+    // Rich AgentScore scheme preserved verbatim: still the source of truth for the agent.
     expect((res.body as { error?: { code?: string } }).error?.code).toBe('wallet_not_trusted');
     expect((res.body as { reasons?: string[] }).reasons).toEqual(['sanctions_flagged']);
     expect((res.body as { agent_instructions?: string }).agent_instructions).toBeTruthy();

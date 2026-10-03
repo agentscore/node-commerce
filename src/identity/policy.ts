@@ -4,7 +4,7 @@
  * A *policy* is a small bag of fields describing what identity the merchant wants
  * verified for a given resource:
  *
- * - `enforcement`: `"hard"` (the regulated-goods path — 403 on miss) or `"soft"` (gate
+ * - `enforcement`: `"hard"` (the regulated-goods path: 403 on miss) or `"soft"` (gate
  *   denial is swallowed; the order completes with a degraded `identity_status`).
  *   `null` / absent = no gate at all.
  * - `requireKyc` / `requireSanctionsClear` / `minAge`: passed through to the
@@ -15,16 +15,16 @@
  *
  * This module ships three primitives:
  *
- * 1. {@link PolicyBlock} — the typed shape.
- * 2. {@link buildGateFromPolicy} — translate a block into the options object the
+ * 1. {@link PolicyBlock}: the typed shape.
+ * 2. {@link buildGateFromPolicy}: translate a block into the options object the
  *    per-framework `agentscoreGate(...)` accepts. Returns `null` when the policy
  *    has no enforcement (treat as "no gate; anonymous OK").
- * 3. {@link runGateWithEnforcement} — wrap a per-framework middleware in the
+ * 3. {@link runGateWithEnforcement}: wrap a per-framework middleware in the
  *    hard/soft enforcement runner. The middleware is given an `onDenied` shim
  *    that captures the denial body and status; the runner returns a structured
  *    {@link GateResult} so the vendor decides how to surface it.
  *
- * All three are additive — vendors using `agentscoreGate(...)` directly are
+ * All three are additive: vendors using `agentscoreGate(...)` directly are
  * unaffected.
  */
 
@@ -63,7 +63,7 @@ export interface PolicyBlock {
   requireKyc?: boolean;
   requireSanctionsClear?: boolean;
   minAge?: number;
-  /** Buyer-verified country blocklist (`["RU", "KP", ...]`) — these jurisdictions are denied. */
+  /** Buyer-verified country blocklist (`["RU", "KP", ...]`): these jurisdictions are denied. */
   blockedJurisdictions?: readonly string[];
   allowedJurisdictions?: readonly string[];
   allowedShippingCountries?: readonly string[];
@@ -92,7 +92,7 @@ export interface GateResult {
 /**
  * Translate a {@link PolicyBlock} into the options the per-framework
  * `agentscoreGate(...)` expects. Returns `null` when the block has no
- * `enforcement` set — the caller should treat that as "no gate; anonymous OK".
+ * `enforcement` set: the caller should treat that as "no gate; anonymous OK".
  *
  * Use a fresh gate per request rather than constructing once at module scope
  * when the policy varies per resource (e.g. per product). Each adapter's gate
@@ -123,7 +123,7 @@ export function buildGateFromPolicy(
 /**
  * OFAC SDN denial reasons. These are strict-liability: soft enforcement may
  * downgrade KYC / age / jurisdiction misses (the merchant accepts the order with a
- * degraded `identity_status`), but it must NEVER swallow a sanctions deny — falsely
+ * degraded `identity_status`), but it must NEVER swallow a sanctions deny: falsely
  * settling for a sanctioned wallet is an OFAC violation regardless of the merchant's
  * soft posture. The API emits `sanctions_flagged` in `decision_reasons` for BOTH the
  * operator/wallet SDN hit and the payment-signer OFAC SDN hit;
@@ -163,7 +163,7 @@ export function isSanctionsDenial(body: Record<string, unknown> | null | undefin
  *
  * The vendor passes:
  * - `gate`: their framework's middleware (Hono `MiddlewareHandler`, Express
- *   `(req, res, next) => void`, etc.) — anything that resolves on accept and
+ *   `(req, res, next) => void`, etc.): anything that resolves on accept and
  *   throws or returns a `Response` on deny.
  * - `runGate`: a thin adapter that calls the middleware with the framework
  *   context and returns either `{ ok: true }` (gate accepted) or
@@ -176,7 +176,7 @@ export function isSanctionsDenial(body: Record<string, unknown> | null | undefin
  * - `enforcement="soft"` + denied: swallow; status="unverified".
  * - accepted: status="verified".
  *
- * **Sanctions are never swallowed.** Soft mode is a commercial knob — it lets a merchant
+ * **Sanctions are never swallowed.** Soft mode is a commercial knob: it lets a merchant
  * accept an order from an agent that didn't satisfy KYC / age / jurisdiction (stamping a
  * degraded `identity_status` for ops). But an OFAC SDN sanctions deny is strict-liability:
  * settling for a sanctioned wallet is a violation regardless of the merchant's posture. So a
@@ -192,7 +192,7 @@ export async function runGateWithEnforcement(
   const outcome = await runGate();
   if (outcome.ok) return { status: 'verified' };
 
-  // A sanctions deny stays terminal in BOTH modes — soft only downgrades non-sanctions reasons.
+  // A sanctions deny stays terminal in BOTH modes: soft only downgrades non-sanctions reasons.
   if (enforcement === 'hard' || isSanctionsDenial(outcome.body)) {
     return {
       status: 'denied',
@@ -219,7 +219,7 @@ export function shippingCountryAllowed(country: string, policy: PolicyBlock | nu
 /**
  * US-state allowlist (e.g. wine).
  *
- * Only enforced for US shipments — non-US shipments are governed by
+ * Only enforced for US shipments: non-US shipments are governed by
  * {@link shippingCountryAllowed} independently.
  */
 export function shippingStateAllowed(
@@ -247,7 +247,7 @@ export function shippingStateAllowed(
  * "ship anywhere" and the function is a no-op. The reason a location is
  * excluded is **merchant-defined**: it might be regulatory (regulated goods
  * + state allowlist), operational (no fulfillment partner), or commercial
- * (fragility, fraud-rate-by-region, etc.) — the helper doesn't assume.
+ * (fragility, fraud-rate-by-region, etc.): the helper doesn't assume.
  *
  * `productName` is the user-facing item name surfaced in the error message
  * ("Cannot ship 'Wine 2020' to NY ..."). Omit for a generic message.
@@ -257,7 +257,7 @@ export function shippingStateAllowed(
  *
  * `countryMessage` / `stateMessage` override the default messages verbatim
  * (use these when the default phrasing isn't right for your consumer agents
- * — e.g. you want to surface the regulatory reason explicitly, or you want
+ * e.g. you want to surface the regulatory reason explicitly, or you want
  * the message in a different language).
  */
 export function validateShippingAgainstPolicy(opts: {

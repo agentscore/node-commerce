@@ -348,7 +348,7 @@ describe('createPayToAddressFromStripePI', () => {
 
     it('settle leg still rejects when the credential signs against an unknown recipient even with staticRecipients configured', async () => {
       // The static-recipient bypass MUST only apply when the signed-against recipient
-      // exactly matches the configured static address — otherwise it'd let any
+      // exactly matches the configured static address: otherwise it'd let any
       // attacker-chosen recipient through.
       const { cache } = makeFakeCache({ hasAddress: false });
       const STATIC_SOLANA = 'FR96wd96urHJdMnYayFrPYmDeAjKvwi3rQ2wkgXXTSP8';

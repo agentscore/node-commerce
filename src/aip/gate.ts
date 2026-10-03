@@ -3,11 +3,11 @@
  *
  * `verifyAitRequest` is the one call a framework adapter makes: hand it a standard `Request`
  * plus a {@link JwksCache}, and it returns the verified AIT claims or a typed failure. The
- * helpers here also map that failure onto the AIP wire contract — HTTP status + error code +
- * an RFC 9457 problem-details body — so every adapter renders denials identically.
+ * helpers here also map that failure onto the AIP wire contract: HTTP status + error code +
+ * an RFC 9457 problem-details body: so every adapter renders denials identically.
  *
  * This layer does identity *verification* only (is this a real, key-bound AIT from a trusted
- * IdP?). Policy enrichment — sanctions, jurisdiction, cross-merchant graph — happens when the
+ * IdP?). Policy enrichment (sanctions, jurisdiction, cross-merchant graph) happens when the
  * merchant additionally feeds the verified claims to `/v1/assess`; that's the gate's choice,
  * not something this module forces.
  */
@@ -22,20 +22,20 @@ export interface AipGateOptions {
   now?: number;
   maxSkewSeconds?: number;
   /** Expected `@authority` (public hostname) the RFC 9421 signature must cover. When set, the
-   *  verifier binds the signature to this value instead of trusting the inbound `Host` header —
+   *  verifier binds the signature to this value instead of trusting the inbound `Host` header:
    *  pin it to your real public host (e.g. `'wine.example.com'`) when behind a proxy or
    *  multi-vhost listener that does not normalize `Host`, to prevent a captured AIT+signature
    *  from being replayed to a different virtual host on the same origin. Same semantics as
    *  Checkout's `AipGateConfig.authority`. */
   authority?: string;
-  /** Minimum `trust_level` (autonomous < human_present < human_confirmed) the AIT must assert —
+  /** Minimum `trust_level` (autonomous < human_present < human_confirmed) the AIT must assert:
    *  the spec's human-presence gate. Insufficient → 403 weak_auth with `required_trust_level`.
    *  Enforced by {@link evaluateAipRequest} / {@link evaluateAipParts}. Unset = any trust level. */
   requireTrustLevel?: TrustLevel;
   /** Acceptable `auth.amr` methods (RFC 8176); the AIT must carry ≥1. Insufficient → 403 weak_auth
    *  with `required_amr`. Unset = not enforced. */
   requireAmr?: string[];
-  /** Identity claims the endpoint needs — surfaced as `required_claims` on insufficient_claims
+  /** Identity claims the endpoint needs: surfaced as `required_claims` on insufficient_claims
    *  denials so the agent can self-correct. Advisory only (enforce by feeding the verified claims
    *  to your own policy / `/v1/assess`; this gate does identity + trust_level/amr). */
   requiredClaims?: string[];
@@ -86,7 +86,7 @@ export const aipErrorCode = (failure: VerifyAitFailure): string => {
     case 'invalid_claims':
       return 'insufficient_claims';
     case 'key_unavailable':
-      // The IdP's JWKS could not be fetched/resolved — our infra couldn't reach a trusted
+      // The IdP's JWKS could not be fetched/resolved: our infra couldn't reach a trusted
       // issuer, not a client-side auth failure. Distinct code so agents back off + retry
       // rather than uselessly re-signing.
       return 'idp_unavailable';
@@ -154,8 +154,8 @@ export interface AipErrorRequirements {
 /**
  * Build an RFC 9457 problem-details body for an AIP verify failure. Adapters serialize this as
  * `application/problem+json` with {@link aipErrorStatus}. Optionally carries the merchant's
- * requirements — `trusted_issuers` on untrusted_issuer; `required_claims` / `required_trust_level` /
- * `required_amr` on insufficient_claims — so the agent learns what would satisfy the gate.
+ * requirements: `trusted_issuers` on untrusted_issuer; `required_claims` / `required_trust_level` /
+ * `required_amr` on insufficient_claims: so the agent learns what would satisfy the gate.
  */
 export const buildAipErrorBody = (failure: VerifyAitFailure, requirements?: AipErrorRequirements): AipErrorBody => {
   const code = aipErrorCode(failure);
@@ -185,7 +185,7 @@ export const buildAipErrorBody = (failure: VerifyAitFailure, requirements?: AipE
  * surfaces as one of these AgentScore codes; the spec's fixed error set expresses each as:
  *  - `token_expired` → `expired_token` (401)
  *  - `invalid_credential` → `invalid_signature` (401)
- *  - `api_error` → `idp_unavailable` (503, transient — the claims couldn't be evaluated)
+ *  - `api_error` → `idp_unavailable` (503, transient: the claims couldn't be evaluated)
  *  - everything else (compliance: `wallet_not_trusted` + `sanctions_flagged` / `age_insufficient`
  *    / `jurisdiction_restricted` / `kyc_*`) → `insufficient_claims` (403): the AIT did not attest
  *    (or attested a failing value for) the required compliance claim.
@@ -207,8 +207,8 @@ const aipPolicyDenyCode = (code: string): { code: string; status: 401 | 403 | 50
  * Wrap an AgentScore AIT-path denial body in the RFC 9457 + AIP-spec superset.
  *
  * Reuses {@link buildAipErrorBody}'s SHAPE convention (`type`/`title`/`status`/`detail` +
- * escalation extensions) but for the *policy-deny* case — a verified AIT that `/v1/assess` then
- * denied — which carries an AgentScore compliance/credential code, not a verify-failure reason.
+ * escalation extensions) but for the *policy-deny* case: a verified AIT that `/v1/assess` then
+ * denied: which carries an AgentScore compliance/credential code, not a verify-failure reason.
  *
  * The result is a SUPERSET: the canonical `{ error, agent_instructions, ... }` body is spread in
  * verbatim (so existing consumers keep parsing `error.code`), with the RFC 9457 envelope layered
@@ -238,18 +238,18 @@ export const buildAipPolicyDenyBody = (
   };
   // Escalation extensions, scoped exactly as the spec mandates: `required_claims` /
   // `required_trust_level` / `required_amr` on insufficient_claims. `trusted_issuers` belongs to
-  // untrusted_issuer — a VERIFY failure that never reaches the policy-deny path — so it is not
+  // untrusted_issuer (a VERIFY failure that never reaches the policy-deny path) so it is not
   // emitted here (the edge-deny `buildAipErrorBody` owns that one).
   if (requirements && spec.code === 'insufficient_claims') {
     if (requirements.requiredClaims?.length) superset.required_claims = requirements.requiredClaims;
     if (requirements.requiredTrustLevel !== undefined) superset.required_trust_level = requirements.requiredTrustLevel;
     if (requirements.requiredAmr?.length) superset.required_amr = requirements.requiredAmr;
   }
-  // Spread the canonical body LAST so `error` / `agent_instructions` / `reasons` win verbatim —
+  // Spread the canonical body LAST so `error` / `agent_instructions` / `reasons` win verbatim:
   // the RFC 9457 fields are additive and never clobber the rich AgentScore scheme. The envelope
   // fields themselves (`type` / `title` / `status` / `detail`) are RESERVED the other way: the
   // canonical body never carries them legitimately, but a merchant `onBeforeSession` hook's
-  // `extra` rides through `denialReasonToBody` unfiltered — strip them so a smuggled `status`
+  // `extra` rides through `denialReasonToBody` unfiltered: strip them so a smuggled `status`
   // can't rewrite the problem+json envelope (or the HTTP status Checkout derives from it).
   const { type: _type, title: _title, status: _status, detail: _detail, ...rest } = body;
   return { ...superset, ...rest };
@@ -313,7 +313,7 @@ const requirementsFromOptions = (opts: AipGateOptions): AipErrorRequirements => 
 });
 
 /**
- * Verify the AIP credential AND enforce the gate's trust_level / auth.amr requirement in one call —
+ * Verify the AIP credential AND enforce the gate's trust_level / auth.amr requirement in one call:
  * the standalone-adapter counterpart to {@link verifyAitRequest}. Returns the verified AIT, or an
  * RFC 9457 denial body (a verify failure → its wire code; trust insufficient → weak_auth) carrying
  * the merchant's `required_*` / `trusted_issuers` so the agent can self-correct.

@@ -2,8 +2,8 @@
  * Rewrite a URL's scheme to the proxy's original protocol.
  *
  * Behind a TLS-terminating edge proxy (ALB / CloudFront / nginx) the inbound
- * request arrives as `http://`, but x402 discovery — and the mppx client's
- * resource-match check — require the public `https://`. Honor `X-Forwarded-Proto`
+ * request arrives as `http://`, but x402 discovery: and the mppx client's
+ * resource-match check: require the public `https://`. Honor `X-Forwarded-Proto`
  * (the scheme the client actually used) so the emitted `resource.url` matches
  * the URL the client fetched.
  *

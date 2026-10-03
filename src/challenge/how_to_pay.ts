@@ -74,15 +74,15 @@ export function buildHowToPay({
 }: {
   /** The merchant's full URL (e.g., 'https://agents.merchant.example/api/buy'). */
   url: string;
-  /** JSON string of the body the agent should retry with — typically the original request body. */
+  /** JSON string of the body the agent should retry with: typically the original request body. */
   retryBodyJson: string;
   /** Total amount in USD (string or number). Used to compute max-spend defaults and stripe context. */
   totalUsd: string | number;
-  /** Per-rail config — each is optional. Pass only the rails you support. */
+  /** Per-rail config: each is optional. Pass only the rails you support. */
   rails: HowToPayRails;
   /** Placeholder text for the operator token in commands. Defaults to '<your_opc_token>'.
    *  Pass `null` (gateless merchants) to strip the `-H 'X-Operator-Token: ...'` line entirely
-   *  from each rail command — appropriate when the merchant doesn't run an identity gate. */
+   *  from each rail command: appropriate when the merchant doesn't run an identity gate. */
   opTokenPlaceholder?: string | null;
   /** Override max-spend value used in commands. Default: `ceil(totalUsd) + 1`
    *  (for prices ≥ $1) or `totalUsd.toFixed(decimals)` (for sub-dollar prices,
@@ -96,7 +96,7 @@ export function buildHowToPay({
   const d = decimals ?? 2;
   const defaultMaxSpend = totalNum >= 1 ? (Math.ceil(totalNum) + 1).toFixed(d) : totalNum.toFixed(d);
   const maxSpendStr = String(maxSpend ?? defaultMaxSpend);
-  // When opTokenPlaceholder is explicitly null, the merchant is gateless — strip
+  // When opTokenPlaceholder is explicitly null, the merchant is gateless: strip
   // the `-H 'X-Operator-Token: ...'` snippet from every rail command. Otherwise
   // fall back to '<your_opc_token>' for back-compat.
   const gateless = opTokenPlaceholder === null;

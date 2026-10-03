@@ -11,7 +11,7 @@
  *     extract the signed network + payTo, validate against the merchant's accepted
  *     network, validate the payTo address shape, and check that the payTo was minted by
  *     THIS merchant (cache hit). Each step has its own denial code and `next_steps`
- *     shape — getting the message right by hand across 4 conditions is fiddly.
+ *     shape: getting the message right by hand across 4 conditions is fiddly.
  */
 
 import { networks } from './networks';
@@ -27,7 +27,7 @@ export const X402_SUPPORTED_BASE_NETWORKS = new Set<string>([
  * init / server boot.
  *
  * Throws `Error` with a message that names the unsupported value AND lists the valid
- * options — agents tracking down a misconfigured deploy don't need to grep for the
+ * options: agents tracking down a misconfigured deploy don't need to grep for the
  * supported list.
  */
 export function validateX402NetworkConfig({ baseNetwork }: { baseNetwork: string }): void {
@@ -69,7 +69,7 @@ export type VerifyX402RequestResult =
     };
 
 const REGENERATE_WARNING =
-  'Use `agentscore-pay pay --chain base` (or `tempo request` for Tempo USDC) so the credential is signed and submitted via the protocol handshake. Do NOT use `tempo wallet transfer` — that sends USDC on-chain but does not complete the handshake.';
+  'Use `agentscore-pay pay --chain base` (or `tempo request` for Tempo USDC) so the credential is signed and submitted via the protocol handshake. Do NOT use `tempo wallet transfer`: that sends USDC on-chain but does not complete the handshake.';
 
 function regenerateBody(message: string, userMessage: string) {
   return {
@@ -90,7 +90,7 @@ function regenerateBody(message: string, userMessage: string) {
  * Returns `{ok: true, payload, signedNetwork, signedPayTo}` when valid; the caller
  * passes `payload` straight into `processX402Settle`.
  *
- * Returns `{ok: false, body, status}` when invalid — the merchant just does
+ * Returns `{ok: false, body, status}` when invalid: the merchant just does
  * `return c.json(body, status)` (or framework equivalent).
  *
  * Reads the header from `payment-signature` first, falling back to `x-payment` (both
@@ -101,7 +101,7 @@ export async function verifyX402Request({
   isCachedAddress,
   acceptedNetwork,
 }: {
-  /** The incoming Request — `verifyX402Request` reads the X-Payment / payment-signature header. */
+  /** The incoming Request: `verifyX402Request` reads the X-Payment / payment-signature header. */
   request: Request;
   /** Async lookup that returns true when the address was minted by this merchant
    *  (typically `piCache.hasAddress`). The check validates that the credential's

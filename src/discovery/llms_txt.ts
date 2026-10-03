@@ -56,7 +56,7 @@ AgentScore identity is reusable across every AgentScore-gated merchant: one KYC,
 interface LlmsTxtPaymentSectionConfig {
   /** Symbolic rail names supported. */
   rails: ('tempo-mainnet' | 'tempo-testnet' | 'x402-base-mainnet' | 'x402-base-sepolia' | 'mpp-solana-mainnet' | 'mpp-solana-devnet' | 'stripe-spt' | string)[];
-  /** Merchant URL — used in the example commands. */
+  /** Merchant URL: used in the example commands. */
   appUrl: string;
   /**
    * When true, emit the verbose multi-step variant: setup commands per rail, full per-rail
@@ -75,7 +75,7 @@ interface LlmsTxtPaymentSectionConfig {
  * supported rails with concrete CLI examples (tempo request, agentscore-pay, link-cli)
  * per the configured rail set.
  *
- * Pass `verbose: true` for the rich variant — multi-step setup + multi-line command examples +
+ * Pass `verbose: true` for the rich variant: multi-step setup + multi-line command examples +
  * exact-amount warnings. Default is the compact one-bullet-per-rail form.
  */
 export function llmsTxtPaymentSection(input: LlmsTxtPaymentSectionConfig): string {

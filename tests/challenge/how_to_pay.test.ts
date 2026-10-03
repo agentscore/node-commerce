@@ -63,7 +63,7 @@ describe('buildHowToPay', () => {
   it('builds stripe entry with link-cli commands when profileId set + amount under cap', () => {
     const block = buildHowToPay({
       ...baseInput,
-      totalUsd: 100, // 10000 cents — well under $500 cap
+      totalUsd: 100, // 10000 cents: well under $500 cap
       rails: { stripe: { profileId: 'acct_test_123', productName: 'Cabernet 2021' } },
     });
     expect(block.stripe!.command_link_cli).toBeDefined();
@@ -75,7 +75,7 @@ describe('buildHowToPay', () => {
   it('emits stripe note (not link-cli commands) when amount over $500 cap', () => {
     const block = buildHowToPay({
       ...baseInput,
-      totalUsd: 1000, // 100000 cents — over cap
+      totalUsd: 1000, // 100000 cents: over cap
       rails: { stripe: { profileId: 'acct_test_123' } },
     });
     expect(block.stripe!.command_link_cli).toBeUndefined();

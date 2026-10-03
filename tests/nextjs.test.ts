@@ -34,7 +34,7 @@ function mockFetchStatus(status: number, errorCode?: string): void {
   } as unknown as Response);
 }
 
-describe('Next.js adapter — withAgentScoreGate (route handler wrapper)', () => {
+describe('Next.js adapter: withAgentScoreGate (route handler wrapper)', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('reaches handler on allow with assess data', async () => {
@@ -347,7 +347,7 @@ describe('Next.js adapter — withAgentScoreGate (route handler wrapper)', () =>
     expect(handler).toHaveBeenCalled();
   });
 
-  it('captureWallet swallows failures silently — handler response unaffected', async () => {
+  it('captureWallet swallows failures silently: handler response unaffected', async () => {
     global.fetch = vi.fn()
       .mockResolvedValueOnce({ ok: true, status: 200, json: vi.fn().mockResolvedValueOnce(ALLOW_RESPONSE) } as unknown as Response)
       .mockRejectedValueOnce(new Error('network down'));
@@ -389,7 +389,7 @@ describe('Next.js adapter — withAgentScoreGate (route handler wrapper)', () =>
   });
 });
 
-describe('Next.js adapter — agentscoreMiddleware', () => {
+describe('Next.js adapter: agentscoreMiddleware', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('returns undefined on allow (request should continue)', async () => {
@@ -429,7 +429,7 @@ describe('Next.js adapter — agentscoreMiddleware', () => {
   });
 });
 
-describe('Next.js adapter — error paths + chain', () => {
+describe('Next.js adapter: error paths + chain', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('returns 403 payment_required on 402', async () => {
@@ -472,7 +472,7 @@ describe('Next.js adapter — error paths + chain', () => {
   });
 });
 
-describe('Next.js adapter — withConditionalAgentScoreGate', () => {
+describe('Next.js adapter: withConditionalAgentScoreGate', () => {
   it('discovery leg (no payment header): handler runs without invoking gate; sync return wrapped in Promise', async () => {
     const POST = withConditionalAgentScoreGate(
       { apiKey: API_KEY },
@@ -499,7 +499,7 @@ describe('Next.js adapter — withConditionalAgentScoreGate', () => {
   });
 });
 
-describe('Next.js adapter — conditionalAgentscoreMiddleware', () => {
+describe('Next.js adapter: conditionalAgentscoreMiddleware', () => {
   it('discovery leg returns undefined (chain continues)', async () => {
     const mw = conditionalAgentscoreMiddleware({ apiKey: API_KEY });
     const res = await mw(new Request('https://example.com/', { method: 'POST' }));

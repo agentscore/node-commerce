@@ -1,6 +1,6 @@
 /**
  * Wraps the `mppStripe.charge(...)` boilerplate from `mppx/server`. Returns the value
- * vendors pass into `Mppx.create({ methods: [...] })`. mppx is an OPTIONAL peer dependency —
+ * vendors pass into `Mppx.create({ methods: [...] })`. mppx is an OPTIONAL peer dependency:
  * vendors who don't use Stripe SPT don't need to install it.
  *
  * Example:
@@ -27,7 +27,7 @@ export async function createMppxStripe({
 }: {
   /** Stripe profile_id / network_id (the value advertised in your `stripe/charge` accepted_methods entry). */
   profileId: string;
-  /** Stripe secret key — mppx uses it to validate inbound SharedPaymentTokens. */
+  /** Stripe secret key: mppx uses it to validate inbound SharedPaymentTokens. */
   secretKey: string;
   /** Payment method types this stripe rail accepts. Default ['card', 'link']. */
   paymentMethodTypes?: string[];
@@ -45,7 +45,7 @@ export async function createMppxStripe({
   /* v8 ignore start -- peer-dep-absence guard; mppx is installed in the test env so this branch can't be exercised without mocking the dynamic import */
   if (!mppx?.stripe?.charge) {
     throw new Error(
-      'mppx not installed — install with `npm install mppx` to use createMppxStripe.',
+      'mppx not installed: install with `npm install mppx` to use createMppxStripe.',
     );
   }
   /* v8 ignore stop */

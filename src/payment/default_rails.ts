@@ -6,7 +6,7 @@
  *
  *  Per-order recipient minting (Stripe-multichain) is wired via the Checkout's
  *  `mintRecipients` hook, so the `recipient: ''` sentinel here is the expected
- *  shape — `mintRecipients` overrides it at request time.
+ *  shape: `mintRecipients` overrides it at request time.
  */
 
 import { networks } from './networks';
@@ -34,13 +34,13 @@ type DefaultRails = {
 
 /** Build the canonical four-rail `rails` dict. Keys match the convention used
  *  across consumer codebases (`tempo`, `x402_base`, `solana_mpp`, `stripe`).
- *  Empty-string recipients are placeholders — Checkout's `mintRecipients` hook
+ *  Empty-string recipients are placeholders: Checkout's `mintRecipients` hook
  *  must populate real values at request time. */
 export function buildDefaultCheckoutRails(opts: BuildDefaultCheckoutRailsOptions): DefaultRails {
   const out: DefaultRails = {};
   if (opts.tempo) {
     // Derive network + chainId + token from `testnet` when the caller requests it
-    // without pinning them — testnet must point at Tempo Moderato (chain 42431) and
+    // without pinning them: testnet must point at Tempo Moderato (chain 42431) and
     // the testnet USDC contract, not the mainnet defaults baked into RAIL_SPEC_DEFAULTS.
     const merged: TempoRailSpec = { recipient: '', ...RAIL_SPEC_DEFAULTS.tempo, ...opts.tempo };
     if (merged.testnet) {
@@ -52,7 +52,7 @@ export function buildDefaultCheckoutRails(opts: BuildDefaultCheckoutRailsOptions
   }
   if (opts.x402Base) {
     // Derive chainId + token from network when caller overrides network without
-    // pinning them — Sepolia network must point at the Sepolia USDC contract,
+    // pinning them: Sepolia network must point at the Sepolia USDC contract,
     // not the mainnet contract baked into RAIL_SPEC_DEFAULTS.
     const merged: X402BaseRailSpec = { recipient: '', ...RAIL_SPEC_DEFAULTS.x402Base, ...opts.x402Base };
     if (merged.network === networks.base.sepolia.caip2) {

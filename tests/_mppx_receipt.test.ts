@@ -49,7 +49,7 @@ describe('deriveMppxReceiptMethod', () => {
   it('falls back to extractMppxReceiptMethod(header) when no direct receipt.method', async () => {
     // raw has withReceipt → header found → method extraction attempted.
     // mppx import will fail (peer dep not installed in tests for this module),
-    // so the result is undefined — but the line is exercised.
+    // so the result is undefined: but the line is exercised.
     const raw = {
       withReceipt: (_res: Response): Response =>
         new Response(null, { headers: { 'Payment-Receipt': 'fake-receipt-base64' } }),

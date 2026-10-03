@@ -13,7 +13,7 @@
  *
  * Extensibility contract (per spec): the `identity` object is open. If a claim is present,
  * the IdP attests to it; verifiers ignore claims they don't recognize. Absence is the
- * "unknown" signal — IdPs do not ship `null` for "not checked".
+ * "unknown" signal: IdPs do not ship `null` for "not checked".
  */
 
 import type { JWK } from 'jose';
@@ -22,7 +22,7 @@ import type { JWK } from 'jose';
 export type TrustLevel = 'autonomous' | 'human_present' | 'human_confirmed';
 
 /**
- * Authentication Method Reference values (RFC 8176 / IANA AMR registry). Open set — these
+ * Authentication Method Reference values (RFC 8176 / IANA AMR registry). Open set: these
  * are the values relevant to agent identity; others are valid and pass through.
  */
 export type AmrValue = 'face' | 'fpt' | 'hwk' | 'otp' | 'pin' | 'pwd' | 'sms' | 'swk' | 'user' | 'mfa';
@@ -65,7 +65,7 @@ interface PaymentClaim {
 
 /**
  * Identity claims (presence == IdP attestation). Spec-defined fields plus AgentScore
- * compliance extension claims. Open by contract — unknown fields are allowed and ignored.
+ * compliance extension claims. Open by contract: unknown fields are allowed and ignored.
  */
 export interface IdentityClaim {
   email?: string;
@@ -127,7 +127,7 @@ export interface AitHeader {
  * and well-typed, and enforces the one normative conditional in the spec: a
  * `human_confirmed` token MUST carry at least one `auth.amr` value.
  *
- * This is shape/contract validation only — it does NOT verify signatures (that's the
+ * This is shape/contract validation only: it does NOT verify signatures (that's the
  * verifier pipeline) and does NOT apply trust policy (that's the gate / `/v1/assess`).
  */
 export type AitValidationResult =

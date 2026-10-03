@@ -8,7 +8,7 @@
  *     the 402 advertises a stable per-order deposit address.
  *   - **Settle leg** (MPP credential attached): reuse the buyer's
  *     signed-against payTo from the credential (after verifying it's in the
- *     local cache OR matches a configured `staticRecipients` entry) —
+ *     local cache OR matches a configured `staticRecipients` entry):
  *     otherwise the verify leg would compare against a freshly-rotated
  *     address and reject the credential.
  *
@@ -20,7 +20,7 @@
  *     `preferredNetwork`'s address). Convenient when the merchant only needs
  *     one rail's payTo back.
  *   - `mintMultichainRecipients` returns the full per-rail map plus the PI
- *     id. Preferred for multi-rail merchants — avoids the second pi-cache
+ *     id. Preferred for multi-rail merchants: avoids the second pi-cache
  *     lookup to stitch sibling addresses back together.
  */
 
@@ -29,7 +29,7 @@ import { createMultichainPaymentIntent, type StripeClientLike } from './payment_
 import type { PiCache } from './pi-cache';
 
 export interface CreatePayToAddressFromStripePIOptions {
-  /** Inbound HTTP request — header is read for an Authorization Payment credential. */
+  /** Inbound HTTP request: header is read for an Authorization Payment credential. */
   request: Request;
   /** Order amount in cents. */
   amountCents: number;
@@ -39,12 +39,12 @@ export interface CreatePayToAddressFromStripePIOptions {
   piCache: PiCache;
   /** Networks to advertise to Stripe `deposit_options`. Default ['tempo', 'base', 'solana'].
    *  Networks present as a key in `staticRecipients` are removed from this list
-   *  automatically — Stripe is not asked to mint a per-PI address for them. */
+   *  automatically: Stripe is not asked to mint a per-PI address for them. */
   networks?: string[];
   /** Merchant-owned static deposit addresses, keyed by network. Use this to bypass
    *  Stripe per-PI rotation on chains where a rotating recipient is expensive
    *  (Solana: each new recipient address costs ~0.002 SOL of ATA rent locked on
-   *  an account the merchant can't close — see MPP spec §13.6 "ATA Rent Drain").
+   *  an account the merchant can't close: see MPP spec §13.6 "ATA Rent Drain").
    *
    *  The SDK handles everything: (a) excludes these networks from the Stripe mint,
    *  (b) registers them with `piCache.cacheAddress` on every call (so settle-leg
@@ -67,7 +67,7 @@ export interface CreatePayToAddressFromStripePIOptions {
   preferredNetwork?: string;
 }
 
-/** Structured result for `mintMultichainRecipients` — exposes the full per-network
+/** Structured result for `mintMultichainRecipients`: exposes the full per-network
  *  deposit map plus the PI id, so merchants can stop guessing "is the returned
  *  string the tempo address or the solana static". */
 export interface MintMultichainRecipientsResult {
@@ -101,7 +101,7 @@ let warnedRotatingSolanaMint = false;
  *  `createMultichainPaymentIntent` and caches the addresses + PI mapping.
  *
  *  When `staticRecipients` is configured, prefer `mintMultichainRecipients`
- *  instead — its structured return avoids the "is this string the tempo or
+ *  instead: its structured return avoids the "is this string the tempo or
  *  the solana static" ambiguity on the settle leg. */
 export async function createPayToAddressFromStripePI(
   opts: CreatePayToAddressFromStripePIOptions,
@@ -115,7 +115,7 @@ export async function createPayToAddressFromStripePI(
 
 /** Structured variant of `createPayToAddressFromStripePI`: returns the full
  *  per-rail map plus the PI id. Preferred when the merchant's `mintRecipients`
- *  hook needs all rail addresses (typical multi-rail merchant) — saves the
+ *  hook needs all rail addresses (typical multi-rail merchant): saves the
  *  pi-cache lookups + sidesteps the "returned-string-is-ambiguous" trap on
  *  the settle leg when `staticRecipients` is configured. */
 export async function mintMultichainRecipients(
@@ -174,7 +174,7 @@ async function tryResolveFromCredential(
     });
   }
 
-  // Merchant-owned static recipient is always valid — bypasses the piCache TTL
+  // Merchant-owned static recipient is always valid: bypasses the piCache TTL
   // window since the merchant owns the address.
   const staticForMethod = opts.staticRecipients?.[method];
   if (staticForMethod && staticForMethod === toAddress) return toAddress;

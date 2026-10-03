@@ -34,7 +34,7 @@ describe('FIXABLE_DENIAL_REASONS / isFixableDenial', () => {
   });
 
   it('jurisdiction_restricted is UNFIXABLE', () => {
-    // The API only emits jurisdiction_restricted AFTER KYC is verified — meaning the
+    // The API only emits jurisdiction_restricted AFTER KYC is verified: meaning the
     // user's KYC'd country is in the merchant's blocked list. Re-doing KYC won't change
     // the country, same shape as sanctions_flagged / age_insufficient.
     expect(FIXABLE_DENIAL_REASONS.has('jurisdiction_restricted')).toBe(false);

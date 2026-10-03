@@ -44,7 +44,7 @@ function mockFetchStatus(status: number, errorCode?: string): void {
   } as unknown as Response);
 }
 
-describe('Web Fetch adapter — createAgentScoreGate', () => {
+describe('Web Fetch adapter: createAgentScoreGate', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('returns { allowed: true, data } on allow', async () => {
@@ -58,7 +58,7 @@ describe('Web Fetch adapter — createAgentScoreGate', () => {
     if (result.allowed) {
       expect(result.data).toMatchObject({ decision: 'allow' });
       // Wallet-authenticated allow exposes a bound getSignerVerdict; invoking it
-      // delegates to the cached core verdict (undefined here — no signer in the mock).
+      // delegates to the cached core verdict (undefined here: no signer in the mock).
       expect(typeof result.getSignerVerdict).toBe('function');
       expect(result.getSignerVerdict?.()).toBeUndefined();
     }
@@ -208,7 +208,7 @@ describe('Web Fetch adapter — createAgentScoreGate', () => {
     );
   });
 
-  it('fails open on 402 when failOpen is true — returns allowed with no data', async () => {
+  it('fails open on 402 when failOpen is true: returns allowed with no data', async () => {
     mockFetchStatus(402);
     const guard = createAgentScoreGate({ apiKey: API_KEY, failOpen: true });
     const req = new Request('https://example.com/', { headers: { 'x-wallet-address': WALLET } });
@@ -275,7 +275,7 @@ describe('Web Fetch adapter — createAgentScoreGate', () => {
   });
 });
 
-describe('Web Fetch adapter — withAgentScoreGate', () => {
+describe('Web Fetch adapter: withAgentScoreGate', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('invokes handler with assess data on allow', async () => {
@@ -372,7 +372,7 @@ describe('Web Fetch adapter — withAgentScoreGate', () => {
   });
 });
 
-describe('Web Fetch adapter — error paths + chain', () => {
+describe('Web Fetch adapter: error paths + chain', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('returns { allowed: false } with payment_required deny reason on 402', async () => {

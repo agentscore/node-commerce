@@ -94,7 +94,7 @@ describe('TTLCache', () => {
     vi.advanceTimersByTime(800);
     cache.set('key', 'second');
     vi.advanceTimersByTime(800);
-    // 1600 ms total — original would have expired, but we reset at 800
+    // 1600 ms total: original would have expired, but we reset at 800
     expect(cache.get('key')).toBe('second');
   });
 });

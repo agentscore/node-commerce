@@ -19,7 +19,7 @@ export interface IdentityMetadataBlock {
 /**
  * Build the identity-metadata block for an enriched 402 body. Echoes the agent's
  * identity context (wallet vs. operator-token mode) so the agent can self-correct
- * before signing — specifically, on wallet-auth rails the agent MUST sign with one
+ * before signing: specifically, on wallet-auth rails the agent MUST sign with one
  * of the wallets in linked_wallets (all resolve to the same operator).
  */
 export function buildIdentityMetadata({

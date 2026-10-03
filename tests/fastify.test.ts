@@ -47,7 +47,7 @@ function mockFetchOkWithQuota(body: unknown): void {
   } as unknown as Response);
 }
 
-describe('Fastify adapter — identity extraction', () => {
+describe('Fastify adapter: identity extraction', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('extracts wallet address from X-Wallet-Address header and attaches assess data to request', async () => {
@@ -96,7 +96,7 @@ describe('Fastify adapter — identity extraction', () => {
   });
 });
 
-describe('Fastify adapter — deny behavior', () => {
+describe('Fastify adapter: deny behavior', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('returns 403 wallet_not_trusted with verify_url on policy deny', async () => {
@@ -158,7 +158,7 @@ describe('Fastify adapter — deny behavior', () => {
   });
 });
 
-describe('Fastify adapter — User-Agent', () => {
+describe('Fastify adapter: User-Agent', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('sends canonical User-Agent by default', async () => {
@@ -192,7 +192,7 @@ describe('Fastify adapter — User-Agent', () => {
   });
 });
 
-describe('Fastify adapter — fail-open + session creation paths', () => {
+describe('Fastify adapter: fail-open + session creation paths', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('allows through on 402 when failOpen is true', async () => {
@@ -237,7 +237,7 @@ describe('Fastify adapter — fail-open + session creation paths', () => {
   });
 });
 
-describe('Fastify adapter — error paths', () => {
+describe('Fastify adapter: error paths', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('returns 403 payment_required on 402 assess response', async () => {
@@ -339,7 +339,7 @@ describe('Fastify adapter — error paths', () => {
   });
 });
 
-describe('Fastify conditional gate — settle-leg allow paths', () => {
+describe('Fastify conditional gate: settle-leg allow paths', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('flows discovery legs (no payment header) straight through without calling assess', async () => {
@@ -433,7 +433,7 @@ describe('Fastify conditional gate — settle-leg allow paths', () => {
   });
 });
 
-describe('Fastify adapter — chain option', () => {
+describe('Fastify adapter: chain option', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('forwards constructor chain to /v1/assess body', async () => {
@@ -450,7 +450,7 @@ describe('Fastify adapter — chain option', () => {
   });
 });
 
-describe('Fastify adapter — captureWallet', () => {
+describe('Fastify adapter: captureWallet', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('posts to /v1/credentials/wallets after the gate ran on an operator_token request', async () => {
@@ -523,7 +523,7 @@ describe('Fastify adapter — captureWallet', () => {
     expect(body.idempotency_key).toBe('pi_abc');
   });
 
-  it('swallows capture failures silently — handler response unaffected', async () => {
+  it('swallows capture failures silently: handler response unaffected', async () => {
     global.fetch = vi.fn()
       .mockResolvedValueOnce({ ok: true, status: 200, json: vi.fn().mockResolvedValueOnce(ALLOW_RESPONSE) } as unknown as Response)
       .mockRejectedValueOnce(new Error('network down'));

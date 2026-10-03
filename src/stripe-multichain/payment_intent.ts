@@ -1,7 +1,7 @@
 import { CheckoutValidationError } from '../errors';
 
 /**
- * Minimal Stripe client surface — only the methods we use. Vendors pass their actual
+ * Minimal Stripe client surface: only the methods we use. Vendors pass their actual
  * `Stripe` instance (peer dep on the `stripe` package); this interface keeps the SDK
  * decoupled from any specific Stripe version.
  */
@@ -70,7 +70,7 @@ async function createMultichainPaymentIntentOnce({
 }: {
   /** A configured Stripe SDK instance. */
   stripe: StripeClientLike;
-  /** Amount in cents (Stripe convention — $1.00 = 100). */
+  /** Amount in cents (Stripe convention: $1.00 = 100). */
   amount: number;
   /** Currency code. Default 'usd'. */
   currency?: string;
@@ -78,7 +78,7 @@ async function createMultichainPaymentIntentOnce({
   networks?: string[];
   /** Metadata to attach to the PI (visible in Stripe dashboard). */
   metadata?: Record<string, string>;
-  /** Idempotency key — agent retries of the same purchase won't create duplicate PIs. */
+  /** Idempotency key: agent retries of the same purchase won't create duplicate PIs. */
   idempotencyKey?: string;
 }): Promise<MultichainPaymentIntentResult> {
   const pi = await stripe.paymentIntents.create(

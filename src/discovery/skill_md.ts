@@ -41,18 +41,18 @@ export interface SkillMdLink {
 }
 
 interface BuildSkillMdInput {
-  /** Skill manifest identifier — kebab-case per agentskills.io spec: 1-64 chars, lowercase
+  /** Skill manifest identifier: kebab-case per agentskills.io spec: 1-64 chars, lowercase
    *  alphanumeric + hyphens, no leading/trailing/consecutive hyphens. Validated at build
    *  time; invalid names throw. e.g. 'example-merchant-commerce'. */
   name: string;
-  /** Skill description — agentskills.io spec: 1-1024 chars, non-empty. Should describe both
+  /** Skill description: agentskills.io spec: 1-1024 chars, non-empty. Should describe both
    *  what the skill does AND when to use it; imperative phrasing recommended ("Use when…").
    *  Validated at build time; over-length throws. */
   description: string;
   /** Merchant homepage (or domain root). Emitted as `metadata.homepage` per spec
    *  (top-level non-spec fields go under metadata). */
   homepage: string;
-  /** Skill schema version — increment when the skill body materially changes. Emitted as
+  /** Skill schema version: increment when the skill body materially changes. Emitted as
    *  a quoted string under `metadata.version` per agentskills.io spec (metadata values
    *  must be strings). Accepts string or number; numbers are converted. Default "1". */
   version?: string | number;
@@ -65,7 +65,7 @@ interface BuildSkillMdInput {
   compatibility?: string;
   /** Optional space-separated string of pre-approved tools (experimental per spec). */
   allowedTools?: string;
-  /** Additional caller-defined metadata entries — flat key/value strings nested under
+  /** Additional caller-defined metadata entries: flat key/value strings nested under
    *  `metadata:`. Spec requires string values. */
   metadata?: Record<string, string | number>;
 
@@ -77,13 +77,13 @@ interface BuildSkillMdInput {
   intro?: string;
 
   /** Files / well-known URLs surfaced under the "Important Files" table. The skill.md URL
-   *  itself is added automatically — list other discovery surfaces (llms.txt, mpp.json,
+   *  itself is added automatically: list other discovery surfaces (llms.txt, mpp.json,
    *  openapi.json, agent-card.json). */
   files?: SkillMdLink[];
 
   /** Rails the merchant accepts. Drives the Payment + Compatible Clients sections. Order
    *  is preserved in render. Default to the rails actually declared on the merchant's
-   *  `respond402` config — keep these in sync. */
+   *  `respond402` config: keep these in sync. */
   acceptedRails: RailKey[];
   /** Override the per-rail compatible-clients matrix. When omitted, derives from
    *  `acceptedRails` via the SDK's smoke-verified default. Override keys not in
@@ -92,7 +92,7 @@ interface BuildSkillMdInput {
 
   /** Identity requirements as agent-observable outcomes (kyc / age / jurisdiction /
    *  sanctions). Internal posture (`failOpen`, mount strategy, KYC vendor) is intentionally
-   *  not part of this shape — agents act on outcomes, not implementation. */
+   *  not part of this shape: agents act on outcomes, not implementation. */
   identity?: SkillMdIdentityRequirements;
   /** URL to the identity-bootstrap skill. Linked from the Identity Prerequisite section
    *  so an agent without a Passport can follow the bootstrap before attempting purchase. */
@@ -101,7 +101,7 @@ interface BuildSkillMdInput {
   /** Shipping policy, for physical-goods merchants. Omit for digital merchants. */
   shipping?: SkillMdShippingPolicy;
 
-  /** Agent-facing endpoints — path, method, whether auth is required, brief purpose. */
+  /** Agent-facing endpoints: path, method, whether auth is required, brief purpose. */
   endpoints: SkillMdEndpoint[];
 
   /** When this skill should fire (skill loader uses for trigger matching). */
@@ -162,14 +162,14 @@ function validateInput(input: BuildSkillMdInput): void {
   }
 }
 
-/** Quote a value as a YAML double-quoted scalar — escape `\\`, `"`, and newlines. The
+/** Quote a value as a YAML double-quoted scalar: escape `\\`, `"`, and newlines. The
  *  agentskills.io spec calls out unquoted colons in `description` as the most common
  *  parse failure across clients; emit every user-supplied scalar quoted to be safe. */
 function quoteYaml(value: string): string {
   return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`;
 }
 
-/** Sanitize a string for inclusion in a markdown table cell — escape backslashes first
+/** Sanitize a string for inclusion in a markdown table cell: escape backslashes first
  *  (so existing `\` aren't treated as escapes), then escape pipes (which would otherwise
  *  terminate the cell). */
 function tableCell(value: string): string {
@@ -326,7 +326,7 @@ function titleBlock(input: BuildSkillMdInput): string {
  * Output is YAML frontmatter (`name` / `description` / optional `license` /
  * `compatibility` / `allowed-tools` / `metadata`) followed by markdown sections
  * describing payment rails, identity requirements, endpoints, triggers, and support
- * links — strictly the agent-facing contract, with no internal posture (no `failOpen`,
+ * links: strictly the agent-facing contract, with no internal posture (no `failOpen`,
  * no mount-strategy names, no KYC vendor, no defense parameters).
  *
  * Spec compliance:

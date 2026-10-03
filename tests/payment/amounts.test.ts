@@ -1,5 +1,5 @@
 /**
- * Tests for `usdToAtomic` — converts USD amounts to bigint atomic units.
+ * Tests for `usdToAtomic`: converts USD amounts to bigint atomic units.
  *
  * The fixture corpus below is locked as the cross-language contract with the
  * Python sibling at `python-commerce/tests/test_amounts.py`. Both files reference

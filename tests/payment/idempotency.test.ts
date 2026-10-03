@@ -54,7 +54,7 @@ describe('buildIdempotencyKey', () => {
       const result = buildIdempotencyKey({ paymentIntentId: key });
       expect(warnSpy).toHaveBeenCalledOnce();
       expect(warnSpy.mock.calls[0]?.[0]).toContain('idempotency key longer than 200 chars');
-      // Returns the original key unchanged — server is the source of truth for truncation.
+      // Returns the original key unchanged: server is the source of truth for truncation.
       expect(result).toBe(key);
     });
   });

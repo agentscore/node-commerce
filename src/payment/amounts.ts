@@ -89,7 +89,7 @@ export function usdToAtomic(usd: string | number, opts: { decimals: number }): b
  * prevents agent-side string-comparison flakiness.
  *
  * `decimals` controls the dollar-precision of the output and defaults to `2`
- * (canonical USD cents). Raise it for sub-cent unit pricing — e.g.
+ * (canonical USD cents). Raise it for sub-cent unit pricing: e.g.
  * `formatUsdCents(0.05, 4)` returns `"0.0005"` for a half-of-one-millicent
  * amount. The `cents` input is allowed to be fractional so per-token /
  * per-byte pricing models can compute `priceCents = unitPriceCents × n`

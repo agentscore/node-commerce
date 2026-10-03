@@ -1,8 +1,8 @@
 /**
- * Tests for `hashOperatorToken` — canonical sha256 hex digest used to persist
+ * Tests for `hashOperatorToken`: canonical sha256 hex digest used to persist
  * operator tokens without storing plaintext on disk.
  *
- * The expected digests below are hardcoded — locked as the cross-language
+ * The expected digests below are hardcoded: locked as the cross-language
  * contract with the Python sibling at `python-commerce/tests/test_tokens.py`.
  * Both files reference the same fixture inputs and the same expected output
  * bytes. A drift in either language (algorithm swap, encoding change, accidental
@@ -24,7 +24,7 @@ const FIXTURES: [string, string][] = [
   ['opc_cross_lang_fixture', '96690dd2659bc1e33227e943d5f8a526c7c95a0ede5775a1573abab6578ca8ec'],
   ['opc_anything', 'e6ba517ac96ee39190c4d703b2d968fec96e87827374e56095a2f443d870730d'],
   ['opc_42', '731985dd676ea0702b3e6f6cbb107eaf467319e2801e6f953f08cbcc7dd71684'],
-  // Non-ASCII fixture — UTF-8 encoding of "é" is 0xC3 0xA9; locks the encoding
+  // Non-ASCII fixture: UTF-8 encoding of "é" is 0xC3 0xA9; locks the encoding
   // contract so a future implementation that swaps Node's default encoding
   // still produces the same bytes.
   ['opc_é', 'c1dba11d60cbfc1264d115e07a74a0355b6a66ded4ee3f930024a1733ba6942f'],

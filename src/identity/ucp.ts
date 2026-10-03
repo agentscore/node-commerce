@@ -53,9 +53,9 @@ import {
 export interface UCPSigningKey {
   /** JWK kid (key id). */
   kid: string;
-  /** JWK kty (key type) — `EC`, `RSA`, or `OKP`. */
+  /** JWK kty (key type): `EC`, `RSA`, or `OKP`. */
   kty: string;
-  /** JWK alg (signing algorithm) — `ES256`, `RS256`, or `EdDSA`. */
+  /** JWK alg (signing algorithm): `ES256`, `RS256`, or `EdDSA`. */
   alg?: string;
   /** JWK use, typically `sig`. */
   use?: string;
@@ -98,17 +98,17 @@ export const UCPSigningKey = {
   fromJWK: ucpSigningKeyFromJWKImpl,
 };
 
-/** Transport binding — keyed under a service name (e.g., `dev.ucp.shopping`). */
+/** Transport binding: keyed under a service name (e.g., `dev.ucp.shopping`). */
 export interface UCPServiceBinding {
   /** Spec version, YYYY-MM-DD per UCP convention. REQUIRED. */
   version: string;
   /** URL to human-readable specification. REQUIRED. */
   spec: string;
-  /** Transport — `rest` / `mcp` / `a2a` / `embedded`. REQUIRED. */
+  /** Transport: `rest` / `mcp` / `a2a` / `embedded`. REQUIRED. */
   transport: 'rest' | 'mcp' | 'a2a' | 'embedded';
-  /** Endpoint URL — required for rest/mcp; A2A points at the agent-card.json URL. */
+  /** Endpoint URL: required for rest/mcp; A2A points at the agent-card.json URL. */
   endpoint?: string;
-  /** URL to JSON Schema — required for rest/mcp/embedded per spec. */
+  /** URL to JSON Schema: required for rest/mcp/embedded per spec. */
   schema?: string;
   /** Optional id for entity-instance disambiguation. */
   id?: string;
@@ -118,7 +118,7 @@ export interface UCPServiceBinding {
   [k: string]: unknown;
 }
 
-/** Capability binding — keyed under a capability name (e.g., `dev.ucp.shopping.checkout`). */
+/** Capability binding: keyed under a capability name (e.g., `dev.ucp.shopping.checkout`). */
 export interface UCPCapabilityBinding {
   /** Capability version, YYYY-MM-DD. REQUIRED. */
   version: string;
@@ -130,7 +130,7 @@ export interface UCPCapabilityBinding {
   id?: string;
   /** Entity-specific config (feature flags, callback URLs, etc). */
   config?: Record<string, unknown>;
-  /** Parent capability(ies) extended — single string or array for multi-parent. */
+  /** Parent capability(ies) extended: single string or array for multi-parent. */
   extends?: string | string[];
   /** Optional version requirements per UCP §6.5. */
   requires?: {
@@ -142,7 +142,7 @@ export interface UCPCapabilityBinding {
   [k: string]: unknown;
 }
 
-/** Payment handler binding — keyed under a handler reverse-DNS name (e.g., `com.google.pay`). */
+/** Payment handler binding: keyed under a handler reverse-DNS name (e.g., `com.google.pay`). */
 export interface UCPPaymentHandlerBinding {
   /** Handler instance id (short, human-readable, e.g., `gpay`, `tempo`, `x402`). REQUIRED. */
   id: string;
@@ -152,27 +152,27 @@ export interface UCPPaymentHandlerBinding {
   spec: string;
   /** URL to handler config schema. REQUIRED. */
   schema: string;
-  /** Available instruments — type + per-type constraints (cards, wallets, etc.). */
+  /** Available instruments: type + per-type constraints (cards, wallets, etc.). */
   available_instruments?: Array<{ type: string; constraints?: Record<string, unknown>; [k: string]: unknown }>;
-  /** Handler config — gateway IDs, merchant IDs, public keys, etc. */
+  /** Handler config: gateway IDs, merchant IDs, public keys, etc. */
   config?: Record<string, unknown>;
   /** Vendor-specific extras. */
   [k: string]: unknown;
 }
 
-/** UCP body — nested under the `ucp` key of the published profile. */
+/** UCP body: nested under the `ucp` key of the published profile. */
 export interface UCPProfileBody {
   /** UCP spec version (YYYY-MM-DD). */
   version: string;
   /** Display name for the merchant / agent surface. */
   name?: string;
-  /** Services — keyed by service name (e.g., `dev.ucp.shopping`). Each value is an
+  /** Services: keyed by service name (e.g., `dev.ucp.shopping`). Each value is an
    *  array of transport bindings (one merchant typically advertises multiple transports
    *  under one service name). */
   services: Record<string, UCPServiceBinding[]>;
-  /** Capabilities — keyed by capability name (e.g., `dev.ucp.shopping.checkout`). */
+  /** Capabilities: keyed by capability name (e.g., `dev.ucp.shopping.checkout`). */
   capabilities: Record<string, UCPCapabilityBinding[]>;
-  /** Payment handlers — keyed by handler reverse-DNS name (e.g., `com.google.pay`). */
+  /** Payment handlers: keyed by handler reverse-DNS name (e.g., `com.google.pay`). */
   payment_handlers: Record<string, UCPPaymentHandlerBinding[]>;
   /** Optional `supported_versions` map linking historical version-specific profile URLs.
    *  Pattern: `{ "2026-01-23": "https://merchant/.well-known/ucp/2026-01-23", ... }`. */
@@ -190,7 +190,7 @@ export interface UCPProfile {
    *  `keys` the one canonical field and removed `signing_keys`. Verifiers fetch this profile,
    *  match the kid from a JWS / RFC 9421 signature header against this list, and validate. */
   keys: UCPSigningKey[];
-  /** Set when JWS-signed via `signUCPProfile` — JWS Compact Serialization with detached
+  /** Set when JWS-signed via `signUCPProfile`: JWS Compact Serialization with detached
    *  payload (header..signature; payload is the canonicalized body minus this field). */
   signature?: string;
   /** Top-level vendor-specific extras (outside the `ucp` envelope). */
@@ -217,7 +217,7 @@ interface BuildUCPProfileInput {
   signing_keys?: UCPSigningKey[];
   /** Merchant gate policy declaration. When provided, the SDK auto-injects an
    *  `com.agentscore.identity` capability binding into `capabilities`, with the
-   *  policy as the binding's `config`. Static merchant declaration only — no
+   *  policy as the binding's `config`. Static merchant declaration only: no
    *  per-operator data ever ends up on the public profile. Per-operator identity
    *  attestation lives on the AP2 risk-signal endpoint, not here. */
   agentscore_gate?: AgentScoreGatePolicy;
@@ -245,7 +245,7 @@ const AGENTSCORE_CAPABILITY_VERSION = '2026-04-08';
 
 /** Merchant gate policy declared on the UCP profile via `com.agentscore.identity` capability config.
  *  All fields optional; merchant declares which AgentScore checks the gate enforces. Snake-case
- *  field names match the AgentScore API's `/v1/assess` policy contract verbatim — no conversion
+ *  field names match the AgentScore API's `/v1/assess` policy contract verbatim: no conversion
  *  layer between this declaration and what the gate actually enforces at runtime. */
 export interface AgentScoreGatePolicy {
   /** Gate denies if the operator/account behind the agent is not Stripe-Identity-verified. */
@@ -263,7 +263,7 @@ export interface AgentScoreGatePolicy {
 }
 const AGENTSCORE_DEFAULT_SPEC_URL = 'https://www.agentscore.com/specification/identity';
 const AGENTSCORE_DEFAULT_SCHEMA_URL = 'https://www.agentscore.com/schemas/ucp/com-agentscore-identity-v1.json';
-// Multi-parent extension — `com.agentscore.identity` declares merchant policy relevant at
+// Multi-parent extension: `com.agentscore.identity` declares merchant policy relevant at
 // both checkout-build (compliance gate) and cart-build (price-gate eligibility, jurisdiction-
 // restricted items in cart) time, so an agent reading either parent capability picks up the
 // policy contract. Mirrors the multi-parent convention in the live ecosystem
@@ -303,7 +303,7 @@ const RESERVED_UCP_FIELDS = new Set([
  * is provided. The capability's `config` carries the merchant's static gate
  * policy declaration (require_kyc / require_sanctions_clear / min_age /
  * allowed_jurisdictions / blocked_jurisdictions). NO per-operator data is ever
- * placed on the public profile — per-operator identity attestation flows through
+ * placed on the public profile: per-operator identity attestation flows through
  * the AP2 risk-signal endpoint, not here.
  *
  * Example:
@@ -366,7 +366,7 @@ export function buildUCPProfile(input: BuildUCPProfileInput): UCPProfile {
   }
 
   // Auto-inject `com.agentscore.identity` capability when the merchant declares a gate
-  // policy. Static merchant-policy declaration only — no per-operator data on the public
+  // policy. Static merchant-policy declaration only: no per-operator data on the public
   // profile. Per-operator identity attestation flows through the AP2 risk-signal endpoint
   // or per-request 4xx response bodies, not here.
   if (input.agentscore_gate) {
@@ -427,7 +427,7 @@ const SCHEMA_BASE = 'https://www.agentscore.com/schemas/payment-handlers';
 // CAIP-2 → UCP-namespace network-name mapping. UCP payment_handler bindings publish
 // network strings in the UCP namespace (`base-8453`, `solana-mainnet-beta`); RailSpecs
 // carry the CAIP-2 form (`eip155:8453`, `solana:5eykt4...`). Unknown values pass
-// through verbatim — vendors who pin a non-standard rail can override the spec's
+// through verbatim: vendors who pin a non-standard rail can override the spec's
 // network field directly.
 const CAIP2_TO_UCP_NETWORK: Record<string, string> = {
   'eip155:8453': 'base-8453',
@@ -496,7 +496,7 @@ function mppRailToNetworkEntry(spec: MppRailSpec): Record<string, unknown> {
     return solanaMppToNetworkEntry(spec as SolanaMppRailSpec);
   }
   if (isTempoRailSpec(spec)) return tempoToNetworkEntry(spec);
-  // Default: treat as TempoRailSpec — covers the common case where the caller passes
+  // Default: treat as TempoRailSpec: covers the common case where the caller passes
   // a bare `{recipient}` with no network/chain_id override.
   return tempoToNetworkEntry(spec as TempoRailSpec);
 }
