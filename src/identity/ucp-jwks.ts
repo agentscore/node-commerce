@@ -252,7 +252,7 @@ export async function generateUCPSigningKey(opts: {
  * canonical body, look up the key referenced by the JWS header's `kid`, and validate.
  *
  * The profile's `keys[]` MUST already include a JWK with the matching `kid`
- *: otherwise verifiers can't find the public key. Add the `publicJWK` from
+ * otherwise verifiers can't find the public key. Add the `publicJWK` from
  * `generateUCPSigningKey()` to your `keys[]` before calling this.
  *
  * Example:

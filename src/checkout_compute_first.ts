@@ -327,7 +327,7 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
     // composeMppx callback's probe-leg pass (no payment header → mppx returns
     // a 402 challenge with per-rail `request=<base64 intent>` values). This
     // gives tempo/solana/stripe-spt the proper signing intent the agent needs
-    //: hand-rolling `paymentDirective` here with `request=''` is what broke
+    // hand-rolling `paymentDirective` here with `request=''` is what broke
     // the earlier smoke. x402-exact still uses PAYMENT-REQUIRED only (no
     // WWW-Authenticate directive needed).
     let mppChallengeHeaders: Record<string, string> = {};

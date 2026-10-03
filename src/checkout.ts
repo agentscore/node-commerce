@@ -1487,7 +1487,7 @@ export class Checkout {
     if (gate.perRequestPolicy !== undefined) {
       policyOverride = await gate.perRequestPolicy(ctx);
       // A null override means "no per-request *identity* policy for this product"
-      //: but it must NOT skip the always-on wallet OFAC SDN floor. Route to
+      // but it must NOT skip the always-on wallet OFAC SDN floor. Route to
       // runWalletSanctionsOnly so a NULL-enforcement product still screens its
       // payment signer (identical to the no-gate dispatch above). The floor is a
       // no-op for non-wallet flows (no apiKey, or no extractable signer on Stripe

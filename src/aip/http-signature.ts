@@ -349,7 +349,7 @@ export const verifyMessageSignature = async (
   // The `alg` param is optional in RFC 9421 (the verifier derives the algorithm from the key);
   // when a signer does include it, the registered HTTP-sig label is `ed25519`. Accept that plus the
   // JWS spelling `EdDSA`, case-insensitively, so a spec-loose external signer isn't wrongly rejected
-  //: the actual key type is still pinned to OKP/Ed25519 below, so this only affects the label.
+  // the actual key type is still pinned to OKP/Ed25519 below, so this only affects the label.
   if (params.alg !== undefined && !['ed25519', 'eddsa'].includes(params.alg.toLowerCase())) {
     return { ok: false, reason: 'unsupported_alg' };
   }

@@ -257,7 +257,7 @@ export function shippingStateAllowed(
  *
  * `countryMessage` / `stateMessage` override the default messages verbatim
  * (use these when the default phrasing isn't right for your consumer agents
- *: e.g. you want to surface the regulatory reason explicitly, or you want
+ * e.g. you want to surface the regulatory reason explicitly, or you want
  * the message in a different language).
  */
 export function validateShippingAgainstPolicy(opts: {

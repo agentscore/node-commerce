@@ -5,7 +5,7 @@
  * response.
  *
  * Layered on top of `paymentDirective` / `wwwAuthenticateHeader` / `paymentRequiredHeader`
- *: those primitives stay exposed for vendors who want full control.
+ * those primitives stay exposed for vendors who want full control.
  */
 
 import { buildPaymentDirective } from './directive';

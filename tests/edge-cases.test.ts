@@ -863,7 +863,7 @@ describe('evaluate(): 401 passthrough edge cases', () => {
   it('emits invalid_credential 403 (not retry-suggesting api_error) for permanent token failures', async () => {
     // The API returns 401 invalid_credential when the token doesn't exist at all
     // (typo, never minted). Distinct from token_expired (which carries an auto-session)
-    //: invalid_credential has no recovery payload, the agent must switch tokens or
+    // invalid_credential has no recovery payload, the agent must switch tokens or
     // restart the session flow. Used to fall through to api_error → 503 retry which
     // looped forever on a permanent state.
     const apiBody = { error: { code: 'invalid_credential', message: 'Operator credential not found' } };

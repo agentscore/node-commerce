@@ -8,7 +8,7 @@
  * (which is fully inline and identical to the Python sibling). The MPP
  * path on Node delegates to `mppx.Credential.fromRequest`, so direct
  * byte-for-byte cross-language fixture parity for MPP is a non-goal here
- *: Python's MPP path uses inline base64+JSON parsing, and exact-match
+ * Python's MPP path uses inline base64+JSON parsing, and exact-match
  * parity would require a parallel inline path on Node (out of scope for
  * the re-export PR; tracked separately).
  */
