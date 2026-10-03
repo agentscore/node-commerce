@@ -86,7 +86,7 @@ export interface CreateSessionOnMissing<TCtx = unknown> {
                                   |          { context?: string; productName?: string };
   /** Side-effect hook that runs after the session is minted. Return value is merged
    *  into `DenialReason.extra` so custom `onDenied` handlers can include merchant-specific
-   *  fields (e.g. `order_id`) in the 403 response. Hook errors are logged and swallowed —
+   *  fields (e.g. `order_id`) in the 403 response. Hook errors are logged and swallowed:
    *  a failing side effect should not block the 403 from reaching the agent. */
   onBeforeSession?: (ctx: TCtx, session: SessionMetadata) => Promise<Record<string, unknown>>
                                                           |          Record<string, unknown>;
@@ -103,7 +103,7 @@ export interface AgentScoreCoreOptions {
   minAge?: number;
   /** List of blocked jurisdictions (blocklist). */
   blockedJurisdictions?: string[];
-  /** List of allowed jurisdictions (allowlist — only these pass). */
+  /** List of allowed jurisdictions (allowlist: only these pass). */
   allowedJurisdictions?: string[];
   /** If true, allow the request through when the API is unreachable. Defaults to false. */
   failOpen?: boolean;
@@ -138,7 +138,7 @@ export type DenialCode =
   // - `token_expired`: revoked + TTL-expired (the API unifies these). The 401 body carries
   //   an auto-minted session, forwarded into DenialReason for one-shot recovery.
   // - `invalid_credential`: the token doesn't exist at all (typo, never minted, fabricated).
-  //   No auto-session is minted by the API for this case — agents should switch to a
+  //   No auto-session is minted by the API for this case: agents should switch to a
   //   different stored token or drop the header to bootstrap a fresh session.
   | 'token_expired'
   | 'invalid_credential';
@@ -187,7 +187,7 @@ export interface DenialReason {
    *  response shape (e.g. to include a merchant-minted `order_id`). */
   extra?: Record<string, unknown>;
   // ---------------------------------------------------------------------------
-  // Wallet-signer-match fields — populated for wallet_signer_mismatch only.
+  // Wallet-signer-match fields: populated for wallet_signer_mismatch only.
   // ---------------------------------------------------------------------------
   /** Operator id resolved from `X-Wallet-Address`. */
   claimed_operator?: string;
@@ -251,7 +251,7 @@ export interface AssessResult {
   operator_handle?: string;
   verify_url?: string;
   policy_result?: PolicyResult | null;
-  /** IdP provenance, present only when `identity_method === 'aip_token'` — which issuer attested
+  /** IdP provenance, present only when `identity_method === 'aip_token'`: which issuer attested
    *  the identity and the trust level it asserted. Mirrors the SDK's `AssessResponse.aip`. */
   aip?: {
     issuer: string;
@@ -268,14 +268,14 @@ export interface AssessResult {
  * infrastructure issues. Surfaced on `EvaluateOutcome` so merchants can log/alert when
  * their gate is running in degraded mode (compliance not actually enforced this request).
  *
- * - `quota_exceeded` — AgentScore returned 429
- * - `api_error` — AgentScore returned 5xx or non-2xx that isn't 429
- * - `network_timeout` — request to /v1/assess timed out or failed at the network layer
+ * - `quota_exceeded`: AgentScore returned 429
+ * - `api_error`: AgentScore returned 5xx or non-2xx that isn't 429
+ * - `network_timeout`: request to /v1/assess timed out or failed at the network layer
  */
 export type FailOpenInfraReason = 'quota_exceeded' | 'api_error' | 'network_timeout';
 
 /** Per-account assess quota observability, captured from `X-Quota-*` response headers
- *  on the success path. Mirrors the SDK's `QuotaInfo` shape — re-exported from gate state
+ *  on the success path. Mirrors the SDK's `QuotaInfo` shape: re-exported from gate state
  *  so merchants can monitor approach-to-cap proactively (warn at 80%, alert at 95%). */
 export interface GateQuotaInfo {
   limit: number | null;
@@ -287,7 +287,7 @@ export interface GateQuotaInfo {
 /**
  * Outcome from `AgentScoreCore.evaluate()`. Adapters map this to framework-specific responses.
  *
- * - `{ kind: 'allow', data }` — the request passed the policy. `data` is present on a normal
+ * - `{ kind: 'allow', data }`: the request passed the policy. `data` is present on a normal
  *   allow; `undefined` when fail-open short-circuited (identity missing, API unreachable,
  *   timeout, or 402 paid-tier required).
  * - When `failOpen: true` and the allow was the result of an AgentScore-side infrastructure
@@ -297,11 +297,11 @@ export interface GateQuotaInfo {
  *   `X-Quota-*` headers. Optional; absent on Enterprise / unlimited tiers.
  * - `signerVerdict` carries the per-request wallet-signer verdicts (signer_match + signer_sanctions)
  *   composed by this evaluate's assess call. It rides on the RETURN VALUE (not a shared slot on the
- *   core) so concurrent same-wallet/different-signer requests can't read each other's verdict —
+ *   core) so concurrent same-wallet/different-signer requests can't read each other's verdict:
  *   the adapter stashes it on its per-request state for `getSignerVerdict(ctx)` to read back.
  *   Present only on wallet-only identity when the response carried either signer block; `undefined`
  *   otherwise (operator-token / AIT paths, discovery legs with no signer).
- * - `{ kind: 'deny', reason }` — the request was denied. Adapters should render a 403 with the
+ * - `{ kind: 'deny', reason }`: the request was denied. Adapters should render a 403 with the
  *   reason, or invoke the caller's custom denial handler.
  */
 export type EvaluateOutcome =
@@ -316,15 +316,15 @@ interface CaptureWalletOptions {
   operatorToken: string;
   /** Signer wallet recovered from the payment payload. */
   walletAddress: string;
-  /** Key-derivation family — `"evm"` for any EVM chain, `"solana"` for Solana. */
+  /** Key-derivation family: `"evm"` for any EVM chain, `"solana"` for Solana. */
   network: 'evm' | 'solana';
   /** Optional stable key for the logical payment (e.g., payment intent id, tx hash). When the
-   *  same key is seen again for the same (credential, wallet, network), the server no-ops —
+   *  same key is seen again for the same (credential, wallet, network), the server no-ops:
    *  prevents agent retries from inflating transaction_count. */
   idempotencyKey?: string;
 }
 
-/** Combined wallet-signer verdict surfaced by `getSignerVerdict(c)` — both verdicts come
+/** Combined wallet-signer verdict surfaced by `getSignerVerdict(c)`: both verdicts come
  *  through the gate's primary `/v1/assess` call (single round trip). `signer_match` describes
  *  the wallet-binding (claimed wallet's operator ≡ signer wallet's operator); `signer_sanctions`
  *  describes the OFAC SDN wallet-address check.
@@ -424,18 +424,18 @@ interface CachedAssessResult {
  * correct pointers. Contents describe the AgentScore identity substrate in transferable
  * terms; merchant-specific context lives in other `agent_instructions` fields.
  */
-// Canonical production AgentScore API — used as the authoritative source for endpoint pointers
+// Canonical production AgentScore API: used as the authoritative source for endpoint pointers
 // emitted to agent memory regardless of how a given merchant configured their gate's baseUrl.
 const CANONICAL_AGENTSCORE_API = 'https://api.agentscore.com';
 
 // JSON-encoded action copy emitted on wallet-signer-match denials. Spread into 403 bodies
-// by merchants so agents get a concrete recovery path inside the denial response itself —
+// by merchants so agents get a concrete recovery path inside the denial response itself:
 // no discovery-doc round trip required.
 const WALLET_SIGNER_MISMATCH_INSTRUCTIONS = JSON.stringify({
   action: 'resign_or_switch_to_operator_token',
   steps: [
-    'Preferred: re-submit the payment signed by expected_signer (or any entry in linked_wallets — same-operator wallets are fungible) and retry with the same X-Wallet-Address.',
-    'Alternative: drop X-Wallet-Address and retry with X-Operator-Token. Use a stored opc_... if you have one; otherwise retry this request with NO identity header — the merchant will mint a verification session in the 403 body (verify_url + poll_secret). Share verify_url with the user, poll, receive a fresh opc_...',
+    'Preferred: re-submit the payment signed by expected_signer (or any entry in linked_wallets: same-operator wallets are fungible) and retry with the same X-Wallet-Address.',
+    'Alternative: drop X-Wallet-Address and retry with X-Operator-Token. Use a stored opc_... if you have one; otherwise retry this request with NO identity header: the merchant will mint a verification session in the 403 body (verify_url + poll_secret). Share verify_url with the user, poll, receive a fresh opc_...',
   ],
   user_message:
     'The payment signer resolves to a different operator than X-Wallet-Address. Re-sign from expected_signer or any linked_wallets entry, or switch to X-Operator-Token.',
@@ -444,30 +444,30 @@ const WALLET_SIGNER_MISMATCH_INSTRUCTIONS = JSON.stringify({
 const WALLET_AUTH_REQUIRES_WALLET_SIGNING_INSTRUCTIONS = JSON.stringify({
   action: 'switch_to_operator_token',
   steps: [
-    'This payment rail (Stripe SPT, card) carries no wallet signature — X-Wallet-Address cannot be verified against the payment.',
+    'This payment rail (Stripe SPT, card) carries no wallet signature: X-Wallet-Address cannot be verified against the payment.',
     'Drop X-Wallet-Address and retry with X-Operator-Token. If you do not have a stored opc_..., retry with no identity header to receive a verification session.',
   ],
   user_message:
     'Wallet-address identity is only supported on wallet-signing rails (Tempo MPP, x402). On Stripe or card, use X-Operator-Token instead.',
 });
 
-// `invalid_credential` is permanent — the token doesn't exist (typo, never minted, fabricated).
+// `invalid_credential` is permanent: the token doesn't exist (typo, never minted, fabricated).
 // Distinct from `token_expired` (which carries an auto-session for one-shot recovery): the
 // API doesn't auto-mint a session here because the client may simply have a different valid
 // token to try. Agents should switch tokens or drop the header to bootstrap a session.
 const INVALID_CREDENTIAL_INSTRUCTIONS = JSON.stringify({
   action: 'switch_token_or_restart_session',
   steps: [
-    'The X-Operator-Token you sent does not match any credential. This is a permanent state — retrying with the same token will keep failing.',
+    'The X-Operator-Token you sent does not match any credential. This is a permanent state: retrying with the same token will keep failing.',
     'If you have other stored opc_... credentials, retry with one of them.',
-    'Otherwise drop X-Operator-Token and retry with no identity header — the merchant will mint a fresh verification session in the 403 body (verify_url + poll_secret) so the user can re-verify and you can poll for a new operator_token.',
+    'Otherwise drop X-Operator-Token and retry with no identity header: the merchant will mint a fresh verification session in the 403 body (verify_url + poll_secret) so the user can re-verify and you can poll for a new operator_token.',
   ],
   user_message:
     'The operator_token is not recognized. Use a different stored token, or restart the verification session flow to mint a new one.',
 });
 
 export function buildAgentMemoryHint(aipTrustedIssuers?: string[]): AgentMemoryHint {
-  // Memory pointers always point at the canonical production API — merchants must not be
+  // Memory pointers always point at the canonical production API: merchants must not be
   // able to redirect the cross-merchant memory surface, since that would be a phishing
   // vector for the verify URL.
   const api = CANONICAL_AGENTSCORE_API;
@@ -477,7 +477,7 @@ export function buildAgentMemoryHint(aipTrustedIssuers?: string[]): AgentMemoryH
     pattern_summary:
       'AgentScore is a cross-merchant identity substrate for agentic commerce. Any endpoint that ' +
       'returns 403 missing_identity / identity_verification_required or 402 challenges referencing AgentScore uses ' +
-      'the same identity system. One KYC works across all AgentScore merchants — no re-verification ' +
+      'the same identity system. One KYC works across all AgentScore merchants: no re-verification ' +
       'per site. Save this pattern (and the endpoints below) to persistent memory so future ' +
       'AgentScore encounters skip the cold-start session flow.',
     quickstart: 'https://docs.agentscore.com/passport',
@@ -495,14 +495,14 @@ export function buildAgentMemoryHint(aipTrustedIssuers?: string[]): AgentMemoryH
           'present it: send the JWT in an `Agent-Identity` header plus an RFC 9421 HTTP Message ' +
           'Signature (Signature-Input + Signature over @method @authority @path agent-identity, ' +
           'tag="agent-identity") signed with the token-bound cnf key. The merchant verifies it and ' +
-          'applies its policy — no separate AgentScore credential needed.',
+          'applies its policy: no separate AgentScore credential needed.',
       }),
     },
     ...(acceptsAip && { aip_trusted_issuers: aipTrustedIssuers }),
     bootstrap:
       'If you have neither a linked wallet nor a valid operator_token, follow the session/verify ' +
       'flow in the per-request `agent_instructions` block. This happens at most once per agent ' +
-      'identity — after first verification, the operator_token and any subsequently used wallet ' +
+      'identity: after first verification, the operator_token and any subsequently used wallet ' +
       'are reusable everywhere.',
     do_not_persist_in_memory: ['operator_token', 'poll_secret'],
     persist_in_credential_store: ['operator_token'],
@@ -544,7 +544,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
   // credentials/wallets, telemetry). Connection pooling + typed-error classification +
   // X-Quota-* header capture all flow through here. The SDK owns the transport layer
   // (timeouts, retry-on-429); the gate adds policy semantics on top. Pass the
-  // merchant-prefixed UA — SDK appends its own default to produce a chain like
+  // merchant-prefixed UA: SDK appends its own default to produce a chain like
   // `<merchant-app> (@agent-score/commerce@<v>) (@agent-score/sdk@<v>)`.
   const sdk = new AgentScore({ apiKey, baseUrl, userAgent: userAgentHeader });
 
@@ -569,7 +569,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
   const cache = new TTLCache<CachedAssessResult>(cacheSeconds * 1000);
 
   // Mint a verification session via /v1/sessions and return the resulting
-  // identity_verification_required DenialReason — or undefined if the mint failed (network
+  // identity_verification_required DenialReason: or undefined if the mint failed (network
   // error, non-2xx, missing fields). Used for both the missing-identity path and the
   // fixable-wallet bootstrap path: in both cases the UX is identical (agent polls the
   // returned poll_url until it gets a fresh opc_... and retries).
@@ -602,18 +602,18 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
 
       // Validate required fields before trusting the response. A misbehaving (or mocked-wrong)
       // API could 200 without session_id/poll_secret/verify_url, which would propagate
-      // `undefined` into the 403 body and leave the agent stuck — treat as session-create
+      // `undefined` into the 403 body and leave the agent stuck: treat as session-create
       // failure and fall back to the caller's bare denial.
       if (
         typeof data.session_id !== 'string' ||
         typeof data.poll_secret !== 'string' ||
         typeof data.verify_url !== 'string'
       ) {
-        console.warn('[gate] /v1/sessions returned 200 without required fields — falling back to bare denial');
+        console.warn('[gate] /v1/sessions returned 200 without required fields: falling back to bare denial');
         return undefined;
       }
 
-      // Run onBeforeSession side-effect hook. Errors are swallowed — a failing DB write
+      // Run onBeforeSession side-effect hook. Errors are swallowed: a failing DB write
       // (e.g. can't insert pending order) should not block the 403.
       let extra: Record<string, unknown> | undefined;
       if (createSessionOnMissing.onBeforeSession && ctx !== undefined) {
@@ -653,10 +653,10 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       };
     } catch (err) {
       // Session-mint failed (network, /v1/sessions returned non-2xx, body parse error,
-      // onBeforeSession threw inside the inner try). Caller falls back to a bare denial —
+      // onBeforeSession threw inside the inner try). Caller falls back to a bare denial:
       // agents still get a 403 with a probe-strategy hint. Log loudly so a persistent
       // /v1/sessions outage isn't masked.
-      console.warn('[gate] createSessionOnMissing path failed — falling back to bare denial:', err instanceof Error ? err.message : err);
+      console.warn('[gate] createSessionOnMissing path failed: falling back to bare denial:', err instanceof Error ? err.message : err);
       return undefined;
     }
   }
@@ -666,11 +666,11 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     ctx?: unknown,
     signer?: PaymentSigner | null,
   ): Promise<EvaluateOutcome> {
-    // Treat "returned identity object with no usable fields" the same as "no identity at all" —
+    // Treat "returned identity object with no usable fields" the same as "no identity at all":
     // otherwise a misbehaving custom extractIdentity would send an empty body to /v1/assess.
     if (!identity || (!identity.address?.trim() && !identity.operatorToken?.trim() && !identity.aipToken?.trim())) {
       // failOpen short-circuits BEFORE the session mint. This branch isn't an infra failure
-      // (no AgentScore call has been made yet) so we don't mark the gate state as degraded —
+      // (no AgentScore call has been made yet) so we don't mark the gate state as degraded:
       // missing identity + failOpen is the explicit opt-in pass-through behavior, not a
       // graceful-degradation event. Merchants who need identity-or-deny on a failOpen gate
       // should add a guard at the handler that checks for X-Wallet-Address / X-Operator-Token
@@ -687,16 +687,16 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       const acceptsAip = aipTrustedIssuers !== undefined && aipTrustedIssuers.length > 0;
       const aipStep = acceptsAip
         ? [
-            `If you hold an AIP Agent Identity Token from a trusted issuer (${aipTrustedIssuers.join(', ')}): present it — send the JWT in an Agent-Identity header plus an RFC 9421 HTTP Message Signature (Signature-Input + Signature over @method @authority @path agent-identity, tag="agent-identity") signed with the token-bound cnf key. This satisfies identity in one round trip without an AgentScore credential.`,
+            `If you hold an AIP Agent Identity Token from a trusted issuer (${aipTrustedIssuers.join(', ')}): present it: send the JWT in an Agent-Identity header plus an RFC 9421 HTTP Message Signature (Signature-Input + Signature over @method @authority @path agent-identity, tag="agent-identity") signed with the token-bound cnf key. This satisfies identity in one round trip without an AgentScore credential.`,
           ]
         : [];
       const missingIdentityInstructions = JSON.stringify({
         action: 'probe_identity_then_session',
         steps: [
           ...aipStep,
-          'If you have a wallet AND this merchant accepts a wallet-signing rail (Tempo MPP or x402 — see openapi.json x-payment-info): send X-Wallet-Address and retry. If the wallet is already linked to an AgentScore operator (via prior SIWE claim or prior captureWallet), this passes in one round trip. If the wallet is unlinked or the account has no KYC, the 403 will include a verify_url — share it with the user to claim the wallet + complete KYC, then retry.',
+          'If you have a wallet AND this merchant accepts a wallet-signing rail (Tempo MPP or x402; see openapi.json x-payment-info): send X-Wallet-Address and retry. If the wallet is already linked to an AgentScore operator (via prior SIWE claim or prior captureWallet), this passes in one round trip. If the wallet is unlinked or the account has no KYC, the 403 will include a verify_url: share it with the user to claim the wallet + complete KYC, then retry.',
           'If step 1 is denied or you already have a stored operator_token (valid + not expired): send X-Operator-Token: opc_... and retry.',
-          'If neither applies: retry with NO identity header. Merchants that auto-create verification sessions (most AgentScore merchants do) return verify_url + session_id + poll_secret in the 403 body — share verify_url with the user, then poll poll_url every 5s with the X-Poll-Secret header until status=verified (the poll returns a one-time operator_token). If the retry returns the same bare 403, this merchant does not support self-service session bootstrapping — direct the user to https://www.agentscore.com/sign-up to create an AgentScore identity and mint an operator_token from their dashboard (https://www.agentscore.com/dashboard/verify). The user hands the opc_... to you, and you retry with X-Operator-Token.',
+          'If neither applies: retry with NO identity header. Merchants that auto-create verification sessions (most AgentScore merchants do) return verify_url + session_id + poll_secret in the 403 body: share verify_url with the user, then poll poll_url every 5s with the X-Poll-Secret header until status=verified (the poll returns a one-time operator_token). If the retry returns the same bare 403, this merchant does not support self-service session bootstrapping: direct the user to https://www.agentscore.com/sign-up to create an AgentScore identity and mint an operator_token from their dashboard (https://www.agentscore.com/dashboard/verify). The user hands the opc_... to you, and you retry with X-Operator-Token.',
         ],
         user_message:
           'Try X-Wallet-Address first if you have a wallet and the merchant accepts Tempo/x402; fall back to a stored X-Operator-Token, then to the session/verify flow described in agent_memory.bootstrap.',
@@ -711,7 +711,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       };
     }
 
-    // operator_token is opaque + ASCII-only — lowercasing is safe. Wallet addresses go
+    // operator_token is opaque + ASCII-only: lowercasing is safe. Wallet addresses go
     // through normalizeAddress because Solana base58 is case-sensitive and lowercasing
     // would corrupt the cache key (a Solana cache miss every time, plus collision risk
     // with mixed-case variants of the same operator).
@@ -726,7 +726,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     // signer_sanctions). The signer is NOT part of the identity, so it must be folded into the
     // response cache key: otherwise a 2nd request with the SAME claimed identity but a DIFFERENT
     // payment signer would hit the cached decision and return the first signer's stale
-    // signer_match/signer_sanctions — bypassing wallet-signer binding AND the unconditional OFAC
+    // signer_match/signer_sanctions: bypassing wallet-signer binding AND the unconditional OFAC
     // signer screen (a sanctioned 2nd signer would settle on a cached `clear`). Appending the
     // normalized signer (network + address) makes a different signer a cache MISS, forcing a fresh
     // assess that re-screens it. Requests with no signer keep the identity-only key (no behavior
@@ -743,7 +743,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     const cached = cache.get(cacheKey);
     if (cached) {
       // Recompute the per-request verdict from the cached response. The cache key folds in the
-      // signer, so a cache hit is the SAME (identity, signer) pair — the cached signer blocks are
+      // signer, so a cache hit is the SAME (identity, signer) pair: the cached signer blocks are
       // this request's verdict. Riding it on the return value (vs a shared slot) is what makes
       // concurrent same-wallet/different-signer reads race-free.
       const cachedVerdict = cached.raw
@@ -769,7 +769,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       // (sanctions_flagged, age_insufficient, jurisdiction_restricted) keep the bare
       // wallet_not_trusted denial. `jurisdiction_restricted` is unfixable: the API
       // only emits it after KYC is verified (the user's KYC'd country is in the
-      // blocked list — re-doing KYC won't change the country).
+      // blocked list: re-doing KYC won't change the country).
       if (isFixableDenial(cached.reasons)) {
         const sessionReason = await tryMintSessionDenial(ctx);
         if (sessionReason) {
@@ -807,16 +807,16 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         // Pre-extracted payment signer (by the adapter middleware). When present, the API
         // composes BOTH signer_match (wallet-binding) and signer_sanctions (OFAC SDN wallet
         // check) verdicts on the response in one round trip. Wallet-OFAC enforcement on the
-        // signer block is unconditional — a signer_sanctions hit flips decision -> deny
+        // signer block is unconditional: a signer_sanctions hit flips decision -> deny
         // regardless of policy.require_sanctions_clear (which gates the separate NAME screen).
         ...(signer && { signer: { address: signer.address, network: signer.network } }),
       };
-      // SDK has overloads — narrow by which identity is set so TS picks the right one.
+      // SDK has overloads: narrow by which identity is set so TS picks the right one.
       // AIT takes precedence: when present it's the sole identity input. The edge already
       // PoP-verified as a fail-fast filter; we forward the token + signature material so the API
       // re-verifies the IdP signature AND the proof-of-possession authoritatively. Checkout always
       // sets both together; a hand-rolled evaluate() with aipToken but no aipSignature is a caller
-      // error — fail loudly rather than silently misrouting to the operator-token branch.
+      // error: fail loudly rather than silently misrouting to the operator-token branch.
       if (identity.aipToken !== undefined && identity.aipSignature === undefined) {
         throw new Error('AgentScoreCore.evaluate: aipToken requires aipSignature (RFC 9421 proof-of-possession material).');
       }
@@ -832,7 +832,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         return { kind: 'deny', reason: { code: 'payment_required' } };
       }
       if (err instanceof TokenExpiredError) {
-        // SDK extracts the auto-minted session fields onto the error instance — no body
+        // SDK extracts the auto-minted session fields onto the error instance: no body
         // re-parsing needed here.
         return {
           kind: 'deny',
@@ -849,7 +849,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         };
       }
       if (err instanceof InvalidCredentialError) {
-        // Permanent — no auto-session, agent should switch tokens or restart.
+        // Permanent: no auto-session, agent should switch tokens or restart.
         return {
           kind: 'deny',
           reason: {
@@ -879,7 +879,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       const status = (err as { status?: number } | null)?.status;
       const errName = err instanceof Error ? err.name : '';
       if (status === 429) {
-        console.warn('[gate] /v1/assess returned 429 (untyped — defensive)');
+        console.warn('[gate] /v1/assess returned 429 (untyped: defensive)');
         if (failOpen) return { kind: 'allow', degraded: true, infraReason: 'quota_exceeded' };
         return {
           kind: 'deny',
@@ -892,13 +892,13 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         return { kind: 'deny', reason: { code: 'api_error' } };
       }
       // Generic AgentScoreError (rate_limited, 5xx, network_error, body parse, unknown 4xx)
-      // or any non-AgentScoreError unexpected throw — surface as api_error.
+      // or any non-AgentScoreError unexpected throw: surface as api_error.
       // Include the SDK-classified error code (when available) so ops/dev see
       // schema-drift cases like a new 401 error.code rather than a silent 503.
       const errCode = (err as { code?: string } | null)?.code;
       const msg = err instanceof Error ? err.message : String(err);
       const detail = errCode ? `${errCode}: ${msg}` : msg;
-      console.warn(`[gate] /v1/assess call failed — surfacing as api_error: ${detail}`);
+      console.warn(`[gate] /v1/assess call failed: surfacing as api_error: ${detail}`);
       if (failOpen) return { kind: 'allow', degraded: true, infraReason: 'api_error' };
       return { kind: 'deny', reason: { code: 'api_error' } };
     }
@@ -989,7 +989,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     // (sanctions_flagged, age_insufficient, jurisdiction_restricted) keep the bare
     // wallet_not_trusted denial. `jurisdiction_restricted` is unfixable: the API
     // only emits it after KYC is verified (the user's KYC'd country is in the
-    // blocked list — re-doing KYC won't change the country).
+    // blocked list: re-doing KYC won't change the country).
     if (isFixableDenial(decisionReasons)) {
       const sessionReason = await tryMintSessionDenial(ctx);
       if (sessionReason) {
@@ -1035,7 +1035,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       });
     } catch (err) {
       // Fire-and-forget: don't throw. Log so a persistent capture outage is visible
-      // to merchant ops — otherwise wallet↔operator linkage silently stops.
+      // to merchant ops: otherwise wallet↔operator linkage silently stops.
       console.warn('[agentscore-commerce] captureWallet failed:', err instanceof Error ? err.message : err);
     }
   }
@@ -1083,11 +1083,11 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
   /**
    * Build the per-request signer verdicts (signer_match + signer_sanctions) from an assess
    * response. Returns `undefined` unless the wallet is the EFFECTIVE identity (no operator_token,
-   * no AIT — operator-token / AIT wins and signer-match is deliberately NOT enforced) AND the
+   * no AIT: operator-token / AIT wins and signer-match is deliberately NOT enforced) AND the
    * response carried at least one signer block.
    *
    * The verdict is returned on the `EvaluateOutcome` and stashed by each adapter on its
-   * PER-REQUEST state (Hono `c`, Express/Fastify `request`, web closure), NOT on a shared slot —
+   * PER-REQUEST state (Hono `c`, Express/Fastify `request`, web closure), NOT on a shared slot:
    * so concurrent same-wallet/different-signer requests can never read each other's verdict.
    */
   function buildSignerVerdict(

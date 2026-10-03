@@ -1,5 +1,5 @@
 /**
- * x402 Settlement-Overrides header helpers — used with the `upto` scheme to specify the
+ * x402 Settlement-Overrides header helpers: used with the `upto` scheme to specify the
  * actual amount to charge after the work is done. The header is JSON-encoded and lives
  * on the merchant's response; the facilitator settles for that amount instead of the
  * advertised maximum.

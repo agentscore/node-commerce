@@ -122,7 +122,7 @@ describe('aipErrorStatus', () => {
     }
   });
 
-  it('returns 503 for key_unavailable (IdP JWKS unreachable — retryable, not a client auth failure)', () => {
+  it('returns 503 for key_unavailable (IdP JWKS unreachable: retryable, not a client auth failure)', () => {
     expect(aipErrorStatus('key_unavailable')).toBe(503);
   });
 });

@@ -24,7 +24,7 @@ import type { FastifyRequest } from 'fastify';
 import type { Context } from 'hono';
 
 
-// Couples to the internal GATE_STATE_KEY string in each adapter; intentional —
+// Couples to the internal GATE_STATE_KEY string in each adapter; intentional:
 // the read helpers are thin wrappers over that key, and the test exercises the
 // extraction logic directly.
 const GATE_STATE_KEY = '__agentscoreGate';

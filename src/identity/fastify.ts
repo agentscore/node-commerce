@@ -27,9 +27,9 @@ interface GateState {
   operatorToken?: string;
   walletAddress?: string;
   /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
-   *  (429/5xx/network timeout). Compliance was NOT enforced — log/alert in your handler. */
+   *  (429/5xx/network timeout). Compliance was NOT enforced: log/alert in your handler. */
   degraded?: boolean;
-  /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
+  /** Why the gate degraded: quota_exceeded / api_error / network_timeout. */
   infraReason?: FailOpenInfraReason;
   /** Per-account assess quota observability captured from `X-Quota-*` response headers. */
   quota?: GateQuotaInfo;
@@ -149,7 +149,7 @@ export function getAgentScoreData(request: FastifyRequest): AssessResult | undef
 /**
  * Read whether the gate fail-open'd due to AgentScore-side infrastructure failure on
  * this request. Returns `{ degraded: false }` for normal allows; `{ degraded: true,
- * infraReason }` when bypassed (compliance NOT enforced — log/alert).
+ * infraReason }` when bypassed (compliance NOT enforced: log/alert).
  */
 export function getGateDegradedState(
   request: FastifyRequest,
@@ -192,7 +192,7 @@ export async function captureWallet(
  * Both composed by the gate's primary /v1/assess in one round trip. Returns `undefined`
  * for operator-token paths, discovery legs, or routes the gate didn't run on.
  *
- * Wallet-OFAC SDN enforcement is unconditional whenever a signer is in the request — an
+ * Wallet-OFAC SDN enforcement is unconditional whenever a signer is in the request: an
  * SDN hit (or unavailable lookup) is already enforced by the gate (decision → deny before
  * the handler runs); merchant code typically only needs this getter for the `signer_match`
  * wallet-binding verdict.
@@ -262,7 +262,7 @@ const conditionalAgentscoreGatePlugin: FastifyPluginAsync<AgentScoreGateOptions>
 export const conditionalAgentscoreGate = conditionalAgentscoreGatePlugin;
 
 // ---------------------------------------------------------------------------
-// AIP gate (Agentic Identity Protocol) — verifies a key-bound Agent Identity Token (AIT)
+// AIP gate (Agentic Identity Protocol): verifies a key-bound Agent Identity Token (AIT)
 // from a trusted IdP. Cryptographic identity only; enrich via /v1/assess from the handler.
 // ---------------------------------------------------------------------------
 
@@ -306,7 +306,7 @@ const aipGatePlugin: FastifyPluginAsync<AipGateFastifyOptions> = async (fastify,
 (aipGatePlugin as unknown as Record<symbol, boolean>)[Symbol.for('skip-override')] = true;
 export const aipGate = aipGatePlugin;
 
-/** Conditional AIP plugin — only verifies when an `Agent-Identity` header is present. */
+/** Conditional AIP plugin: only verifies when an `Agent-Identity` header is present. */
 const conditionalAipGatePlugin: FastifyPluginAsync<AipGateFastifyOptions> = async (fastify, options) => {
   const { onDenied = defaultAipOnDenied, ...gateOpts } = options;
   fastify.addHook('preHandler', async (request, reply) => {

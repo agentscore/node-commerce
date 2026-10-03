@@ -14,7 +14,7 @@
 
 /**
  * Whether a paid surface accepts redemption codes. Applies to any merchant
- * that bills per-purchase or per-call — goods (catalog rows) and API
+ * that bills per-purchase or per-call: goods (catalog rows) and API
  * (per-endpoint or per-tier billing) both use this enum.
  */
 export type PurchaseMode = 'redemption_only' | 'coupon_applicable' | 'paid_only';
@@ -59,7 +59,7 @@ export function purchaseModeNote(mode: string): string {
  * Unknown rail names are passed through verbatim so future rails work without
  * an SDK bump.
  *
- * Pass `vendorType: 'api'` for per-call API providers — the catalog step is
+ * Pass `vendorType: 'api'` for per-call API providers: the catalog step is
  * dropped and the final step becomes "Make the paid call" instead of "Place
  * the order".
  */
@@ -207,7 +207,7 @@ export function standardEndpointDescriptions(opts?: {
 /**
  * Build the canonical AgentScore commerce `/` root discovery body. Works for
  * both goods merchants (catalog + purchase + orders) and API merchants (per-
- * call paid endpoints) — `endpoints` and any merchant-specific fields are
+ * call paid endpoints): `endpoints` and any merchant-specific fields are
  * passed through `extra`.
  *
  * Common fields surfaced: `name`, `description`, `docs`, `endpoints`,
@@ -240,7 +240,7 @@ export function buildMerchantIndexJson(opts: {
 
 /**
  * Standard `next_steps` block emitted in a 200 success body. Works for both
- * goods-merchant order-success and API-merchant per-call-success — the
+ * goods-merchant order-success and API-merchant per-call-success: the
  * `user_message` reinforces the cross-merchant Passport pattern (universal),
  * with merchant-specific copy overridable via `userMessage`.
  *
@@ -248,7 +248,7 @@ export function buildMerchantIndexJson(opts: {
  * have an order-detail endpoint can either pass a usage/dashboard URL or omit
  * the field by passing an empty string (filtered out before emit).
  *
- * `fulfillmentEta` is goods-specific (shipping window) — omit for API or
+ * `fulfillmentEta` is goods-specific (shipping window): omit for API or
  * digital-goods merchants.
  */
 export function buildSuccessNextSteps(opts: {

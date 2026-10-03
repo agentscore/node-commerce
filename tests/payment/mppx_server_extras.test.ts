@@ -12,7 +12,7 @@ import type {
   TempoSessionRailSpec,
 } from '../../src/payment/rail_spec';
 
-describe('createMppxServer — additional rail branches', () => {
+describe('createMppxServer: additional rail branches', () => {
   it('routes tempo_session config through mppx.tempo.session', async () => {
     // mppx >=0.7.0 builds a session without a construction-time account
     // (the account is required later for channel close / settlement; the old

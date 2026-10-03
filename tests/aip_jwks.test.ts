@@ -94,7 +94,7 @@ describe('JwksCache.isTrusted', () => {
   });
 
   it('always trusts AgentScore’s canonical issuer, even with no/empty trustedIssuers', () => {
-    // The invariant must hold for EVERY consumer (raw adapters included), not just Checkout —
+    // The invariant must hold for EVERY consumer (raw adapters included), not just Checkout:
     // a merchant can't accidentally fail to trust AgentScore-issued AITs.
     const noList = new JwksCache({ fetchImpl: makeFetch([keyA]) });
     expect(noList.isTrusted('https://www.agentscore.com')).toBe(true);
@@ -175,7 +175,7 @@ describe('JwksCache.getKey', () => {
 
   // --- refetch-amplification / DoS guard (REFETCH_COOLDOWN_MS) ---------------------------------
 
-  it('does NOT refetch on a kid miss within the cooldown — a flood of unknown kids costs 1 fetch', async () => {
+  it('does NOT refetch on a kid miss within the cooldown: a flood of unknown kids costs 1 fetch', async () => {
     // Canonical issuer is always trusted and kid/iss are read pre-verify, so an unauthenticated
     // attacker could otherwise force one JWKS GET per unknown-kid token. The cooldown caps it.
     let nowMs = 1_000_000;
@@ -184,7 +184,7 @@ describe('JwksCache.getKey', () => {
     await c.getKey('https://issuer.example', 'key-A'); // populates cache + stamps cooldown (call 1)
     // Stream many distinct unknown kids well inside the cooldown window.
     for (let i = 0; i < 50; i++) {
-      nowMs += 100; // 5s total elapsed — still < 30s cooldown
+      nowMs += 100; // 5s total elapsed: still < 30s cooldown
       const r = await c.getKey('https://issuer.example', `attacker-kid-${i}`);
       expect(r).toEqual({ ok: false, reason: 'key_not_found' });
     }
@@ -305,13 +305,13 @@ describe('JwksCache.getKey', () => {
   it('sequential failures within the cooldown perform exactly ONE upstream fetch', async () => {
     // An erroring issuer must not be re-fetched per request: the failed attempt stamps the same
     // per-issuer cooldown a success does, so a stream of tokens against a down/cold issuer costs
-    // one GET per cooldown window — not one per token.
+    // one GET per cooldown window: not one per token.
     let nowMs = 1_000_000;
     const fetchImpl = vi.fn(async () => { throw new Error('network'); });
     const c = new JwksCache({ trustedIssuers: TRUSTED, fetchImpl, now: () => nowMs });
     expect(await c.getKey('https://issuer.example', 'key-A')).toEqual({ ok: false, reason: 'fetch_failed' });
     for (let i = 0; i < 50; i++) {
-      nowMs += 100; // 5s total elapsed — still < 30s cooldown
+      nowMs += 100; // 5s total elapsed: still < 30s cooldown
       const r = await c.getKey('https://issuer.example', `kid-${i}`);
       expect(r).toEqual({ ok: false, reason: 'fetch_failed' });
     }
@@ -415,7 +415,7 @@ describe('JwksCache.getKey', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(1); // single upstream fetch for the whole burst
     // Each caller still selects independently from the shared key set: the two known kids resolve,
-    // the rest report key_not_found — proving coalescing didn't cross-contaminate verdicts.
+    // the rest report key_not_found: proving coalescing didn't cross-contaminate verdicts.
     expect(results[0]).toMatchObject({ ok: true });
     expect(results[1]).toMatchObject({ ok: true });
     expect(results[2]).toEqual({ ok: false, reason: 'key_not_found' });

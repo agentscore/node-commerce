@@ -82,7 +82,7 @@ const signedCtx = async (token: string, signWith = agentPrivateJwk, signPub = ag
 
 const NOW = 1715400020;
 
-describe('verifyAit — happy path', () => {
+describe('verifyAit: happy path', () => {
   it('verifies a well-formed, signed AIT end to end', async () => {
     const token = await mintAit();
     const ctx = await signedCtx(token);
@@ -102,7 +102,7 @@ describe('verifyAit — happy path', () => {
   });
 });
 
-describe('verifyAit — token presence', () => {
+describe('verifyAit: token presence', () => {
   it('returns no_token when no Agent-Identity header', async () => {
     const r = await verifyAit(
       { ...REQ, agentIdentityHeaders: [], signatureInput: 'x', signature: 'y' },
@@ -120,7 +120,7 @@ describe('verifyAit — token presence', () => {
     expect(r).toEqual({ ok: false, reason: 'pop_signature_missing' });
   });
 
-  it('accepts a Bearer-prefixed Agent-Identity header — the signed component is the bare JWT', async () => {
+  it('accepts a Bearer-prefixed Agent-Identity header: the signed component is the bare JWT', async () => {
     const token = await mintAit();
     // Sign over the BARE AIT (Bearer is transport the verifier strips before the crypto), then
     // present it WITH a Bearer prefix; edge and API both reconstruct over the bare JWT.
@@ -130,7 +130,7 @@ describe('verifyAit — token presence', () => {
   });
 });
 
-describe('verifyAit — issuer + key', () => {
+describe('verifyAit: issuer + key', () => {
   it('rejects an untrusted issuer', async () => {
     const token = await mintAit({ iss: 'https://evil.com' });
     const ctx = await signedCtx(token);
@@ -146,7 +146,7 @@ describe('verifyAit — issuer + key', () => {
   });
 });
 
-describe('verifyAit — signature + expiry', () => {
+describe('verifyAit: signature + expiry', () => {
   it('rejects an AIT signed by a different IdP key (idp_signature_invalid)', async () => {
     // JWKS serves an unrelated key under the same kid → IdP sig fails.
     const other = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
@@ -182,7 +182,7 @@ describe('verifyAit — signature + expiry', () => {
 
   it('rejects an AIT whose lifetime exceeds the 300s edge ceiling (lowered from 3600)', async () => {
     // A 600s-lifetime AIT (under the old 3600 default, over the new 300) is now rejected at the edge,
-    // matching the authoritative API verifier. The PoP is fresh and exp is ahead of now — only the
+    // matching the authoritative API verifier. The PoP is fresh and exp is ahead of now: only the
     // exp-iat span is the problem.
     const token = await mintAit({ iat: NOW - 10, exp: NOW + 590 }); // 600s lifetime > 300s
     const ctx = await signedCtx(token);
@@ -217,7 +217,7 @@ describe('verifyAit — signature + expiry', () => {
   });
 });
 
-describe('verifyAit — claim contract', () => {
+describe('verifyAit: claim contract', () => {
   it('rejects a token that is not AIT-shaped (no agent claim)', async () => {
     const token = await mintAit({ omitAgent: true });
     const ctx = await signedCtx(token);
@@ -233,7 +233,7 @@ describe('verifyAit — claim contract', () => {
   });
 });
 
-describe('verifyAit — proof of possession', () => {
+describe('verifyAit: proof of possession', () => {
   it('rejects when the request is signed by a key other than cnf.jwk (pop_signature_invalid)', async () => {
     // AIT binds agentPublicJwk, but we sign the request with a different key.
     const other = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
@@ -256,7 +256,7 @@ describe('verifyAit — proof of possession', () => {
   it('rejects (does not throw on) an AIT bound to a P-256 cnf key', async () => {
     // The PoP verifier is Ed25519-only. A structurally-valid, JWT-valid AIT whose cnf is a P-256
     // EC key must return a typed failure (caught by the cnf-key-type guard), NOT crash the gate
-    // with an uncaught importJWK throw. Sign the request with the normal Ed25519 agent key — the
+    // with an uncaught importJWK throw. Sign the request with the normal Ed25519 agent key: the
     // request signature is irrelevant because the verifier rejects on the cnf key type first.
     const ec = await generateKeyPair('ES256', { extractable: true });
     const ecPub = await exportJWK(ec.publicKey);
@@ -276,7 +276,7 @@ describe('verifyAit — proof of possession', () => {
   });
 });
 
-describe('verifyAit — multiple AITs', () => {
+describe('verifyAit: multiple AITs', () => {
   it('verifies when one of several Agent-Identity headers is valid and matches the request signature', async () => {
     const good = await mintAit();
     const badIssuer = await mintAit({ iss: 'https://evil.com' });
@@ -292,7 +292,7 @@ describe('verifyAit — multiple AITs', () => {
   });
 });
 
-describe('verifyAit — defense sanity (importJWK round-trip)', () => {
+describe('verifyAit: defense sanity (importJWK round-trip)', () => {
   it('the cnf key returned can be imported (well-formed JWK)', async () => {
     const token = await mintAit();
     const ctx = await signedCtx(token);

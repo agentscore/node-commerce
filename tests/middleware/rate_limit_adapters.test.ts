@@ -176,7 +176,7 @@ describe('rateLimitFastify', () => {
     };
     const req = { headers: {}, ip: undefined };
     await hook(req as never, reply as never);
-    // No assertion — just exercises the fallback branch
+    // No assertion: just exercises the fallback branch
   });
 
   it('respects custom keyResolver', async () => {

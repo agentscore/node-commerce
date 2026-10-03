@@ -17,7 +17,7 @@
  *
  * Peer deps:
  *   bun add @agent-score/commerce hono mppx @x402/core @x402/evm @solana/mpp @solana/kit
- *   # @coinbase/x402 optional — only if you want the Coinbase CDP facilitator
+ *   # @coinbase/x402 optional: only if you want the Coinbase CDP facilitator
  *
  * Env vars:
  *   TEMPO_RECIPIENT       your Tempo wallet for receiving USDC.e

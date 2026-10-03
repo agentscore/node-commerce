@@ -159,7 +159,7 @@ describe('authority pinning (AipGateOptions.authority)', () => {
   });
 });
 
-// Express middleware tested by direct invocation with mock req/res/next — deterministic,
+// Express middleware tested by direct invocation with mock req/res/next: deterministic,
 // no HTTP stack (supertest isn't a dep). Express is referenced only for its types here.
 interface MockRes {
   statusCode: number;

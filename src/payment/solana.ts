@@ -8,9 +8,9 @@
  * `loadSolanaFeePayer({ privateKey })` accepts a Solana keypair in any of the
  * three forms agents commonly export it as:
  *
- *   - **base58** (Phantom export format) — 64-byte secret+public, or 32-byte
+ *   - **base58** (Phantom export format): 64-byte secret+public, or 32-byte
  *     secret-only
- *   - **hex** — 128-char string (64 bytes hex: 32-byte secret + 32-byte public)
+ *   - **hex**: 128-char string (64 bytes hex: 32-byte secret + 32-byte public)
  *
  * Returns a `KeyPairSigner` from `@solana/kit` ready to pass as the `signer`
  * field on a `SolanaMppRailSpec`. Returns `undefined` when `privateKey` is
@@ -31,7 +31,7 @@ export async function loadSolanaFeePayer(opts: {
   } | null;
   if (!kit?.createKeyPairSignerFromPrivateKeyBytes || !kit.getBase58Codec) {
     throw new Error(
-      '@solana/kit not installed — `npm install @solana/kit` for loadSolanaFeePayer.',
+      '@solana/kit not installed: `npm install @solana/kit` for loadSolanaFeePayer.',
     );
   }
   let bytes: Uint8Array;

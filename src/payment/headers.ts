@@ -1,32 +1,32 @@
 /**
- * Multi-rail payment header bundle — one call composes both `WWW-Authenticate` (the
+ * Multi-rail payment header bundle: one call composes both `WWW-Authenticate` (the
  * `paymentauth.org` Payment directives) and the standard x402 `PAYMENT-REQUIRED` header
  * from a single rails declaration. Reduces ~10 lines of merchant boilerplate per 402
  * response.
  *
  * Layered on top of `paymentDirective` / `wwwAuthenticateHeader` / `paymentRequiredHeader`
- * — those primitives stay exposed for vendors who want full control.
+ *: those primitives stay exposed for vendors who want full control.
  */
 
 import { buildPaymentDirective } from './directive';
 import { paymentRequiredHeader, wwwAuthenticateHeader } from './wwwauthenticate';
 
 export interface PaymentHeadersRail {
-  /** Symbolic rail name — `tempo-mainnet`, `x402-base-mainnet`, `stripe`, etc. */
+  /** Symbolic rail name: `tempo-mainnet`, `x402-base-mainnet`, `stripe`, etc. */
   rail: string;
   /** Amount in USD as a number or string. */
   amountUsd: string | number;
-  /** Recipient address (on-chain) — required for crypto rails. */
+  /** Recipient address (on-chain): required for crypto rails. */
   recipient?: string;
-  /** Stripe profile_id / network_id — required for `stripe` rail. */
+  /** Stripe profile_id / network_id: required for `stripe` rail. */
   networkId?: string;
-  /** EVM chain id override — usually inferred from rail. */
+  /** EVM chain id override: usually inferred from rail. */
   chainId?: number;
-  /** Token contract / currency override — usually inferred from rail. */
+  /** Token contract / currency override: usually inferred from rail. */
   currency?: string;
-  /** Decimal precision override — usually inferred from rail (USDC=6, etc.). */
+  /** Decimal precision override: usually inferred from rail (USDC=6, etc.). */
   decimals?: number;
-  /** MPP method override — usually inferred from rail. */
+  /** MPP method override: usually inferred from rail. */
   method?: string;
   /** MPP intent. Default `charge`. */
   intent?: string;
@@ -69,10 +69,10 @@ export function buildPaymentHeaders({
   rails: PaymentHeadersRail[];
   /** Order id used as the directive challenge id (per-rail it becomes `${orderId}-${rail}`). */
   orderId: string;
-  /** Realm — the host of the merchant URL (e.g. `agents.merchant.example`). */
+  /** Realm: the host of the merchant URL (e.g. `agents.merchant.example`). */
   realm: string;
   /**
-   * Optional x402 `accepts` array — included as the standard PAYMENT-REQUIRED header so
+   * Optional x402 `accepts` array: included as the standard PAYMENT-REQUIRED header so
    * x402 clients (`@x402/fetch`, `@x402/core` HTTPClient, `agentscore-pay`) can parse the
    * base64-encoded JSON form instead of the WWW-Authenticate text directives. Pass
    * `undefined` (or omit) to skip the PAYMENT-REQUIRED header.

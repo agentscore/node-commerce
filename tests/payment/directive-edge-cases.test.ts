@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildPaymentRequestBlob, paymentDirective, buildPaymentDirective } from '../../src/payment/directive';
 
-describe('buildPaymentRequestBlob — defaults + edge cases', () => {
+describe('buildPaymentRequestBlob: defaults + edge cases', () => {
   it('defaults to 6 decimals + usd currency when no rail and no overrides', async () => {
     const blob = buildPaymentRequestBlob({ amountUsd: 1 });
     const decoded = JSON.parse(Buffer.from(blob, 'base64url').toString());
@@ -10,7 +10,7 @@ describe('buildPaymentRequestBlob — defaults + edge cases', () => {
     expect(decoded.methodDetails).toBeUndefined();
   });
 
-  it('uses unknown rail without crashing — falls back to defaults', async () => {
+  it('uses unknown rail without crashing: falls back to defaults', async () => {
     const blob = buildPaymentRequestBlob({ rail: 'not-a-real-rail', amountUsd: 1 });
     const decoded = JSON.parse(Buffer.from(blob, 'base64url').toString());
     expect(decoded.amount).toBe('1000000');
@@ -30,7 +30,7 @@ describe('buildPaymentRequestBlob — defaults + edge cases', () => {
   });
 });
 
-describe('paymentDirective — defaults', () => {
+describe('paymentDirective: defaults', () => {
   it('defaults method to "unknown" when no rail is provided', async () => {
     const directive = paymentDirective({ id: 'chg', realm: 'ex.com', request: 'abc' });
     expect(directive).toContain('method="unknown"');
@@ -47,13 +47,13 @@ describe('paymentDirective — defaults', () => {
     expect(expires).toBeLessThanOrEqual(after + 5 * 60 * 1000 + 100);
   });
 
-  it('uses an unknown rail without crashing — defaults method to "unknown"', async () => {
+  it('uses an unknown rail without crashing: defaults method to "unknown"', async () => {
     const directive = paymentDirective({ rail: 'not-a-real-rail', id: 'chg', realm: 'ex.com', request: 'abc' });
     expect(directive).toContain('method="unknown"');
   });
 });
 
-describe('buildPaymentDirective — convenience wrapper', () => {
+describe('buildPaymentDirective: convenience wrapper', () => {
   it('chains buildPaymentRequestBlob + paymentDirective with a rail', async () => {
     const directive = buildPaymentDirective({
       rail: 'tempo-mainnet',

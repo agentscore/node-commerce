@@ -14,7 +14,7 @@
  *   bun add @agent-score/commerce hono stripe
  *
  * Env vars:
- *   STRIPE_SECRET_KEY  — sk_live_... or sk_test_...
+ *   STRIPE_SECRET_KEY : sk_live_... or sk_test_...
  *
  * Run: bun run examples/stripe-multichain-merchant.ts
  */
@@ -47,7 +47,7 @@ app.post('/checkout', async (c) => {
   });
 
   // 2. Return per-network deposit addresses to the agent (or 402 with addresses
-  // embedded — see multi-rail-merchant.ts for the full 402 builder pattern).
+  // embedded: see multi-rail-merchant.ts for the full 402 builder pattern).
   return c.json({
     payment_intent_id: result.paymentIntentId,
     deposit_addresses: result.depositAddresses,

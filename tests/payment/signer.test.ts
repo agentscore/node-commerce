@@ -8,7 +8,7 @@ const encodeX402 = (payload: unknown): string => Buffer.from(JSON.stringify(payl
 const makeRequest = (headers: Record<string, string> = {}): Request =>
   new Request('https://example.com/purchase', { headers });
 
-describe('extractPaymentSigner — returns {address, network} for x402 EVM', () => {
+describe('extractPaymentSigner: returns {address, network} for x402 EVM', () => {
   it('returns evm network for an EIP-3009 payload with eip155 network', async () => {
     const header = encodeX402({
       accepted: { network: 'eip155:8453' },
@@ -33,7 +33,7 @@ describe('extractPaymentSigner — returns {address, network} for x402 EVM', () 
   });
 });
 
-describe('extractPaymentSigner — Solana SVM path', () => {
+describe('extractPaymentSigner: Solana SVM path', () => {
   it('returns null when the SVM payload has no transaction (no payer recoverable)', async () => {
     const header = encodeX402({ accepted: { network: 'solana:abc' }, payload: {} });
     expect(await extractPaymentSigner(makeRequest(), header)).toBeNull();

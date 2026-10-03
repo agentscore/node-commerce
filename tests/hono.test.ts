@@ -61,7 +61,7 @@ function mockFetchStatus(status: number, errorCode?: string): void {
 // Identity extraction
 // ---------------------------------------------------------------------------
 
-describe('Hono adapter — identity extraction', () => {
+describe('Hono adapter: identity extraction', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('extracts wallet address from X-Wallet-Address header', async () => {
@@ -132,7 +132,7 @@ describe('Hono adapter — identity extraction', () => {
 // Context attachment + getAgentScoreData helper
 // ---------------------------------------------------------------------------
 
-describe('Hono adapter — context attachment', () => {
+describe('Hono adapter: context attachment', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('attaches assess data via c.set, retrievable by getAgentScoreData', async () => {
@@ -165,7 +165,7 @@ describe('Hono adapter — context attachment', () => {
 // Deny behavior
 // ---------------------------------------------------------------------------
 
-describe('Hono adapter — deny behavior', () => {
+describe('Hono adapter: deny behavior', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('returns 403 wallet_not_trusted with verify_url on policy deny', async () => {
@@ -240,7 +240,7 @@ describe('Hono adapter — deny behavior', () => {
 // createSessionOnMissing
 // ---------------------------------------------------------------------------
 
-describe('Hono adapter — createSessionOnMissing', () => {
+describe('Hono adapter: createSessionOnMissing', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('creates session and returns 403 identity_verification_required when identity missing', async () => {
@@ -522,7 +522,7 @@ describe('Hono adapter — createSessionOnMissing', () => {
 // Fail-open
 // ---------------------------------------------------------------------------
 
-describe('Hono adapter — fail-open', () => {
+describe('Hono adapter: fail-open', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('passes through on 402 when failOpen is true', async () => {
@@ -552,7 +552,7 @@ describe('Hono adapter — fail-open', () => {
 // User-Agent header
 // ---------------------------------------------------------------------------
 
-describe('Hono adapter — User-Agent header', () => {
+describe('Hono adapter: User-Agent header', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('sends User-Agent matching canonical package identifier', async () => {
@@ -590,7 +590,7 @@ describe('Hono adapter — User-Agent header', () => {
 // Error paths: 402 payment_required + 500 api_error
 // ---------------------------------------------------------------------------
 
-describe('Hono adapter — error paths', () => {
+describe('Hono adapter: error paths', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('returns 403 payment_required on 402 assess response', async () => {
@@ -709,7 +709,7 @@ describe('Hono adapter — error paths', () => {
 // chain= constructor option
 // ---------------------------------------------------------------------------
 
-describe('Hono adapter — chain option', () => {
+describe('Hono adapter: chain option', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('forwards constructor chain to /v1/assess body', async () => {
@@ -743,7 +743,7 @@ describe('Hono adapter — chain option', () => {
 // captureWallet
 // ---------------------------------------------------------------------------
 
-describe('Hono adapter — captureWallet', () => {
+describe('Hono adapter: captureWallet', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('forwards idempotencyKey as snake_case idempotency_key in the body', async () => {
@@ -840,10 +840,10 @@ describe('Hono adapter — captureWallet', () => {
 });
 
 // ---------------------------------------------------------------------------
-// getSignerVerdict — exercise core's projectSignerMatch + cache-read paths
+// getSignerVerdict: exercise core's projectSignerMatch + cache-read paths
 // ---------------------------------------------------------------------------
 
-describe('Hono adapter — getSignerVerdict projection', () => {
+describe('Hono adapter: getSignerVerdict projection', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('projects signer_match.kind=pass with claimed/signer operators', async () => {

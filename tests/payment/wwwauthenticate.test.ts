@@ -58,7 +58,7 @@ describe('paymentRequiredHeader', () => {
 
   it('emits accepts entries verbatim (no amount-field aliasing) so deepEqual matchers pass', () => {
     // @x402/core's findMatchingRequirements deep-equals the agent's signed `accepted`
-    // payload against the merchant's accepts array — any extra alias field on the wire
+    // payload against the merchant's accepts array: any extra alias field on the wire
     // breaks the match silently. paymentRequiredHeader emits exactly what the merchant
     // supplied. Vendors targeting v1-only clients can call aliasAmountFields explicitly
     // and pass the result through, accepting the matcher trade-off.

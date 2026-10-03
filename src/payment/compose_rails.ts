@@ -30,7 +30,7 @@ export interface BuildMppxComposeRailsOptions {
   /** Include the `stripe/charge` intent (Stripe SPT rail). Default `true`.
    *
    *  Stripe's documented USD minimum is $0.50 because the fixed processing
-   *  fee (~$0.30) exceeds revenue below that — sub-50-cent charges that DO
+   *  fee (~$0.30) exceeds revenue below that: sub-50-cent charges that DO
    *  go through still cost the merchant money (a $0.11 PI nets -$0.19 after
    *  fees). Some Stripe accounts also reject PI creation under the floor
    *  with `amount_too_small`. The helper auto-drops the rail (with a

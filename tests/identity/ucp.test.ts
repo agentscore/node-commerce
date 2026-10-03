@@ -36,7 +36,7 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     expect(profile.ucp.services).toEqual(baseInput.services);
     expect(profile.ucp.capabilities).toEqual({});
     expect(profile.ucp.payment_handlers).toEqual({});
-    // No top-level `spec` field per UCP spec — spec lives per-binding.
+    // No top-level `spec` field per UCP spec: spec lives per-binding.
     expect((profile as Record<string, unknown>).spec).toBeUndefined();
     // No `version` at top level either; lives under `ucp`.
     expect((profile as Record<string, unknown>).version).toBeUndefined();
@@ -62,7 +62,7 @@ describe('buildUCPProfile (spec-compliant shape)', () => {
     expect(cap?.version).toBe('2026-04-08');
     expect(cap?.spec).toContain('agentscore.com');
     expect(cap?.schema).toContain('com-agentscore-identity-v1.json');
-    // Multi-parent extends — matches Shopify's dev.shopify.catalog.storefront pattern
+    // Multi-parent extends: matches Shopify's dev.shopify.catalog.storefront pattern
     // and UCP-canonical dev.ucp.shopping.discount (extends [checkout, cart]).
     expect(cap?.extends).toEqual(['dev.ucp.shopping.checkout', 'dev.ucp.shopping.cart']);
     // Config is the merchant's policy declaration, NOT per-operator data. Public

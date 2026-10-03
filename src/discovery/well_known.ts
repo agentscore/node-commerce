@@ -84,7 +84,7 @@ function isTempoSession(s: CheckoutRailSpec): s is TempoSessionRailSpec {
 function isStripe(s: CheckoutRailSpec): s is StripeRailSpec {
   return !('recipient' in s);
 }
-/** A rail spec qualifies for UCP publication when `recipient` is defined —
+/** A rail spec qualifies for UCP publication when `recipient` is defined:
  *  whether concrete (`'0xabc'`), empty-string sentinel (per-order minted by
  *  the consumer), or a factory callable (per-order minted on demand). The
  *  `tempoToNetworkEntry` / `x402ToNetworkEntry` builders drop the recipient

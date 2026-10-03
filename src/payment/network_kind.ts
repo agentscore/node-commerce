@@ -24,7 +24,7 @@ export function isEvmNetwork(input: NetworkLike): boolean {
 
 /** True when the network is a CAIP-2 Solana chain (`solana:<genesis-hash>`).
  *  Note: `'solana'` bare (no `:`) is the mppx-internal label, NOT a CAIP-2
- *  network spec — this helper treats it as false. */
+ *  network spec: this helper treats it as false. */
 export function isSolanaNetwork(input: NetworkLike): boolean {
   return readNetwork(input).startsWith('solana:');
 }

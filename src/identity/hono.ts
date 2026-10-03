@@ -28,10 +28,10 @@ interface GateState {
   operatorToken?: string;
   walletAddress?: string;
   /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
-   *  (429/5xx/network timeout). Compliance was NOT enforced for this request — log/alert
+   *  (429/5xx/network timeout). Compliance was NOT enforced for this request: log/alert
    *  in your handler. See {@link getGateDegradedState}. */
   degraded?: boolean;
-  /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
+  /** Why the gate degraded: quota_exceeded / api_error / network_timeout. */
   infraReason?: FailOpenInfraReason;
   /** Per-account assess quota observability captured from `X-Quota-*` response headers
    *  on the success path. Absent on Enterprise / unlimited tiers, or when the gate didn't
@@ -146,7 +146,7 @@ export function getAgentScoreData(c: Context): AssessResult | undefined {
 /**
  * Read whether the gate fail-open'd due to AgentScore-side infrastructure failure on
  * this request. Returns `{ degraded: false }` for normal allows; `{ degraded: true,
- * infraReason }` when the gate was bypassed (compliance NOT enforced — log/alert).
+ * infraReason }` when the gate was bypassed (compliance NOT enforced: log/alert).
  *
  * Only set when `failOpen: true` was configured AND the failure was an infra failure
  * (429 quota_exceeded, 5xx api_error, network_timeout). Real compliance denials never
@@ -172,7 +172,7 @@ export function getGateQuotaInfo(c: Context): GateQuotaInfo | undefined {
  * Report a wallet that paid under the operator_token the gate extracted on this request.
  * Call this after a successful payment to build AgentScore's cross-merchant credential↔wallet
  * profile. No-ops silently if the gate never ran, the request was wallet-authenticated (no
- * operator_token to associate), or the API call fails — capture is fire-and-forget by design.
+ * operator_token to associate), or the API call fails: capture is fire-and-forget by design.
  *
  * ```ts
  * app.post('/purchase', async (c) => {
@@ -200,12 +200,12 @@ export async function captureWallet(
 /**
  * Synchronous read of the cached signer verdicts (`signer_match` wallet-binding +
  * `signer_sanctions` OFAC SDN wallet-address check). Both verdicts were composed by the
- * gate's primary `/v1/assess` call on this request — single round trip, no extra API call.
+ * gate's primary `/v1/assess` call on this request: single round trip, no extra API call.
  *
  * Returns `undefined` when the gate didn't run, the request was operator-token-only, or
  * no payment credential was attached (discovery legs).
  *
- * Wallet-OFAC SDN enforcement is unconditional whenever a signer is in the request — an
+ * Wallet-OFAC SDN enforcement is unconditional whenever a signer is in the request: an
  * SDN hit (or unavailable lookup) is already enforced by the gate (decision → deny before
  * the handler runs); merchant code typically only needs this getter for the `signer_match`
  * wallet-binding verdict.
@@ -239,7 +239,7 @@ export function conditionalAgentscoreGate(options: AgentScoreGateOptions): Middl
 }
 
 // ---------------------------------------------------------------------------
-// AIP gate (Agentic Identity Protocol) — verifies a key-bound Agent Identity Token (AIT)
+// AIP gate (Agentic Identity Protocol): verifies a key-bound Agent Identity Token (AIT)
 // from a trusted IdP instead of an opaque operator token. Cryptographic identity only;
 // merchants who want compliance enrichment feed the verified claims to /v1/assess. Hono is
 // Fetch-native, so this reuses `verifyAitRequest(c.req.raw)` directly while keeping the same

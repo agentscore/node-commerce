@@ -1,11 +1,11 @@
 /**
- * AIP Agent Identity Token (AIT) verification pipeline — the verifier orchestrator.
+ * AIP Agent Identity Token (AIT) verification pipeline: the verifier orchestrator.
  *
  * This is the function a merchant gate calls. It executes the spec's verification steps over
  * a presented request, composing the three foundation modules:
- *   - {@link ./jwks}        — trusted-issuer enforcement + key discovery
- *   - {@link ./http-signature} — RFC 9421 proof-of-possession over the request
- *   - {@link ./types}       — AIT structural contract
+ *   - {@link ./jwks}       : trusted-issuer enforcement + key discovery
+ *   - {@link ./http-signature}: RFC 9421 proof-of-possession over the request
+ *   - {@link ./types}      : AIT structural contract
  *
  * Steps (per spec):
  *   1. read the `Agent-Identity` header (one or more)
@@ -77,7 +77,7 @@ export interface VerifiedAit {
   /** The raw JWT string that verified (the winning `Agent-Identity` header value, Bearer
    *  prefix stripped). Lets a gate forward the exact token to `/v1/assess` as `aip_token`. */
   token: string;
-  /** The RFC 9421 signature material for this request — forwarded to `/v1/assess` as
+  /** The RFC 9421 signature material for this request: forwarded to `/v1/assess` as
    *  `aip_signature` so the API re-verifies proof-of-possession authoritatively (the edge
    *  check here is only a fail-fast filter; the API is the source of truth). */
   signatureMaterial: {
@@ -109,7 +109,7 @@ export const verifyAit = async (
   if (!ctx.signatureInput || !ctx.signature) {
     return { ok: false, reason: 'pop_signature_missing' };
   }
-  // Captured post-guard (string, not string|null) — reused for the local fail-fast PoP check and
+  // Captured post-guard (string, not string|null): reused for the local fail-fast PoP check and
   // forwarded to /v1/assess so the API can re-verify the same proof-of-possession authoritatively.
   const signatureInput = ctx.signatureInput;
   const signature = ctx.signature;
@@ -166,7 +166,7 @@ export const verifyAit = async (
     try {
       const idpKey = await importJWK(keyLookup.key, normalizeAlg(header.alg));
       await jwtVerify(token, idpKey, {
-        // Pin the signature algorithm allowlist (RFC 8725 §3.1) — also rejects `alg:none`. Without
+        // Pin the signature algorithm allowlist (RFC 8725 §3.1): also rejects `alg:none`. Without
         // this, jose accepts whatever alg the resolved JWK supports, so a trusted IdP publishing a
         // non-Ed25519 (e.g. RSA/EC) `use:sig` key would let an attacker present an RS256/ES256
         // token that verifies. Matches the server-side allowlist in the AgentScore API verifier.
@@ -196,14 +196,14 @@ export const verifyAit = async (
       continue;
     }
 
-    // Step 6 + 7 + 8: PoP — verify the RFC 9421 signature against cnf.jwk.
+    // Step 6 + 7 + 8: PoP: verify the RFC 9421 signature against cnf.jwk.
     const popResult = await verifyMessageSignature({
       method: ctx.method,
       authority: ctx.authority,
       path: ctx.path,
       // The agent-identity covered component is the BARE AIT (a Bearer prefix, if present, is
       // transport that `stripBearer` removed above). Verify over `token`, not `raw`, so the edge and
-      // the API — which verifies over the forwarded bare aip_token — reconstruct the identical base.
+      // the API (which verifies over the forwarded bare aip_token) reconstruct the identical base.
       agentIdentity: token,
       signatureInput,
       signature,

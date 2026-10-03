@@ -19,7 +19,7 @@ export function warnMissingApiKeyOnce(label: string): void {
   if (warnedNoApiKey) return;
   warnedNoApiKey = true;
   console.warn(
-    `[${label}] AGENTSCORE_API_KEY is not set — wallet OFAC SDN sanctions are NOT being enforced. ` +
+    `[${label}] AGENTSCORE_API_KEY is not set: wallet OFAC SDN sanctions are NOT being enforced. ` +
     'Set the env var to enable strict-liability protection on settle.',
   );
 }

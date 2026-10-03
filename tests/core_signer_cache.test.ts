@@ -4,14 +4,14 @@
  * The assess response cache was keyed by IDENTITY only (claimed wallet / operator_token / aip
  * hash); the payment SIGNER was not part of the key. So a 2nd request inside `cacheSeconds` that
  * claimed the same wallet but signed with a DIFFERENT wallet hit the cached decision and returned
- * the first signer's stale `signer_match: pass` / `signer_sanctions: clear` — the API never
+ * the first signer's stale `signer_match: pass` / `signer_sanctions: clear`: the API never
  * re-screened the new signer. Variant: a sanctioned 2nd signer would settle on the cached `clear`.
  *
  * Fix: fold the normalized signer (address + network) into the response cache key whenever a
  * signer is present, so a different signer is a cache MISS and gets re-screened. These tests pin
  * that contract by stubbing `global.fetch` (the real SDK + real core run on top) and driving two
  * different signers for one claimed identity. The verdict is read off each `evaluate` call's
- * RETURN VALUE (`outcome.signerVerdict`) — request-scoped, so one request can't read another's.
+ * RETURN VALUE (`outcome.signerVerdict`): request-scoped, so one request can't read another's.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAgentScoreCore } from '../src/core';
@@ -23,7 +23,7 @@ const CLAIMED = '0xAAAaaAAaaAAAaaAAAaaAAAaaAAAaaAAAaaAAAaaA';
 // Two distinct EVM signers for the same claimed wallet.
 const SIGNER_OK: PaymentSigner = { address: '0xB111111111111111111111111111111111111111', network: 'evm' };
 const SIGNER_MISMATCH: PaymentSigner = { address: '0xC222222222222222222222222222222222222222', network: 'evm' };
-// The repo's canonical OFAC test SDN shape (ofac_label 'ETH', sdn_uid 19011) — see hono.test.ts.
+// The repo's canonical OFAC test SDN shape (ofac_label 'ETH', sdn_uid 19011): see hono.test.ts.
 const SIGNER_SDN: PaymentSigner = { address: '0xD333333333333333333333333333333333333333', network: 'evm' };
 
 interface AssessBody {
@@ -93,7 +93,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('core — signer is part of the assess cache key (anti cache-poisoning)', () => {
+describe('core: signer is part of the assess cache key (anti cache-poisoning)', () => {
   it('re-screens a DIFFERENT signer within the cache window (does NOT return the first signer’s verdict)', async () => {
     const { calls } = stubAssessFetch();
     const core = createAgentScoreCore({ apiKey: API_KEY, cacheSeconds: 300 });
@@ -117,11 +117,11 @@ describe('core — signer is part of the assess cache key (anti cache-poisoning)
     if (v2?.signer_match?.kind === 'wallet_signer_mismatch') {
       expect(v2.signer_match.actualSigner).toBe(SIGNER_MISMATCH.address.toLowerCase());
     }
-    // The FIRST request's outcome still independently holds SIGNER_OK's `pass` — verdicts are
+    // The FIRST request's outcome still independently holds SIGNER_OK's `pass`: verdicts are
     // per-request (ride the return value), so r2's re-screen can't retroactively mutate r1.
     expect(r1.signerVerdict?.signer_match?.kind).toBe('pass');
     // The decision still surfaces as an allow from /v1/assess here (mismatch is enforced by the
-    // adapter via the verdict, not by flipping the decision) — the load-bearing assertion is that
+    // adapter via the verdict, not by flipping the decision): the load-bearing assertion is that
     // the verdict is the new signer's, not the cached one.
     expect(r2.kind).toBe('allow');
   });
@@ -152,7 +152,7 @@ describe('core — signer is part of the assess cache key (anti cache-poisoning)
     const core = createAgentScoreCore({ apiKey: API_KEY, cacheSeconds: 300 });
     await core.evaluate({ address: CLAIMED }, undefined, SIGNER_OK);
     await core.evaluate({ address: CLAIMED }, undefined, SIGNER_OK);
-    expect(calls).toHaveLength(1); // identical signer is a hit — no spurious re-screen
+    expect(calls).toHaveLength(1); // identical signer is a hit: no spurious re-screen
   });
 
   it('same identity, NO signer, twice → cache HIT (identity-only key unchanged)', async () => {

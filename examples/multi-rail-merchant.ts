@@ -97,7 +97,7 @@ async function _computePricing(ctx: CheckoutContext): Promise<PricingResult> {
 
 async function _mintRecipients(ctx: CheckoutContext): Promise<Record<string, string>> {
   const totalCents = Math.round((ctx.pricing?.amountUsd ?? 0) * 100);
-  // `mintMultichainRecipients` returns the full per-rail map in one call —
+  // `mintMultichainRecipients` returns the full per-rail map in one call:
   // preferred over the single-string `createPayToAddressFromStripePI` for
   // multi-rail merchants because there's no second pi-cache lookup to glue
   // the other rails' addresses back together. On the settle leg it short-
@@ -106,7 +106,7 @@ async function _mintRecipients(ctx: CheckoutContext): Promise<Record<string, str
   //
   // For low-margin endpoints (sub-dollar per call), pass
   // `staticRecipients: { solana: process.env.MERCHANT_SOLANA_RECIPIENT! }` to
-  // skip Stripe minting on Solana — at $0.01/call MPP spec §13.6's ~$0.50 per-PI
+  // skip Stripe minting on Solana: at $0.01/call MPP spec §13.6's ~$0.50 per-PI
   // ATA rent dominates revenue. With a stable merchant-owned recipient + one-
   // time external pre-funding of its USDC ATA, every settle pays only the
   // per-tx fee.

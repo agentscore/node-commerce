@@ -1,5 +1,5 @@
 /**
- * High-level Checkout orchestrator — composes 402-emit + verify+settle.
+ * High-level Checkout orchestrator: composes 402-emit + verify+settle.
  *
  * The Checkout primitive collapses the agentic-commerce dance (emit 402 →
  * verify+settle on retry → respond) into a single `await checkout.handle(request)`
@@ -12,18 +12,18 @@
  * - **Self-custody-only merchants** configure chain rails (Tempo / Base / Solana)
  *   via `X402BaseRailSpec` / `TempoRailSpec` / `SolanaMppRailSpec`.
  * - **Custodial-only merchants** configure `StripeRailSpec` and skip the chain
- *   rails — Stripe SPT settles via the same `composeMppx` hook.
+ *   rails: Stripe SPT settles via the same `composeMppx` hook.
  * - **Multi-rail merchants** configure all of the above; the agent picks the rail.
  *
- * Three flexibility axes — every combination is supported:
+ * Three flexibility axes: every combination is supported:
  *
- * - **x402 only / MPP only / both** — Checkout works with `x402Server` alone,
+ * - **x402 only / MPP only / both**: Checkout works with `x402Server` alone,
  *   `composeMppx` alone, or both. Whichever payment header arrives is dispatched
  *   to the configured handler; the other path is simply absent.
- * - **Self-custody / Stripe / mixed** — rails dict is the single source of truth.
+ * - **Self-custody / Stripe / mixed**: rails dict is the single source of truth.
  *   Listing `StripeRailSpec` makes Stripe SPT an acceptable rail; omitting it
  *   makes the merchant chain-only. Mixing freely is the default.
- * - **Gated / ungated identity** — `CheckoutRequest.assess` is optional. Merchants
+ * - **Gated / ungated identity**: `CheckoutRequest.assess` is optional. Merchants
  *   who run AgentScoreGate upstream pass its result through; merchants running
  *   anonymous leave it `null`.
  *
@@ -112,13 +112,13 @@ export interface CheckoutRequest {
    *  the gate for this endpoint. */
   assess?: Record<string, unknown> | null;
   /** Optional escape hatch for the framework's native request object. Pass when
-   *  your `composeMppx` hook needs to call `mppx.compose(...)(rawRequest)` — mppx's
+   *  your `composeMppx` hook needs to call `mppx.compose(...)(rawRequest)`: mppx's
    *  compose binds to the raw HTTP request, so the orchestrator forwards this
    *  through unchanged. */
   raw?: unknown;
 }
 
-/** Output of `Checkout.computePricing` — per-request pricing. */
+/** Output of `Checkout.computePricing`: per-request pricing. */
 export interface PricingResult {
   /** Total to charge in USD (or the upper bound, for `mode: 'upto'` rails). */
   amountUsd: number;
@@ -232,7 +232,7 @@ export function pricingResult(opts: {
 /**
  * Per-route discovery-probe config. When passed to {@link Checkout}, any
  * empty-body POST without a payment credential short-circuits with a sample
- * 402 advertising the merchant's payment shape — the canonical pattern x402
+ * 402 advertising the merchant's payment shape: the canonical pattern x402
  * crawlers rely on.
  */
 export interface DiscoveryProbeConfig {
@@ -274,7 +274,7 @@ export interface CheckoutContext {
    *  for this request. Set by Checkout's internal gate after a successful allow
    *  when an operator_token is present; `undefined` for wallet-authenticated
    *  requests (no operator_token to associate) or anonymous discovery legs.
-   *  Fire-and-forget — invoke from `onSettled` with the recovered signer. */
+   *  Fire-and-forget: invoke from `onSettled` with the recovered signer. */
   captureWallet?: (opts: {
     walletAddress: string;
     network: 'evm' | 'solana';
@@ -352,17 +352,17 @@ export type RunGateFn = (ctx: CheckoutContext) => Promise<GateDenial | null>;
  *
  * Three customization layers, in order of precedence:
  *
- * 1. ``runGate`` — full escape hatch. Replaces the SDK's gate flow entirely.
+ * 1. ``runGate``: full escape hatch. Replaces the SDK's gate flow entirely.
  *    Merchants implement assess + denial body construction themselves. Useful
  *    only for non-standard auth (e.g. shared signing keys, non-AgentScore IdP).
- * 2. ``perRequestPolicy`` — reads `ctx.state` (populated by preValidate) and
+ * 2. ``perRequestPolicy``: reads `ctx.state` (populated by preValidate) and
  *    returns a partial policy override applied per request (e.g. product-level
  *    KYC requirement). When omitted, the static fields below apply uniformly.
- * 3. ``onDenied`` — invoked AFTER the SDK builds the canonical DenialReason.
+ * 3. ``onDenied``: invoked AFTER the SDK builds the canonical DenialReason.
  *    Return a `GateDenial` to override the response body shape, or null to
  *    fall back to the canonical body from `denialReasonToBody`.
  *
- * Static policy fields mirror `AgentScoreCoreOptions` — see that interface
+ * Static policy fields mirror `AgentScoreCoreOptions`: see that interface
  * for field semantics.
  */
 export interface CheckoutGateConfig {
@@ -416,7 +416,7 @@ export interface CheckoutGateConfig {
    *  fields (KYC / age / sanctions / jurisdiction) without an `apiKey` fails closed
    *  (`aip_policy_requires_api_key`) since policy can only be evaluated via `/v1/assess`. */
   aip?: AipGateConfig;
-  /** Full escape hatch — replaces the SDK gate flow. */
+  /** Full escape hatch: replaces the SDK gate flow. */
   runGate?: RunGateFn;
 }
 
@@ -424,7 +424,7 @@ export interface CheckoutGateConfig {
 export interface AipGateConfig {
   /** ADDITIONAL external issuers to trust beyond AgentScore's own (e.g. `['https://issuer.example']`),
    *  matched after canonicalization. AgentScore's canonical issuer
-   *  ({@link AGENTSCORE_CANONICAL_ISSUER}) is ALWAYS trusted and never needs listing — this SDK
+   *  ({@link AGENTSCORE_CANONICAL_ISSUER}) is ALWAYS trusted and never needs listing: this SDK
    *  is the AgentScore verifier, so a merchant can't accidentally fail to trust AgentScore AITs.
    *  Omit/empty to accept only AgentScore-issued AITs. */
   trustedIssuers?: string[];
@@ -432,13 +432,13 @@ export interface AipGateConfig {
    *  the AIT JWT `exp`/`iat`). Defaults to 60s for both. */
   maxSkewSeconds?: number;
   /** Expected `@authority` (public hostname) the RFC 9421 signature must cover. When set, the
-   *  verifier binds the signature to this value instead of trusting the inbound `Host` header —
+   *  verifier binds the signature to this value instead of trusting the inbound `Host` header:
    *  pin it to your real public host (e.g. `'wine.example.com'`) when behind a proxy that does
    *  not normalize `Host`, to prevent a captured AIT+signature from being replayed to a
    *  different virtual host on the same origin. */
   authority?: string;
   /** Minimum `trust_level` an AIT must assert to pass this gate (autonomous < human_present <
-   *  human_confirmed) — the spec's human-presence gate (e.g. require `human_confirmed` for
+   *  human_confirmed): the spec's human-presence gate (e.g. require `human_confirmed` for
    *  checkout). Enforced at the edge from the verified token; insufficient → 403 weak_auth with
    *  `required_trust_level`. Unset = any trust level accepted. */
   requireTrustLevel?: TrustLevel;
@@ -449,12 +449,12 @@ export interface AipGateConfig {
   /** Per-issuer compliance policy override, keyed by issuer URL (canonicalized before lookup).
    *  When a request's AIT is verified and its `iss` matches a key here, that block REPLACES the
    *  gate's default policy fields (`requireKyc` / `requireSanctionsClear` / `minAge` /
-   *  `allowed/blockedJurisdictions`) for that request — letting a merchant apply different rules
+   *  `allowed/blockedJurisdictions`) for that request: letting a merchant apply different rules
    *  by issuer (e.g. full compliance for its own AITs, a relaxed set for a partner issuer whose
    *  tokens carry fewer attested claims). The replacement is whole-policy, not a merge: an issuer
    *  block of `{ requireKyc: true, minAge: 21 }` evaluates ONLY those two rules for that issuer
    *  (sanctions / jurisdiction omitted → not enforced for that issuer). Issuers NOT listed here
-   *  use the gate's default policy unchanged. Only the AIT path consults this — wallet /
+   *  use the gate's default policy unchanged. Only the AIT path consults this: wallet /
    *  operator-token requests are unaffected.
    *
    *  This is a deliberate compliance posture per issuer, not a default; an empty/absent map keeps
@@ -620,11 +620,11 @@ function staticRecipient(r: RecipientLike): string | null {
  * Used to bind the agent-supplied x402 `payTo` to the merchant's CONFIGURED recipient: the
  * x402 `payTo` is read from the agent's signed payload, and the only sanity check is
  * `isCachedAddress`. For a static-recipient merchant (one address, no per-order minting and no
- * custom `isCachedAddress`), the gate must reject any `payTo` that isn't the configured address —
+ * custom `isCachedAddress`), the gate must reject any `payTo` that isn't the configured address:
  * otherwise a hostile agent points `payTo` at their own wallet and drains the settle. This set is
  * the allow-list the auto-supplied `isCachedAddress` checks against.
  *
- * Empty when every x402-base recipient is a factory/empty sentinel (pure per-order minting) — in
+ * Empty when every x402-base recipient is a factory/empty sentinel (pure per-order minting): in
  * that case there's nothing static to bind, and the merchant is expected to supply `isCachedAddress`
  * (e.g. `piCache.hasAddress`) themselves.
  */
@@ -741,11 +741,11 @@ export function makeMppxComposeHook(opts: {
 /**
  * Apply per-call recipient overrides (from `mintRecipients`) to rail specs.
  * Returns a new dict; original rails dict is not mutated. Stripe rails are
- * passed through unchanged (no on-chain recipient — they use `profileId`).
+ * passed through unchanged (no on-chain recipient: they use `profileId`).
  *
  * When the merchant declares rails with sentinel empty-string recipients
  * (per-order minting pattern) and `mintRecipients` only returns addresses
- * for some rails, drop the rails that resolve to an empty recipient — those
+ * for some rails, drop the rails that resolve to an empty recipient: those
  * weren't actually minted for this request and shouldn't be advertised in
  * the 402.
  */
@@ -888,7 +888,7 @@ export class Checkout {
   }
 
   /**
-   * True when the merchant has configured an identity-bearing policy flag —
+   * True when the merchant has configured an identity-bearing policy flag:
    * `require_kyc`, `require_sanctions_clear` (name screening on the KYC
    * identity), `min_age`, or jurisdiction lists. Wallet OFAC SDN enforcement
    * (the always-on default) does NOT count as an identity gate; agents don't
@@ -944,7 +944,7 @@ export class Checkout {
     /** Pass when the merchant mints per-order addresses so `verifyX402Request` can
      *  confirm the `payTo` was minted by this merchant (e.g. `piCache.hasAddress`).
      *  When omitted, Checkout auto-binds the agent-supplied `payTo` to the rail's
-     *  configured STATIC recipient(s) — the permissive default applies ONLY when no
+     *  configured STATIC recipient(s): the permissive default applies ONLY when no
      *  static recipient exists (pure per-order minting). */
     isCachedAddress?: IsCachedAddressFn;
     /** Engage the $0 carve-out when pricing resolves to $0: x402 and
@@ -957,7 +957,7 @@ export class Checkout {
     /** Reject payment credentials that fail the cheap wire-shape check (not
      *  base64 JSON, not a token-shaped value) BEFORE any merchant hook runs,
      *  so junk headers never trigger `preValidate` / pricing / recipient
-     *  minting / the gate's assess call. Shape only — signature and payTo
+     *  minting / the gate's assess call. Shape only: signature and payTo
      *  verification stay on the settle path. Default `true`; set `false` for
      *  custom `composeMppx` implementations that accept non-standard
      *  credential encodings. */
@@ -968,7 +968,7 @@ export class Checkout {
     gate?: CheckoutGateConfig;
     /** Per-endpoint x402 `extensions` block emitted on the 402 body. Merge
      *  outputs of `createBazaarDiscovery({...})` (or other extension declarers)
-     *  here — Checkout forwards verbatim into the 402 response body's
+     *  here: Checkout forwards verbatim into the 402 response body's
      *  `extensions` field so Bazaar crawlers and other spec-compliant clients
      *  read the route's declared input/output schema. */
     discoveryExtensions?: Record<string, unknown>;
@@ -1229,7 +1229,7 @@ export class Checkout {
     // 0.5. Credential shape gate. Runs BEFORE preValidate / the identity gate /
     //      pricing / recipient minting so a junk payment header cannot trigger
     //      merchant hooks (which may do paid upstream work) or burn an assess
-    //      call. Shape only — real verification stays on the settle path, which
+    //      call. Shape only: real verification stays on the settle path, which
     //      needs per-request state the hooks produce. Scoped to the credential
     //      channels this Checkout actually dispatches on, so e.g. an x402 header
     //      at a Tempo-only merchant keeps its current discovery-leg behavior.
@@ -1274,7 +1274,7 @@ export class Checkout {
     //    - Merchants with an explicit `gate` config run the full identity
     //      policy (KYC / age / sanctions / jurisdiction) via `runGate`.
     //    - Merchants WITHOUT a `gate` config still get wallet OFAC SDN
-    //      enforcement via `runWalletSanctionsOnly` — this is the always-on
+    //      enforcement via `runWalletSanctionsOnly`: this is the always-on
     //      strict-liability default. Falls back to `process.env.AGENTSCORE_API_KEY`
     //      for the API call; logs a warning and skips when no key is set
     //      (dev/testnet pattern).
@@ -1301,7 +1301,7 @@ export class Checkout {
 
     // Recipients are read by every downstream dispatch (x402 verify+settle,
     // mppx compose, 402 emit). Resolve once here so hooks see ctx.recipients
-    // populated. The resolver is idempotent — subsequent calls no-op.
+    // populated. The resolver is idempotent: subsequent calls no-op.
     //
     // mintRecipients can throw CheckoutValidationError from cross-bundle
     // helpers like createPayToAddressFromStripePI (e.g. malformed
@@ -1359,12 +1359,12 @@ export class Checkout {
     const gate = this.gate;
     if (gate === undefined) return null;
     if (gate.runGate !== undefined) {
-      // Escape hatch — fully owns the gate. The wallet-OFAC fallback below
+      // Escape hatch: fully owns the gate. The wallet-OFAC fallback below
       // (apiKey === undefined → runWalletSanctionsOnly) does NOT fire here;
       // merchants who supply runGate are taking explicit ownership of
       // compliance enforcement and should call /v1/assess themselves (or
       // accept that they're not getting SDN protection). NOTE: `runGate` also
-      // bypasses the `gate.aip` AIP pre-step below — a custom gate owns AIT
+      // bypasses the `gate.aip` AIP pre-step below: a custom gate owns AIT
       // verification too. `runGate` and `gate.aip` are mutually exclusive.
       const result = await gate.runGate(ctx);
       // Allow merchants to return undefined as an alias for `null` (allow).
@@ -1376,7 +1376,7 @@ export class Checkout {
       }
       return result;
     }
-    // AIP pre-step — runs BEFORE the no-apiKey fallback so a present-but-invalid AIT is always
+    // AIP pre-step: runs BEFORE the no-apiKey fallback so a present-but-invalid AIT is always
     // a hard deny, and a cryptographically verified AIT is honored even on an offline-only gate.
     // The RFC 9421 proof-of-possession can only be checked here at the edge, where the signed
     // HTTP message lives. A valid AIT becomes the sole identity (wins over wallet / operator-token).
@@ -1421,7 +1421,7 @@ export class Checkout {
       aipSignature = aipResult.ait.signatureMaterial;
 
       // Enforce the merchant's trust_level / auth.amr requirement (the spec's human-presence gate).
-      // Verification-derived (carried in the verified token), so enforced here at the edge —
+      // Verification-derived (carried in the verified token), so enforced here at the edge:
       // insufficient → weak_auth (403) with required_* so the agent can step up (re-mint a
       // higher-trust AIT) rather than guess.
       const weakAuthDetail = checkTrustRequirements(aipResult.ait.payload, gate.aip.requireTrustLevel, gate.aip.requireAmr);
@@ -1459,7 +1459,7 @@ export class Checkout {
         // signature + RFC 9421 PoP). But compliance *policy* (KYC / age / sanctions /
         // jurisdiction) is evaluated against the token's claims by `/v1/assess`, which needs an
         // apiKey. If the merchant declared policy fields without an apiKey we cannot enforce
-        // them — fail closed rather than silently allow a verified-but-non-compliant identity
+        // them: fail closed rather than silently allow a verified-but-non-compliant identity
         // (e.g. an under-21 AIT through a `minAge: 21` gate). Identity-only gates (no policy
         // fields) are satisfied by the verified AIT alone.
         const hasPolicy = effPolicy.requireKyc || effPolicy.requireSanctionsClear || effPolicy.minAge != null
@@ -1487,7 +1487,7 @@ export class Checkout {
     if (gate.perRequestPolicy !== undefined) {
       policyOverride = await gate.perRequestPolicy(ctx);
       // A null override means "no per-request *identity* policy for this product"
-      // — but it must NOT skip the always-on wallet OFAC SDN floor. Route to
+      //: but it must NOT skip the always-on wallet OFAC SDN floor. Route to
       // runWalletSanctionsOnly so a NULL-enforcement product still screens its
       // payment signer (identical to the no-gate dispatch above). The floor is a
       // no-op for non-wallet flows (no apiKey, or no extractable signer on Stripe
@@ -1498,7 +1498,7 @@ export class Checkout {
       apiKey: gate.apiKey,
       ...(gate.baseUrl !== undefined && { baseUrl: gate.baseUrl }),
       ...(gate.userAgent !== undefined && { userAgent: gate.userAgent }),
-      // Compliance fields come from effPolicy — the per-issuer override for the verified AIT's
+      // Compliance fields come from effPolicy: the per-issuer override for the verified AIT's
       // issuer when one is configured, else the gate defaults (see effPolicy above). A whole-
       // policy replacement: an issuer override of `{ requireKyc, minAge }` sends ONLY those,
       // so sanctions / jurisdiction are not enforced for that issuer.
@@ -1568,7 +1568,7 @@ export class Checkout {
       // denials so the gate enforces wallet binding inline (no separate hook).
       // Signer-match enforcement applies only to the wallet identity path. On the AIT path the
       // identity is the token (PoP-bound via cnf) and assess was keyed by aip_token, so there is
-      // no address-keyed signer verdict to read — the wallet binding for AITs is the IdP's
+      // no address-keyed signer verdict to read: the wallet binding for AITs is the IdP's
       // `payment.signer` claim, enforced server-side. Guarding on aipToken===undefined keeps
       // this from being dead code that silently no-ops on a cache miss.
       if (aipToken === undefined && walletAddress !== undefined) {
@@ -1607,7 +1607,7 @@ export class Checkout {
     }
     const body = denialReasonToBody(reason);
     // AIT-input denial (a verified AIT that /v1/assess then denied): emit the AgentScore body as
-    // an RFC 9457 + AIP-spec SUPERSET so the response is both schemes at once — the rich
+    // an RFC 9457 + AIP-spec SUPERSET so the response is both schemes at once: the rich
     // AgentScore `{ error, agent_instructions, ... }` AND the spec's `type`/`title`/`status`/
     // `detail` (+ escalation). `application/problem+json` so spec consumers content-negotiate it.
     // The wallet / operator-token paths (aipToken undefined) keep the bare AgentScore body +
@@ -1643,9 +1643,9 @@ export class Checkout {
    * strict-liability default).
    *
    * Env knobs:
-   *   - `AGENTSCORE_API_KEY` — required. No key → one-time warning + skip
+   *   - `AGENTSCORE_API_KEY`: required. No key → one-time warning + skip
    *     (dev/testnet pattern; production should always configure a key).
-   *   - `AGENTSCORE_BASE_URL` — optional override for staging/dev API
+   *   - `AGENTSCORE_BASE_URL`: optional override for staging/dev API
    *     (e.g. `https://api.staging.example` or `http://localhost:3002`).
    *
    * Stripe SPT (no extractable wallet signer) → skip silently; Stripe runs
@@ -1654,12 +1654,12 @@ export class Checkout {
    * Calls `/v1/assess` with the signer wallet as both the primary address
    * and the signer block. The API enforces signer-sanctions unconditionally
    * when a signer is present (no policy flag needed). Denies on OFAC SDN
-   * hit; fail-closed on unavailable lookup (strict liability — falsely
+   * hit; fail-closed on unavailable lookup (strict liability: falsely
    * allowing a sanctioned settle is an OFAC violation, falsely denying a
    * clean buyer is just bad UX).
    */
   private async runWalletSanctionsOnly(ctx: CheckoutContext): Promise<GateDenial | null> {
-    // Prefer the gate's own apiKey when present, else the env var — symmetric with
+    // Prefer the gate's own apiKey when present, else the env var: symmetric with
     // python's `_run_wallet_sanctions_only` (gate.api_key or env). In practice this is
     // reached only when the gate has no apiKey, so both resolve to the env var.
     const apiKey = this.gate?.apiKey ?? process.env.AGENTSCORE_API_KEY;
@@ -1672,7 +1672,7 @@ export class Checkout {
     const x402Header = headers['payment-signature'] ?? headers['x-payment'];
     const signer = await extractPaymentSignerFromAuth(headers['authorization'], x402Header);
     if (!signer) {
-      // Stripe SPT path — no wallet signer, no OFAC check possible. Stripe
+      // Stripe SPT path: no wallet signer, no OFAC check possible. Stripe
       // screens its own customer accounts; we have nothing to add here.
       return null;
     }
@@ -1712,7 +1712,7 @@ export class Checkout {
     if (!this.zeroSettleCarveOut || ctx.pricing === null) return null;
     // Gate on the REAL amount, not cents. `Math.round(amountUsd * 100)` rounds a sub-cent
     // NON-zero price (e.g. $0.002 → 0 cents) to zero and would skip the on-chain settle while
-    // still delivering the goods — a free-goods bypass. Only a genuine $0 price takes the
+    // still delivering the goods: a free-goods bypass. Only a genuine $0 price takes the
     // carve-out. Matches python `checkout.py` (`amount_usd == 0`).
     if (ctx.pricing.amountUsd !== 0) return null;
     const headers = normalizeHeadersToLowercase(ctx.request.headers);
@@ -1748,11 +1748,11 @@ export class Checkout {
       // Route on the credential's payload type. mppx >= 0.8 settles zero-amount
       // challenges natively ONLY via the wallet-bound EIP-712 `proof` credential
       // (full signature verify, access-key authorization, replay protection, and
-      // a real receipt whose method drives railKey) — an agent that saw a $0
+      // a real receipt whose method drives railKey): an agent that saw a $0
       // challenge signs a proof, so those delegate to handleMppx. Every other
       // credential at $0 CANNOT settle upstream: `hash`/`transaction` payloads
       // mean the agent signed against a nonzero quote the merchant re-priced to
-      // $0 at settle (no-match / full-discount flows — the authorization is
+      // $0 at settle (no-match / full-discount flows: the authorization is
       // never exercised), Solana has no upstream $0 contract, and token-style
       // credentials have no $0 semantics. Those keep the carve-out: nothing
       // settles, and the signer is recovered for attribution only via the full
@@ -1803,7 +1803,7 @@ export class Checkout {
     // Per-request minted recipient (`ctx.recipients['x402_base']` from `mintRecipients`) wins over
     // the construction-time static set. A rail can carry BOTH a static recipient AND `mintRecipients`
     // (static = discovery/sentinel default; per-request mint = the real payTo). Binding to the static
-    // set here would reject the legit minted payTo, so the per-request recipient takes precedence —
+    // set here would reject the legit minted payTo, so the per-request recipient takes precedence:
     // exactly as the compute-first path already does (`expectedPayTo = recipients.x402_base`).
     const minted = ctx?.recipients['x402_base'];
     if (minted !== undefined && minted.length > 0) {
@@ -1817,7 +1817,7 @@ export class Checkout {
       return this.x402StaticRecipients.has(address.toLowerCase());
     }
     // Pure per-order minting with no `isCachedAddress` supplied: nothing static to bind against.
-    // Stays permissive (unchanged behavior) — such merchants are expected to pass `isCachedAddress`.
+    // Stays permissive (unchanged behavior): such merchants are expected to pass `isCachedAddress`.
     return true;
   }
 
@@ -2051,7 +2051,7 @@ export class Checkout {
     // emitted accepted_methods + how_to_pay stay consistent with what mppx's
     // compose layer will actually accept (see buildMppxComposeRails). Without
     // this, the 402 body advertises a stripe rail that has no matching
-    // WWW-Authenticate challenge — agents see it offered but any SPT pay
+    // WWW-Authenticate challenge: agents see it offered but any SPT pay
     // attempt fails. The compose-time auto-drop emits the user-facing warn;
     // here we just strip the slot from the discovery body.
     if (ctx.pricing.amountUsd < STRIPE_MIN_CHARGE_USD && emitRails.stripe !== undefined) {
@@ -2085,7 +2085,7 @@ export class Checkout {
       totalUsd: ctx.pricing.amountUsd.toFixed(pricingDecimals),
       rails: howToPayRails,
       // Merchants without an identity-bearing policy flag get clean commands
-      // without an X-Operator-Token header — agents don't need one to satisfy
+      // without an X-Operator-Token header: agents don't need one to satisfy
       // wallet OFAC enforcement (the always-on default).
       ...(this.hasIdentityGate() ? {} : { opTokenPlaceholder: null }),
       ...(ctx.pricing.decimals !== undefined && { decimals: ctx.pricing.decimals }),
@@ -2343,7 +2343,7 @@ function stripContentType(headers: Record<string, string>): Record<string, strin
  * The explicitly-set `content-type` from a result's headers, or `undefined` when none was set.
  * Only the AIP deny paths set one (`application/problem+json`, for both the edge-deny and the
  * policy-deny superset, so they content-negotiate as RFC 9457). Every other response leaves it
- * unset — callers fall back to `application/json` WITHOUT mutating the response otherwise, so the
+ * unset: callers fall back to `application/json` WITHOUT mutating the response otherwise, so the
  * non-AIP paths are byte-for-byte unchanged.
  */
 function explicitContentType(headers: Record<string, string>): string | undefined {
@@ -2458,7 +2458,7 @@ declare module './checkout' {
     raw: req,
   });
   for (const [k, v] of Object.entries(stripContentType(result.headers))) res.setHeader(k, v);
-  // Honor an explicit content-type (AIP problem+json) — setting it before json() makes Express
+  // Honor an explicit content-type (AIP problem+json): setting it before json() makes Express
   // respect it instead of forcing application/json. Only the AIP path sets one, so non-AIP
   // responses are untouched (res.json defaults to application/json as before).
   const ct = explicitContentType(result.headers);
@@ -2642,7 +2642,7 @@ interface FastifyLikeReply {
   send: (body: string) => unknown;
 }
 
-/** Options for the `mountUcpRoutes<Framework>` helpers — one shape used by all
+/** Options for the `mountUcpRoutes<Framework>` helpers: one shape used by all
  *  three adapters. Saves merchants from copy-pasting the same 3-route block
  *  (GET ucp + GET jwks + OPTIONS preflights) every time. */
 export interface MountUcpRoutesOptions {

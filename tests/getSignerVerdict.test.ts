@@ -1,5 +1,5 @@
 /**
- * Per-adapter coverage for `getSignerVerdict`: the verdict is REQUEST-SCOPED — it's stashed on
+ * Per-adapter coverage for `getSignerVerdict`: the verdict is REQUEST-SCOPED: it's stashed on
  * the per-request gate state (Hono `c`, Express `req`, Fastify `request`), NOT on the shared core.
  * `getSignerVerdict(ctx)` reads `state.signerVerdict` back. Returns `undefined` when the gate didn't
  * run (no state) or when the request carried no verdict (operator-token / discovery legs). The
@@ -101,7 +101,7 @@ describe('fastify getSignerVerdict', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Deny path — the verdict must be stashed BEFORE onDenied so a custom denial
+// Deny path: the verdict must be stashed BEFORE onDenied so a custom denial
 // handler can read it via getSignerVerdict (e.g. to render the mismatch body).
 // ---------------------------------------------------------------------------
 

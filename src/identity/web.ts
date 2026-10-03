@@ -59,9 +59,9 @@ export type GuardResult =
        *  or AIT paths, or when the API has no handle salt configured. */
       operatorHandle?: OperatorHandle;
       /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
-       *  (429/5xx/network timeout). Compliance was NOT enforced this request — log/alert. */
+       *  (429/5xx/network timeout). Compliance was NOT enforced this request: log/alert. */
       degraded?: boolean;
-      /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
+      /** Why the gate degraded: quota_exceeded / api_error / network_timeout. */
       infraReason?: FailOpenInfraReason;
       /** Per-account assess quota observability from X-Quota-* response headers. */
       quota?: GateQuotaInfo;
@@ -109,7 +109,7 @@ export function createAgentScoreGate(options: AgentScoreGateOptions): (req: Requ
     const identity = extractIdentity(req);
     // Extract the payment signer pre-evaluate. When present, the API composes
     // signer_match + signer_sanctions verdicts on the primary assess response in one
-    // round trip. Wallet-OFAC enforcement is unconditional — SDN wallet hits flip
+    // round trip. Wallet-OFAC enforcement is unconditional: SDN wallet hits flip
     // decision -> deny inline before the handler runs, regardless of policy flags.
     const signer = await extractPaymentSigner(req, readX402PaymentHeader(req));
     const outcome = await core.evaluate(identity, req, signer);
@@ -119,7 +119,7 @@ export function createAgentScoreGate(options: AgentScoreGateOptions): (req: Requ
         ? (opts: { walletAddress: string; network: 'evm' | 'solana'; idempotencyKey?: string }) =>
             core.captureWallet({ operatorToken: identity.operatorToken!, ...opts })
         : undefined;
-      // Synchronous getter — returns THIS request's signer verdicts (signer_match +
+      // Synchronous getter: returns THIS request's signer verdicts (signer_match +
       // signer_sanctions), captured on the per-request `outcome` (NOT a shared core slot) so
       // concurrent same-wallet/different-signer requests can't read each other's verdict. Bound
       // on strict wallet-auth requests (the getter itself returns `undefined` when no signer was
@@ -177,9 +177,9 @@ export function withAgentScoreGate<TCtx = unknown>(
        *  or AIT paths, or when the API has no handle salt configured. */
       operatorHandle?: OperatorHandle;
       /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
-       *  (429/5xx/network timeout). Compliance was NOT enforced this request — log/alert. */
+       *  (429/5xx/network timeout). Compliance was NOT enforced this request: log/alert. */
       degraded?: boolean;
-      /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
+      /** Why the gate degraded: quota_exceeded / api_error / network_timeout. */
       infraReason?: FailOpenInfraReason;
       /** Per-account assess quota observability from X-Quota-* response headers. */
       quota?: GateQuotaInfo;
@@ -233,11 +233,11 @@ export function withConditionalAgentScoreGate<TCtx = unknown>(
 }
 
 // ---------------------------------------------------------------------------
-// AIP gate (Agentic Identity Protocol) — Web Fetch
+// AIP gate (Agentic Identity Protocol): Web Fetch
 //
 // `createAipGate` verifies a key-bound Agent Identity Token (AIT) from a trusted IdP and
 // returns a guard result; `withAipGate` wraps a handler. Fetch-native, so it reuses
-// `verifyAitRequest` directly. Identity verification only — merchants enrich via /v1/assess.
+// `verifyAitRequest` directly. Identity verification only: merchants enrich via /v1/assess.
 // ---------------------------------------------------------------------------
 
 export type AipGuardResult =

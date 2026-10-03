@@ -1,5 +1,5 @@
 /**
- * AIP gate wiring for the Hono adapter — the context-getter sibling of express/fastify.
+ * AIP gate wiring for the Hono adapter: the context-getter sibling of express/fastify.
  *
  * `aip_adapters.test.ts` covers express/fastify/web/nextjs; this is Hono's dedicated suite,
  * exercising `aipGate` / `conditionalAipGate` / `getVerifiedAit` end-to-end with a real
@@ -132,7 +132,7 @@ describe('hono conditionalAipGate', () => {
   });
 });
 
-describe('hono aipGate — trust_level / auth.amr enforcement (standalone gate)', () => {
+describe('hono aipGate: trust_level / auth.amr enforcement (standalone gate)', () => {
   const trustApp = (aipOpts: Record<string, unknown>) => {
     const a = new Hono();
     a.post('/checkout', aipGate({ jwks: jwks(), now: NOW, ...aipOpts }), (c) => c.json({ ok: true }));

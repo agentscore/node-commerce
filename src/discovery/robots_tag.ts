@@ -5,7 +5,7 @@
  * They should NOT carry `X-Robots-Tag: noindex` since the whole point is for
  * agents (and search/discovery crawlers) to find them.
  *
- * Everything else on an agent-only API should noindex by default — there's no
+ * Everything else on an agent-only API should noindex by default: there's no
  * human-shaped HTML to surface to general search engines, and accidental
  * indexing leaks transactional endpoints into noisy SERPs.
  */
@@ -26,7 +26,7 @@ export const defaultDiscoveryPaths: ReadonlySet<string> = new Set([
 /**
  * Pure predicate for "is this path a known discovery surface?". Compose this
  * into your own framework's middleware when you don't want the bundled Hono
- * wrapper. Custom paths are the union with the defaults — pass `replace: true`
+ * wrapper. Custom paths are the union with the defaults: pass `replace: true`
  * to skip the defaults.
  */
 export function isDiscoveryPath(
@@ -52,7 +52,7 @@ interface NoindexNonDiscoveryOptions {
    *  set (e.g. omits `/openapi.json` from a closed API). */
   replacePaths?: boolean;
   /** Override the X-Robots-Tag value applied to non-discovery paths. Defaults to
-   *  the standard "noindex, nofollow, noarchive, nosnippet" tuple — change only
+   *  the standard "noindex, nofollow, noarchive, nosnippet" tuple: change only
    *  if you have a very specific crawl-shape requirement. */
   robotsTag?: string;
 }
@@ -162,6 +162,6 @@ export function wrapNoindexResponse(
  *      return applyNoindexHeader(res, path);
  *    }
  *
- *  Same wrapper shape as the Web Fetch helper — exported separately for clarity
+ *  Same wrapper shape as the Web Fetch helper: exported separately for clarity
  *  in Next.js docs/examples. */
 export const applyNoindexHeader = wrapNoindexResponse;

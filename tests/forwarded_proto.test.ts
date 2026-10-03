@@ -39,7 +39,7 @@ describe('readForwardedProto', () => {
   });
 });
 
-describe('computeFirstCheckout — resource.url honors X-Forwarded-Proto', () => {
+describe('computeFirstCheckout: resource.url honors X-Forwarded-Proto', () => {
   const rails = {
     rails: {
       tempo: {

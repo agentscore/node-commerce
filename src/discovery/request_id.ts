@@ -2,7 +2,7 @@
  * Echo the request-id middleware sets on the context as an `X-Request-ID`
  * response header. Agents correlate logs across 4xx retries by reading this.
  *
- * Hono variant — reads `c.get('requestId')` populated by `hono/request-id`.
+ * Hono variant: reads `c.get('requestId')` populated by `hono/request-id`.
  * Express / Fastify / Next.js / Web Fetch variants will follow when consumers
  * need them.
  *

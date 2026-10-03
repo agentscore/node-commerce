@@ -173,7 +173,7 @@ export function classifyX402SettleResult(
  * `try/catch` around the full settle flow). Returns a `ClassifiedX402Error`
  * when the error message matches a known pattern; `null` otherwise.
  *
- * Callers should rethrow on `null` — this helper never swallows unknown errors.
+ * Callers should rethrow on `null`: this helper never swallows unknown errors.
  *
  * Pattern matching is case-insensitive substring on the error message:
  * - `"x402version"` / `"invalid payment"` / `"unsupported x402"` →

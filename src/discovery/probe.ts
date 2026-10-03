@@ -3,7 +3,7 @@ import { networks } from '../payment/networks';
 import { USDC } from '../payment/usdc';
 import { paymentRequiredHeader } from '../payment/wwwauthenticate';
 
-/** Placeholder payTo for x402 sample accepts in the discovery probe — the probe
+/** Placeholder payTo for x402 sample accepts in the discovery probe: the probe
  *  exists for crawlers to find that we support x402, not for actual payment. The
  *  real 402 (returned on a fully-formed request body) carries real deposit
  *  addresses minted from a Stripe PaymentIntent. */
@@ -16,7 +16,7 @@ const ZERO_SOLANA_PAYTO = '11111111111111111111111111111111';
  * the discovery probe to advertise x402 support without exposing real deposit
  * addresses.
  *
- * Returns null when the network isn't in the registry — vendors with custom
+ * Returns null when the network isn't in the registry: vendors with custom
  * networks should construct accepts entries by hand and pass them via
  * `x402Sample.accepts` directly.
  */
@@ -74,7 +74,7 @@ export function sampleX402AcceptForNetwork(
 }
 
 interface DiscoveryProbeOptions {
-  /** Realm — typically the host of your merchant URL (e.g., "agents.merchant.example"). */
+  /** Realm: typically the host of your merchant URL (e.g., "agents.merchant.example"). */
   realm: string;
   /** Symbolic rail name to advertise in the sample challenge (e.g., 'tempo-mainnet'). */
   sampleRail: string;
@@ -92,13 +92,13 @@ interface DiscoveryProbeOptions {
   message?: string;
   /** Optional sample x402 accepts entries. When provided, the probe response also
    *  carries the standard x402 `payment-required` header (base64 PaymentRequired) AND
-   *  an `accepts` array in the body — so x402 crawlers (e.g. Coinbase awal's
+   *  an `accepts` array in the body: so x402 crawlers (e.g. Coinbase awal's
    *  `x402 details`/`x402 pay`) can discover the endpoint's x402 support without
    *  needing to send a fully-formed business request. Entries are emitted as-is in
    *  their declared `x402Version` shape (v2 `amount`); clients version-route on
    *  `x402Version`.
    *
-   *  Pass `networks` (shorthand) for the common case — the helper looks up USDC
+   *  Pass `networks` (shorthand) for the common case: the helper looks up USDC
    *  per network from the registry and uses placeholder payTo addresses. Or pass
    *  `accepts` directly for full control over the sample shape. */
   x402Sample?: {
@@ -109,7 +109,7 @@ interface DiscoveryProbeOptions {
      *  USDC registry are silently skipped. Use `accepts` for custom shapes. */
     networks?: string[];
     /** Sample accepts entries. Used when `networks` shorthand isn't enough.
-     *  Supplied entries are NOT merged with `networks`-derived entries — pick
+     *  Supplied entries are NOT merged with `networks`-derived entries: pick
      *  one or the other. */
     accepts?: unknown[];
     /** Sample atomic amount used by the `networks` shorthand. Defaults to
@@ -228,7 +228,7 @@ export interface RequestLike {
 }
 
 /**
- * Returns true when the request is an empty-body POST without a payment credential —
+ * Returns true when the request is an empty-body POST without a payment credential:
  * the canonical MPP discovery probe pattern. Vendors compose this with
  * buildDiscoveryProbeResponse to short-circuit crawler requests before any business
  * logic runs.

@@ -7,17 +7,17 @@
  * trust-mode clients reject the profile.
  *
  * This module provides:
- *   - `generateUCPSigningKey()` — generate an Ed25519 keypair for signing
- *   - `signUCPProfile()` — sign a UCP profile body, returning a JWS-attached envelope
- *   - `verifyUCPProfile()` — verify a signed profile against a JWKS
- *   - `buildJWKSResponse()` — assemble a JWKS document for `/.well-known/jwks.json`
+ *   - `generateUCPSigningKey()`: generate an Ed25519 keypair for signing
+ *   - `signUCPProfile()`: sign a UCP profile body, returning a JWS-attached envelope
+ *   - `verifyUCPProfile()`: verify a signed profile against a JWKS
+ *   - `buildJWKSResponse()`: assemble a JWKS document for `/.well-known/jwks.json`
  *
  * Implementation rides on `jose` (peer-dep, optional). Merchants who don't sign their
  * profile (development) skip this module entirely; the unsigned `buildUCPProfile()`
  * path still works.
  *
  * Why Ed25519: smaller signatures (64 bytes vs 256+ for RSA), faster verification, no
- * curve-parameter ceremony. UCP also accepts ES256 (P-256 ECDSA) — pass `alg: 'ES256'`
+ * curve-parameter ceremony. UCP also accepts ES256 (P-256 ECDSA): pass `alg: 'ES256'`
  * to `signUCPProfile()` if your existing payment signing key is P-256.
  */
 
@@ -28,13 +28,13 @@ import type { UCPProfile, UCPSigningKey } from './ucp';
  *  UCP profile's `keys[]`.
  */
 export interface GeneratedUCPKey {
-  /** Private key (KeyLike, opaque) — pass to `signUCPProfile()`. Never publish. */
+  /** Private key (KeyLike, opaque): pass to `signUCPProfile()`. Never publish. */
   privateKey: unknown;
   /** Public key as JWK: publish at `/.well-known/jwks.json` and inline in UCP `keys[]`. */
   publicJWK: UCPSigningKey;
 }
 
-/** A JWKS document — `{ keys: [...] }` per RFC 7517. Serve at `/.well-known/jwks.json`. */
+/** A JWKS document: `{ keys: [...] }` per RFC 7517. Serve at `/.well-known/jwks.json`. */
 export interface JWKSResponse {
   keys: UCPSigningKey[];
 }
@@ -51,7 +51,7 @@ export interface SignedUCPProfile extends UCPProfile {
 
 const JOSE_INSTALL_HINT = 'Install the optional peer dependency: `npm install jose@^6` (or `bun add jose`). Tested against jose v6.x.';
 
-/** UCP §6 + RFC 8725 §3.1 — restrict accepted JWS algorithms. Anything outside this
+/** UCP §6 + RFC 8725 §3.1: restrict accepted JWS algorithms. Anything outside this
  *  list (HS, RS, none, etc.) is rejected to prevent alg-confusion attacks where a
  *  hostile JWK published in the profile's keys[] is used with an unintended
  *  algorithm. */
@@ -105,7 +105,7 @@ async function loadJose(): Promise<typeof import('jose')> {
  *
  * Implementation note: UCP §6.2 specifies "the JSON-serialized profile body, with
  * `signature` removed and keys ordered lexicographically at every nesting level." This
- * is JCS-style canonicalization without the full RFC 8785 numeric handling — UCP
+ * is JCS-style canonicalization without the full RFC 8785 numeric handling: UCP
  * profiles don't contain floats so the simpler key-sort is sufficient.
  */
 function canonicalizeProfile(profile: UCPProfile): string {
@@ -208,7 +208,7 @@ function stableStringify(value: unknown): string {
 /**
  * Generate a fresh Ed25519 (default) or ES256 keypair for signing UCP profiles.
  *
- * The `privateKey` is an opaque KeyLike — store it server-side and pass to
+ * The `privateKey` is an opaque KeyLike: store it server-side and pass to
  * `signUCPProfile()`. Never log or transmit the private key.
  *
  * The `publicJWK` is what you publish at `/.well-known/jwks.json` and inline in the
@@ -252,7 +252,7 @@ export async function generateUCPSigningKey(opts: {
  * canonical body, look up the key referenced by the JWS header's `kid`, and validate.
  *
  * The profile's `keys[]` MUST already include a JWK with the matching `kid`
- * — otherwise verifiers can't find the public key. Add the `publicJWK` from
+ *: otherwise verifiers can't find the public key. Add the `publicJWK` from
  * `generateUCPSigningKey()` to your `keys[]` before calling this.
  *
  * Example:
@@ -269,11 +269,11 @@ export async function signUCPProfile(
     kid,
     alg = 'EdDSA',
   }: {
-    /** Private signing key — opaque KeyLike from `generateUCPSigningKey()` or `importJWK()`. */
+    /** Private signing key: opaque KeyLike from `generateUCPSigningKey()` or `importJWK()`. */
     signingKey: unknown;
     /** Key ID (must match a `kid` in the profile's `keys[]`). */
     kid: string;
-    /** Signing algorithm — `EdDSA` (default) or `ES256`. */
+    /** Signing algorithm: `EdDSA` (default) or `ES256`. */
     alg?: 'EdDSA' | 'ES256';
   },
 ): Promise<SignedUCPProfile> {
@@ -398,7 +398,7 @@ export async function verifyUCPProfile(
   // Shape-check first so that
   // explicit `crit: null` / `crit: []` / `crit: "foo"` / `crit: [42]` aren't
   // silently accepted; only well-formed crit arrays fall through to the
-  // unrecognized-extension check (RFC 8725 §3.10 — UCP defines no crit headers).
+  // unrecognized-extension check (RFC 8725 §3.10: UCP defines no crit headers).
   if ('crit' in header) {
     const crit = (header as { crit?: unknown }).crit;
     if (!Array.isArray(crit) || crit.length === 0 || !crit.every((c) => typeof c === 'string')) {
@@ -554,7 +554,7 @@ function detectAlgFromJwk(jwk: Record<string, unknown>): 'EdDSA' | 'ES256' | nul
 }
 
 // Cache entries are keyed by the full resolved opts (so different opts get separate
-// entries) and store the IN-FLIGHT Promise — concurrent first-callers with the same
+// entries) and store the IN-FLIGHT Promise: concurrent first-callers with the same
 // opts await the same key generation rather than racing to produce different ephemeral
 // keys (a losing keypair signing a JWS that the published JWKS then rejects).
 const envLoaderCache = new Map<string, Promise<GeneratedUCPKey>>();
@@ -629,10 +629,10 @@ async function buildEnvSigningKey(
       );
     }
 
-    // Derive a canonical public JWK from the public node key — drops `d` and any other
+    // Derive a canonical public JWK from the public node key: drops `d` and any other
     // private-only fields (and unknown env JWK fields like key_ops, x5c, x5t).
     const publicJWK = publicNodeKey.export({ format: 'jwk' }) as unknown as UCPSigningKey;
-    // Empty-string kid in env JWK falls through to the configured default —
+    // Empty-string kid in env JWK falls through to the configured default:
     // publishing `"kid": ""` breaks every kid-pinning verifier.
     publicJWK.kid = (jwkDict.kid as string | undefined) || kidDefault;
     publicJWK.alg = detectedAlg;
@@ -641,7 +641,7 @@ async function buildEnvSigningKey(
     return { privateKey, publicJWK };
   }
 
-  // Ephemeral fallback — generate a fresh keypair.
+  // Ephemeral fallback: generate a fresh keypair.
   return generateUCPSigningKey({ kid: kidDefault, alg: algFallback });
 }
 
@@ -701,7 +701,7 @@ export async function loadUCPSigningKeyFromEnv({
   // Pin the in-flight Promise so concurrent first-callers await the same generation.
   cached = buildEnvSigningKey(resolved).catch((err) => {
     // Clear on rejection so a transient malformed env doesn't permanently poison
-    // every future call — the next caller retries the build.
+    // every future call: the next caller retries the build.
     envLoaderCache.delete(key);
     throw err;
   });

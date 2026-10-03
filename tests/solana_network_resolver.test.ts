@@ -14,7 +14,7 @@ vi.mock('@solana/mpp/server', () => ({
   })),
 }));
 
-// pympp peer dep stub — the helper calls dynamic import('mppx') only on the
+// pympp peer dep stub: the helper calls dynamic import('mppx') only on the
 // server build path; we stub @solana/mpp/server above for the Solana branch.
 vi.mock('mppx', () => ({ default: {} }));
 

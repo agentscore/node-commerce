@@ -27,9 +27,9 @@ interface GateState {
   operatorToken?: string;
   walletAddress?: string;
   /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
-   *  (429/5xx/network timeout). Compliance was NOT enforced — log/alert in your handler. */
+   *  (429/5xx/network timeout). Compliance was NOT enforced: log/alert in your handler. */
   degraded?: boolean;
-  /** Why the gate degraded — quota_exceeded / api_error / network_timeout. */
+  /** Why the gate degraded: quota_exceeded / api_error / network_timeout. */
   infraReason?: FailOpenInfraReason;
   /** Per-account assess quota observability captured from `X-Quota-*` response headers
    *  on the success path. Absent on Enterprise / unlimited tiers, or when the gate didn't
@@ -130,7 +130,7 @@ export function agentscoreGate(options: AgentScoreGateOptions) {
 /**
  * Read whether the gate fail-open'd due to AgentScore-side infrastructure failure on
  * this request. Returns `{ degraded: false }` for normal allows; `{ degraded: true,
- * infraReason }` when bypassed (compliance NOT enforced — log/alert).
+ * infraReason }` when bypassed (compliance NOT enforced: log/alert).
  */
 export function getGateDegradedState(
   req: Request,
@@ -180,11 +180,11 @@ export async function captureWallet(
 
 /**
  * Synchronous read of the cached signer verdicts (`signer_match` + `signer_sanctions`).
- * Both verdicts were composed by the gate's primary `/v1/assess` call on this request —
+ * Both verdicts were composed by the gate's primary `/v1/assess` call on this request:
  * single round trip, no extra API cost vs the legacy 2-call pattern. Returns `undefined`
  * for operator-token paths, discovery legs, or routes the gate didn't run on.
  *
- * Wallet-OFAC SDN enforcement is unconditional whenever a signer is in the request — an
+ * Wallet-OFAC SDN enforcement is unconditional whenever a signer is in the request: an
  * SDN hit (or unavailable lookup) is already enforced by the gate (decision → deny before
  * the handler runs); merchant code typically only needs to consume this getter for the
  * `signer_match` wallet-binding verdict.
@@ -213,7 +213,7 @@ export function conditionalAgentscoreGate(options: AgentScoreGateOptions) {
 }
 
 // ---------------------------------------------------------------------------
-// AIP gate (Agentic Identity Protocol) — verifies a key-bound Agent Identity Token (AIT)
+// AIP gate (Agentic Identity Protocol): verifies a key-bound Agent Identity Token (AIT)
 // from a trusted IdP instead of an opaque operator token. Cryptographic identity only;
 // merchants who want compliance enrichment feed the verified claims to /v1/assess.
 // ---------------------------------------------------------------------------

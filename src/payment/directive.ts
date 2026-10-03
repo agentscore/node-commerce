@@ -17,7 +17,7 @@ export function buildPaymentRequestBlob({
   chainId,
   networkId,
 }: {
-  /** Symbolic rail name (e.g., 'tempo-mainnet', 'x402-base-mainnet') — fills in defaults */
+  /** Symbolic rail name (e.g., 'tempo-mainnet', 'x402-base-mainnet'): fills in defaults */
   rail?: string;
   /** Amount in USD as a number or string. Converted to raw integer using `decimals`. */
   amountUsd: string | number;
@@ -29,7 +29,7 @@ export function buildPaymentRequestBlob({
   recipient?: string;
   /** EVM chain ID (goes into methodDetails.chainId). Defaults from rail. */
   chainId?: number;
-  /** Stripe profile_id or similar (goes into methodDetails.networkId — note camelCase per link-cli's mpp decode validator). */
+  /** Stripe profile_id or similar (goes into methodDetails.networkId: note camelCase per link-cli's mpp decode validator). */
   networkId?: string;
 }): string {
   const railDef = rail ? lookupRail(rail) : undefined;
@@ -62,11 +62,11 @@ export function paymentDirective({
   expires,
   request,
 }: {
-  /** Symbolic rail name — sets `method` automatically */
+  /** Symbolic rail name: sets `method` automatically */
   rail?: string;
   /** Challenge id (unique per request, used to correlate retries) */
   id: string;
-  /** Realm — the host of the merchant URL (e.g., "agents.merchant.example") */
+  /** Realm: the host of the merchant URL (e.g., "agents.merchant.example") */
   realm: string;
   /** MPP method name. Defaults from rail (e.g., 'tempo', 'stripe'). */
   method?: string;

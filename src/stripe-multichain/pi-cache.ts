@@ -3,20 +3,20 @@
  *
  * Stripe-multichain merchants need three lookups during a request lifecycle:
  *
- *   1. **Is this on-chain `pay_to` address one we minted?** — when an MPP credential
+ *   1. **Is this on-chain `pay_to` address one we minted?**: when an MPP credential
  *      arrives with a `recipient`, verify it matches a recently-minted Stripe deposit
  *      address. Validates the credential's deposit address against the addresses the
  *      merchant has actually minted.
  *
- *   2. **Which PaymentIntent owns this deposit address?** — when settling, the
+ *   2. **Which PaymentIntent owns this deposit address?**: when settling, the
  *      `simulate_crypto_deposit` test_helpers call needs the PaymentIntent id for the
  *      deposit address that was paid to.
  *
- *   3. **Which sibling deposit addresses belong to the same PaymentIntent?** — when
+ *   3. **Which sibling deposit addresses belong to the same PaymentIntent?**: when
  *      enriching a 402 with x402 entries, the merchant needs the Base + Solana addresses
  *      Stripe minted alongside the original Tempo address (one PI carries up to three).
  *
- * All three are TTL-bounded (default 300s — long enough for an agent to retry, short
+ * All three are TTL-bounded (default 300s: long enough for an agent to retry, short
  * enough to bound memory). Backed by Redis when `redisUrl` is set, falls back to
  * in-process Map otherwise. Single-instance servers can use the in-memory cache;
  * multi-instance deployments need a shared cache (Redis) so a deposit lands on
@@ -25,7 +25,7 @@
 
 import { memoizedRedis, type MinimalRedis } from '../_redis';
 
-// ioredis is an optional peer dep — typed structurally to avoid pulling its types into
+// ioredis is an optional peer dep: typed structurally to avoid pulling its types into
 // the build for merchants that run in-process without Redis. The structural type covers
 // only the methods we call (set with EX/get); merchants using Redis install ioredis
 // themselves.

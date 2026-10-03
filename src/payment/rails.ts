@@ -40,7 +40,7 @@ export const rails = {
     decimals: USDC.base.sepolia.decimals,
     asset: USDC.base.sepolia.address,
   },
-  // Upto rails — pay UP TO a max amount (Permit2-based, vs EIP-3009 for exact). Use for
+  // Upto rails: pay UP TO a max amount (Permit2-based, vs EIP-3009 for exact). Use for
   // variable-cost APIs where the actual cost depends on output (LLM tokens, bandwidth, etc.).
   // Only available on EVM networks; Solana svm doesn't ship an upto scheme yet.
   'x402-base-mainnet-upto': {
@@ -93,7 +93,7 @@ export interface RailDefinition {
 
 /**
  * Lookup a rail definition by symbolic name. Returns undefined if the rail isn't in
- * the registry — vendors with custom rails should pass the low-level fields directly.
+ * the registry: vendors with custom rails should pass the low-level fields directly.
  */
 export function lookupRail(name: string): RailDefinition | undefined {
   return rails[name as RailName] as RailDefinition | undefined;

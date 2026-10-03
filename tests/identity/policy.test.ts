@@ -183,7 +183,7 @@ describe('runGateWithEnforcement', () => {
 
   it('soft mode swallows a wallet_not_trusted deny carrying only fixable reasons', async () => {
     // KYC/age/jurisdiction misses downgrade to unverified under soft so the order completes
-    // with a degraded identity_status. (Sanctions are the sole exception — see below.)
+    // with a degraded identity_status. (Sanctions are the sole exception: see below.)
     const body = { error: { code: 'wallet_not_trusted' }, reasons: ['kyc_required'] };
     const result = await runGateWithEnforcement('soft', async () => ({ ok: false, status: 403, body }));
     expect(result.status).toBe('unverified');
@@ -191,7 +191,7 @@ describe('runGateWithEnforcement', () => {
     expect(result.denialBody).toEqual(body);
   });
 
-  it('soft mode does NOT swallow a sanctions deny (reasons: sanctions_flagged) — stays terminal', async () => {
+  it('soft mode does NOT swallow a sanctions deny (reasons: sanctions_flagged): stays terminal', async () => {
     // CRITICAL strict-liability floor: soft enforcement must NEVER swallow an OFAC SDN deny. A
     // wallet_not_trusted deny whose reasons carry `sanctions_flagged` stays denied even under
     // soft, so a sanctioned wallet is never settled.

@@ -87,7 +87,7 @@ export const buildVerifyContextFromParts = (parts: {
   const host = parts.authority ?? readNodeHeader(parts.headers, 'host') ?? '';
   // url may be an absolute URL or an origin-form target ("/checkout?...", possibly "//x"). Build
   // the URL by APPENDING the target to the origin (not resolving it as a reference) so a leading
-  // "//" is treated as PATH — `new URL('//x', base)` would mis-read "//x" as a protocol-relative
+  // "//" is treated as PATH: `new URL('//x', base)` would mis-read "//x" as a protocol-relative
   // authority and drop it, diverging from the signer's `URL.pathname` and failing PoP.
   // Always assigned in both branches below, so no initializer (avoids a dead assignment).
   let path: string;

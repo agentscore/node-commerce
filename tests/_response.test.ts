@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { denialReasonToBody } from '../src/_response';
 import type { DenialReason } from '../src/core';
 
-// Minimal DenialReason factory — every field starts undefined so each test sets
+// Minimal DenialReason factory: every field starts undefined so each test sets
 // only what it's asserting.
 const reason = (fields: Partial<DenialReason> = {}): DenialReason => ({
   code: 'missing_identity',
@@ -87,7 +87,7 @@ describe('denialReasonToBody', () => {
   });
 
   it('marshals actual_signer_operator: null explicitly (distinct from undefined)', () => {
-    // null means "signer is a valid wallet but not linked to any operator" — the
+    // null means "signer is a valid wallet but not linked to any operator": the
     // gate must surface null rather than omit the field so agents can distinguish
     // "not linked" from "never checked".
     const body = denialReasonToBody(reason({

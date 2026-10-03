@@ -67,9 +67,9 @@ interface BazaarModule {
 /**
  * One-call x402 server setup. Resolves facilitator, constructs the server, registers
  * schemes per network with v1+v2 dual-register, optionally adds the Bazaar extension,
- * and initializes — replaces ~15 lines of boilerplate with a single config call.
+ * and initializes: replaces ~15 lines of boilerplate with a single config call.
  *
- * x402 packages are peer dependencies — vendors install only the schemes they use.
+ * x402 packages are peer dependencies: vendors install only the schemes they use.
  * Throws a guiding error if a required peer is missing.
  *
  *   const server = await createX402Server({
@@ -83,7 +83,7 @@ export async function createX402Server(opts: CreateX402ServerOptions = {}): Prom
   /* v8 ignore start -- peer-dep-absence guard; @x402/core is installed in test env */
   if (!x402Core) {
     throw new Error(
-      '@x402/core not installed — `npm install @x402/core` to use createX402Server.',
+      '@x402/core not installed: `npm install @x402/core` to use createX402Server.',
     );
   }
   /* v8 ignore stop */
@@ -100,7 +100,7 @@ export async function createX402Server(opts: CreateX402ServerOptions = {}): Prom
     /* v8 ignore start -- peer-dep-absence guard; @coinbase/x402 is installed in test env */
     if (!cb?.facilitator) {
       throw new Error(
-        '@coinbase/x402 not installed — `npm install @coinbase/x402` for facilitator: "coinbase".',
+        '@coinbase/x402 not installed: `npm install @coinbase/x402` for facilitator: "coinbase".',
       );
     }
     /* v8 ignore stop */
@@ -125,7 +125,7 @@ export async function createX402Server(opts: CreateX402ServerOptions = {}): Prom
         evmUptoModule ??= await dynamicImport<SchemeModule>('@x402/evm/upto/server');
         /* v8 ignore start -- peer-dep-absence guard; @x402/evm is installed in test env */
         if (!evmUptoModule?.UptoEvmScheme) {
-          throw new Error('@x402/evm not installed — `npm install @x402/evm` for x402 base upto rails.');
+          throw new Error('@x402/evm not installed: `npm install @x402/evm` for x402 base upto rails.');
         }
         /* v8 ignore stop */
         registerX402SchemesV1V2(server, network, new evmUptoModule.UptoEvmScheme());
@@ -133,7 +133,7 @@ export async function createX402Server(opts: CreateX402ServerOptions = {}): Prom
         evmExactModule ??= await dynamicImport<SchemeModule>('@x402/evm/exact/server');
         /* v8 ignore start -- peer-dep-absence guard; @x402/evm is installed in test env */
         if (!evmExactModule?.ExactEvmScheme) {
-          throw new Error('@x402/evm not installed — `npm install @x402/evm` for x402 base rails.');
+          throw new Error('@x402/evm not installed: `npm install @x402/evm` for x402 base rails.');
         }
         /* v8 ignore stop */
         registerX402SchemesV1V2(server, network, new evmExactModule.ExactEvmScheme());
@@ -150,7 +150,7 @@ export async function createX402Server(opts: CreateX402ServerOptions = {}): Prom
     /* v8 ignore start -- peer-dep-absence guard; @x402/extensions is installed in test env */
     if (!bazaar?.bazaarResourceServerExtension) {
       throw new Error(
-        '@x402/extensions not installed — `npm install @x402/extensions` for bazaar discovery.',
+        '@x402/extensions not installed: `npm install @x402/extensions` for bazaar discovery.',
       );
     }
     /* v8 ignore stop */
@@ -180,12 +180,12 @@ export interface BuildX402AcceptsForOptions {
  * 1. Construct the resource-config object themselves
  * 2. Remember to serialize each Pydantic-equivalent requirement back to a
  *    plain object before stitching it into the 402 body
- * 3. Hardcode `extra` (which differs by the actual on-chain contract — base
+ * 3. Hardcode `extra` (which differs by the actual on-chain contract: base
  *    mainnet USDC has `name: "USD Coin"`, base sepolia USDC has `name: "USDC"`;
  *    EIP-712 domain hashes differ, so getting this wrong silently breaks every
  *    signature verify at the facilitator)
  *
- * Returns a list of plain objects in the shape that x402 expects on the wire —
+ * Returns a list of plain objects in the shape that x402 expects on the wire:
  * drop them straight into the `accepts` field of the 402 challenge body.
  */
 export async function buildX402AcceptsFor402(

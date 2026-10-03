@@ -1,5 +1,5 @@
 /**
- * Tests for `zeroAmountCarveOut` — skips upstream verify+settle for $0 orders
+ * Tests for `zeroAmountCarveOut`: skips upstream verify+settle for $0 orders
  * and recovers the signer for wallet-capture attribution.
  *
  * Locked cross-language fixtures shared with the Python sibling at

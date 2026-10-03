@@ -1,5 +1,5 @@
 /**
- * `computeFirstCheckout` — variable-cost pay-per-result merchant helper using
+ * `computeFirstCheckout`: variable-cost pay-per-result merchant helper using
  * compute-first + exact-x402 (no upto, no Permit2, no Settlement-Overrides).
  *
  * Flow (per request):
@@ -22,7 +22,7 @@
  *
  * Works on every exact-mode rail today (x402-exact Base, tempo/charge,
  * solana/charge, Stripe SPT). The tradeoff vs. upto is that the work runs on
- * the unpaid probe leg — so rate-limiting is load-bearing (use
+ * the unpaid probe leg: so rate-limiting is load-bearing (use
  * `@agent-score/commerce/middleware/hono` `rateLimitHono` or the per-framework
  * equivalent).
  */
@@ -76,7 +76,7 @@ export interface WorkOutcome {
 }
 
 export interface ComputeFirstWorkContext {
-  /** Raw Web Fetch `Request` for the probe leg — useful when the work hook
+  /** Raw Web Fetch `Request` for the probe leg: useful when the work hook
    *  needs to dispatch by header (e.g. agent identity) or read query params. */
   request: Request;
 }
@@ -110,7 +110,7 @@ export interface ComputeFirstMppContext {
 export interface ComputeFirstSettledContext {
   request: Request;
   /** Which rail family captured the payment. `'x402'` = x402-exact on Base.
-   *  `'mpp'` = one of Tempo / Solana / Stripe SPT via mppx — disambiguate with
+   *  `'mpp'` = one of Tempo / Solana / Stripe SPT via mppx: disambiguate with
    *  `mppMethod` when you need per-MPP-rail dispatch (e.g. firing the Stripe
    *  testnet deposit simulator with the right `network`). */
   rail: 'x402' | 'mpp';
@@ -164,24 +164,24 @@ export interface ComputeFirstOptions {
    *
    *  - **Probe leg** (no payment header): the merchant builds per-rail intents
    *    at the exact cached price and calls `composeMppxRequest(mppx, intents,
-   *    request)` — mppx returns a 402 challenge whose `WWW-Authenticate`
+   *    request)`: mppx returns a 402 challenge whose `WWW-Authenticate`
    *    header carries the proper per-rail `request=<base64-intent>` values
    *    the agent needs to sign. Return `{status: 402, headers}` where
-   *    `headers` is `mppxChallengeHeaders(result)` — the helper merges them
+   *    `headers` is `mppxChallengeHeaders(result)`: the helper merges them
    *    into the 402 response so pay / mppx-clients can settle on any
    *    advertised MPP rail.
    *  - **Settle leg** (`Authorization: Payment` header attached): mppx
    *    verifies + composes. Return `{status: 200, ...}` with `txHash` and
    *    signer info for the success envelope.
    *
-   *  Omit to skip MPP entirely — the helper then advertises only x402-exact
+   *  Omit to skip MPP entirely: the helper then advertises only x402-exact
    *  in the 402 and rejects MPP-header settles with 503 `mpp_unavailable`. */
   composeMppx?: (ctx: ComputeFirstMppContext) => Promise<{ status: number; raw?: unknown; headers?: Record<string, string>; txHash?: string; signerAddress?: string; signerNetwork?: 'evm' | 'solana' }>;
   /** Optional side-effect hook fired after a successful settle on either rail
    *  (x402 or MPP), before the response is sent. Use this for Stripe testnet
    *  deposit simulation, audit logging, captureWallet writeback, or any other
    *  post-settle work that shouldn't block the response. Errors are caught
-   *  and logged but don't fail the request — the buyer still gets their data. */
+   *  and logged but don't fail the request: the buyer still gets their data. */
   onSettled?: (ctx: ComputeFirstSettledContext) => Promise<void> | void;
   /** Optional input validator. Throw a `CheckoutValidationError` for typed
    *  4xx envelopes; any other error becomes a 500. */
@@ -219,9 +219,9 @@ export interface SuccessBodyArgs {
 }
 
 export interface ComputeFirstHandler {
-  /** Hono adapter — pass `(c) => handler.handleHono(c)` into your route. */
+  /** Hono adapter: pass `(c) => handler.handleHono(c)` into your route. */
   handleHono(c: Context): Promise<Response>;
-  /** Web Fetch adapter — pass `handler.handleWeb` directly as a route handler. */
+  /** Web Fetch adapter: pass `handler.handleWeb` directly as a route handler. */
   handleWeb(req: Request): Promise<Response>;
 }
 
@@ -327,7 +327,7 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
     // composeMppx callback's probe-leg pass (no payment header → mppx returns
     // a 402 challenge with per-rail `request=<base64 intent>` values). This
     // gives tempo/solana/stripe-spt the proper signing intent the agent needs
-    // — hand-rolling `paymentDirective` here with `request=''` is what broke
+    //: hand-rolling `paymentDirective` here with `request=''` is what broke
     // the earlier smoke. x402-exact still uses PAYMENT-REQUIRED only (no
     // WWW-Authenticate directive needed).
     let mppChallengeHeaders: Record<string, string> = {};
@@ -390,7 +390,7 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
     }
     const x402Header = readX402PaymentHeader(req);
     const signer = await extractPaymentSigner(req, x402Header);
-    if (!signer) return null; // Stripe SPT — no wallet to screen
+    if (!signer) return null; // Stripe SPT: no wallet to screen
     const baseUrl = process.env.AGENTSCORE_BASE_URL;
     const core = createAgentScoreCore({
       apiKey,
@@ -426,7 +426,7 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
     recipients: MintedRecipients,
   ): Promise<Response> {
     // Bind the agent-supplied `payTo` to the recipient this request actually advertised in its
-    // 402 (`recipients.x402_base` — static rail recipient OR per-order mint). The agent controls
+    // 402 (`recipients.x402_base`: static rail recipient OR per-order mint). The agent controls
     // `payTo` in the x402 payload, so accepting any address would let a hostile agent redirect the
     // USDC to their own wallet while still receiving the goods (funds drain). When no x402 recipient
     // was advertised (shouldn't happen on the x402 settle path), fall back to permissive so a
@@ -650,7 +650,7 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
           { status: 400, headers: { 'Content-Type': 'application/json' } },
         );
       }
-      // Wallet OFAC SDN enforcement (always-on default — matches Checkout's
+      // Wallet OFAC SDN enforcement (always-on default: matches Checkout's
       // `runWalletSanctionsOnly`). Strict-liability check before the rail-
       // specific settle so funds don't move (x402) or order doesn't fulfill
       // (MPP) for a sanctioned wallet.
@@ -666,7 +666,7 @@ export function computeFirstCheckout(opts: ComputeFirstOptions): ComputeFirstHan
       try {
         outcome = await opts.runWork(body, { request: req });
       } catch {
-        // Suppress the upstream exception detail in the wire response — merchant
+        // Suppress the upstream exception detail in the wire response: merchant
         // errors may carry stack traces or internal state. The merchant's own
         // logger surface (passed via opts.onError if present) is the right
         // channel for the full exception.

@@ -14,7 +14,7 @@
  *   bun add @agent-score/commerce hono
  *
  * Env vars:
- *   AGENTSCORE_API_KEY — your AgentScore API key
+ *   AGENTSCORE_API_KEY: your AgentScore API key
  *
  * Run: bun run examples/identity-only.ts
  */
@@ -51,7 +51,7 @@ app.post('/restricted', async (c) => {
   const assess = getAgentScoreData(c);
   // assess includes: { decision, operator, kyc_verified, age_bracket, jurisdiction, ... }
 
-  // Run your own business logic here — buy something via your existing Stripe flow,
+  // Run your own business logic here: buy something via your existing Stripe flow,
   // grant access to gated content, write to your DB, whatever. AgentScore's job ends
   // at "this agent is verified, here's their operator id."
 
@@ -74,6 +74,6 @@ app.post('/restricted/capture-wallet-example', async (c) => {
 });
 
 // ── Public routes (no gate) ────────────────────────────────────────────────
-app.get('/public-info', (c) => c.json({ message: 'open access — no identity required' }));
+app.get('/public-info', (c) => c.json({ message: 'open access: no identity required' }));
 
 export default app;

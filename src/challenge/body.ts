@@ -51,11 +51,11 @@ export function build402Body({
   x402,
   extra,
 }: {
-  /** From buildAcceptedMethods — list of MPP method entries. */
+  /** From buildAcceptedMethods: list of MPP method entries. */
   acceptedMethods: AcceptedMethodEntry[];
-  /** From buildAgentInstructions — wraps how_to_pay + warnings + recommended_tools. */
+  /** From buildAgentInstructions: wraps how_to_pay + warnings + recommended_tools. */
   agentInstructions?: AgentInstructions;
-  /** From buildIdentityMetadata — wallet-mode echoer. Spread into the body when present. */
+  /** From buildIdentityMetadata: wallet-mode echoer. Spread into the body when present. */
   identityMetadata?: IdentityMetadataBlock;
   /** Cross-merchant agent_memory hint (from gate). */
   agentMemory?: unknown;
@@ -67,11 +67,11 @@ export function build402Body({
   currency?: string;
   /** Order id for retry correlation. */
   orderId?: string | null;
-  /** Product info — surfaced on the 402 so agents can confirm what they're buying. */
+  /** Product info: surfaced on the 402 so agents can confirm what they're buying. */
   product?: { id: string; name: string };
   /** The body the agent should retry with after payment (e.g., the original request body). */
   retryBody?: unknown;
-  /** Recommended rail — agent's default if multiple are listed. */
+  /** Recommended rail: agent's default if multiple are listed. */
   recommended?: string;
   /** x402-compliance fields (paired with the PAYMENT-REQUIRED header from `payment/wwwauthenticate`). */
   x402?: {

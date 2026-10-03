@@ -11,7 +11,7 @@
  * invalid cases, which fail before any JWKS fetch (so no real crypto / network is needed).
  *
  * The gate runs only on the settle leg (a payment credential attached), so each request carries
- * an `x-payment` header — otherwise `handle` treats it as anonymous discovery and emits a 402.
+ * an `x-payment` header: otherwise `handle` treats it as anonymous discovery and emits a 402.
  */
 import { SignJWT, exportJWK, generateKeyPair, type JWK } from 'jose';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -88,7 +88,7 @@ describe('Checkout gate × AIP', () => {
   it('does not engage AIP when gate.aip is unset, even if an Agent-Identity header is sent', async () => {
     // No aip config → the Agent-Identity header is ignored. The gate proceeds to the
     // normal assess path; with a fake API key the SDK call fails and surfaces as a
-    // non-problem+json denial — the key assertion is that it is NOT the AIP problem body.
+    // non-problem+json denial: the key assertion is that it is NOT the AIP problem body.
     const res = await makeCheckout().handle(req({ 'agent-identity': 'eyJhbGciOiJFZERTQSJ9.e30.sig' }));
     expect(res.headers['content-type']).not.toBe('application/problem+json');
   });
@@ -130,7 +130,7 @@ describe('Checkout gate × AIP', () => {
 // block stubs global fetch to serve the issuer's JWKS. It exercises the no-apiKey offline path:
 // a verified AIT through a gate that declares compliance policy but has no apiKey cannot be
 // policy-evaluated (no /v1/assess), so it must FAIL CLOSED rather than allow a non-compliant id.
-describe('Checkout gate × AIP — offline (no apiKey) policy enforcement', () => {
+describe('Checkout gate × AIP: offline (no apiKey) policy enforcement', () => {
   const ISS = 'https://issuer.example';
   const KID = 'partner-key';
   let idpPrivate: CryptoKey;
@@ -209,7 +209,7 @@ describe('Checkout gate × AIP — offline (no apiKey) policy enforcement', () =
     rails: { x402_base: { recipient: '0xT', network: 'eip155:8453' } as X402BaseRailSpec },
     url: 'https://wine.example/purchase',
     computePricing: () => ({ amountUsd: 50 }),
-    gate: { aip: { trustedIssuers: [ISS], ...aipExtra } }, // NO apiKey — trust check runs pre-policy
+    gate: { aip: { trustedIssuers: [ISS], ...aipExtra } }, // NO apiKey: trust check runs pre-policy
   });
 
   it('denies weak_auth (403 + required_trust_level) when trust_level is below the gate requirement', async () => {
@@ -243,7 +243,7 @@ describe('Checkout gate × AIP — offline (no apiKey) policy enforcement', () =
 // FAILS CLOSED (`aip_policy_requires_api_key`); a request whose effective policy is EMPTY passes
 // the gate (returns null → reaches x402 settle → facilitator-init throws on the JWKS-only stub).
 // So "fails closed" = policy was applied to this issuer; "throws at settle" = policy was empty.
-describe('Checkout gate × AIP — issuer-conditional policy', () => {
+describe('Checkout gate × AIP: issuer-conditional policy', () => {
   const PARTNER = 'https://issuer.example';
   const OURS = 'https://www.agentscore.com';
   const keys: Record<string, { priv: CryptoKey; pubJwk: JWK; kid: string }> = {};
@@ -310,7 +310,7 @@ describe('Checkout gate × AIP — issuer-conditional policy', () => {
     expect((res.body as { error?: { code?: string } }).error?.code).toBe('aip_policy_requires_api_key');
   });
 
-  it('applies the relaxed override to the named partner issuer — still policy-bearing → fails closed (not silently allowed)', async () => {
+  it('applies the relaxed override to the named partner issuer: still policy-bearing → fails closed (not silently allowed)', async () => {
     // Relaxed ≠ empty: The partner still requires KYC + 21, so a no-apiKey gate still can't evaluate it
     // and fails closed. This proves the override is policy-BEARING, not a bypass.
     const res = await gate().handle(await signedReqFrom(PARTNER, { id_verified: true, age_over_21: true }));
@@ -341,7 +341,7 @@ describe('Checkout gate × AIP — issuer-conditional policy', () => {
       computePricing: () => ({ amountUsd: 50 }),
       gate: {
         requireKyc: true, requireSanctionsClear: true, minAge: 21,
-        // key has a trailing slash; verified iss is 'https://issuer.example' — must still match.
+        // key has a trailing slash; verified iss is 'https://issuer.example': must still match.
         aip: { trustedIssuers: [PARTNER, OURS], issuerPolicies: { 'https://issuer.example/': {} } },
       },
     });

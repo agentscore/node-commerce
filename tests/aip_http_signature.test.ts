@@ -33,7 +33,7 @@ const baseReq = {
 const roundTrip = async (overrides: Partial<SignMessageInput> = {}) => {
   // The verifier now REQUIRES `expires` (replay-window hardening), so default to a 60s window
   // (matching pay's signer) unless a test overrides it. `signMessage` itself omits `expires` by
-  // default — that's only the serialization-format default, exercised explicitly below.
+  // default: that's only the serialization-format default, exercised explicitly below.
   const created = overrides.created ?? Math.floor(Date.now() / 1000);
   const { signatureInput, signature } = await signMessage({
     ...baseReq,
@@ -113,7 +113,7 @@ describe('parseSignatureInput', () => {
 
   it('preserves the raw member value (rawParams) byte-for-byte', () => {
     // The verifier echoes this into the "@signature-params" base line, so it must be the member
-    // value exactly as received — including a non-canonical param order.
+    // value exactly as received: including a non-canonical param order.
     const raw = '("@method" "@authority" "@path" "agent-identity");keyid="abc";created=1715400000;expires=1715400060;tag="agent-identity"';
     const parsed = parseSignatureInput(`ait=${raw}`);
     expect(parsed?.rawParams).toBe(raw);
@@ -241,7 +241,7 @@ describe('verifyMessageSignature failure modes', () => {
     const otherPriv = await exportJWK(privateKey);
     const otherPub = await exportJWK(publicKey);
     const s = await signMessage({ ...baseReq, privateJwk: otherPriv, publicJwk: otherPub, created: 1715400000, expires: 1715400060 });
-    // present the wrong cnf (our original key) — keyid in the sig won't match its thumbprint
+    // present the wrong cnf (our original key): keyid in the sig won't match its thumbprint
     const r = await verifyMessageSignature({
       ...baseReq,
       signatureInput: s.signatureInput,
@@ -286,7 +286,7 @@ describe('verifyMessageSignature failure modes', () => {
   });
 
   it('rejects a signature missing expires (replayable for the full AIT lifetime)', async () => {
-    // signMessage omits `expires` by default — exactly the spec-loose shape the hardening rejects.
+    // signMessage omits `expires` by default: exactly the spec-loose shape the hardening rejects.
     const s = await signMessage({ ...baseReq, privateJwk, publicJwk, created: 1715400000 });
     const r = await verify({}, s);
     expect(r).toEqual({ ok: false, reason: 'expires_missing' });
@@ -309,7 +309,7 @@ describe('verifyMessageSignature failure modes', () => {
 
   it('rejects a NEGATIVE window (expires before created)', async () => {
     // A negative window would slip under the 120s cap (negative < 120) and, within skew, pass the
-    // created/expires clock checks — it must be rejected as a window violation.
+    // created/expires clock checks: it must be rejected as a window violation.
     const s = await roundTrip({ created: 1715400000, expires: 1715399990 });
     const r = await verify({ now: 1715400005 }, s);
     expect(r).toEqual({ ok: false, reason: 'pop_window_too_long' });

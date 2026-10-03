@@ -1,5 +1,5 @@
 /**
- * Tests for `loadUCPSigningKeyFromEnv` — env-driven UCP signing-key loader.
+ * Tests for `loadUCPSigningKeyFromEnv`: env-driven UCP signing-key loader.
  *
  * Locked behavior contract (shared with the Python sibling at
  * `python-commerce/tests/test_load_ucp_signing_key_from_env.py`):
@@ -51,7 +51,7 @@ async function buildP256JWK(): Promise<Record<string, unknown>> {
 
 // ─── env JWK present: happy paths ─────────────────────────────────────────
 
-describe('loadUCPSigningKeyFromEnv — env JWK present', () => {
+describe('loadUCPSigningKeyFromEnv: env JWK present', () => {
   it('loads an Ed25519 JWK', async () => {
     const jwk = await buildEd25519JWK();
     jwk.kid = 'test-ed25519-key';
@@ -99,7 +99,7 @@ describe('loadUCPSigningKeyFromEnv — env JWK present', () => {
 
 // ─── kid precedence ──────────────────────────────────────────────────────
 
-describe('loadUCPSigningKeyFromEnv — kid precedence', () => {
+describe('loadUCPSigningKeyFromEnv: kid precedence', () => {
   it('embedded JWK kid wins over env kid', async () => {
     const jwk = await buildEd25519JWK();
     jwk.kid = 'embedded-kid';
@@ -132,7 +132,7 @@ describe('loadUCPSigningKeyFromEnv — kid precedence', () => {
 
 // ─── ephemeral fallback ──────────────────────────────────────────────────
 
-describe('loadUCPSigningKeyFromEnv — ephemeral fallback', () => {
+describe('loadUCPSigningKeyFromEnv: ephemeral fallback', () => {
   it('generates an ephemeral Ed25519 key when env JWK is missing', async () => {
     const result = await loadUCPSigningKeyFromEnv();
     expect(result.publicJWK.alg).toBe('EdDSA');
@@ -160,7 +160,7 @@ describe('loadUCPSigningKeyFromEnv — ephemeral fallback', () => {
 
 // ─── whitespace handling ─────────────────────────────────────────────────
 
-describe('loadUCPSigningKeyFromEnv — whitespace handling', () => {
+describe('loadUCPSigningKeyFromEnv: whitespace handling', () => {
   it('whitespace-only env JWK is treated as absent', async () => {
     process.env.UCP_SIGNING_KEY_JWK_PRIVATE = '   \n\t  ';
     const result = await loadUCPSigningKeyFromEnv();
@@ -177,7 +177,7 @@ describe('loadUCPSigningKeyFromEnv — whitespace handling', () => {
 
 // ─── error paths ─────────────────────────────────────────────────────────
 
-describe('loadUCPSigningKeyFromEnv — error paths', () => {
+describe('loadUCPSigningKeyFromEnv: error paths', () => {
   it('throws for malformed JSON, naming the env var', async () => {
     process.env.UCP_SIGNING_KEY_JWK_PRIVATE = '{not valid json';
     await expect(loadUCPSigningKeyFromEnv()).rejects.toThrow(
@@ -221,7 +221,7 @@ describe('loadUCPSigningKeyFromEnv — error paths', () => {
 
 // ─── caching + concurrency ───────────────────────────────────────────────
 
-describe('loadUCPSigningKeyFromEnv — caching', () => {
+describe('loadUCPSigningKeyFromEnv: caching', () => {
   it('repeated calls return the cached key (same object identity)', async () => {
     const first = await loadUCPSigningKeyFromEnv();
     const second = await loadUCPSigningKeyFromEnv();
@@ -240,7 +240,7 @@ describe('loadUCPSigningKeyFromEnv — caching', () => {
     const results = await Promise.all(
       Array.from({ length: 8 }, () => loadUCPSigningKeyFromEnv()),
     );
-    // All 8 callers received the same key object — no two-key race.
+    // All 8 callers received the same key object: no two-key race.
     for (const r of results) expect(r).toBe(results[0]);
   });
 
@@ -254,7 +254,7 @@ describe('loadUCPSigningKeyFromEnv — caching', () => {
   it('rejection clears cache so next call retries (no permanent poison)', async () => {
     process.env.UCP_SIGNING_KEY_JWK_PRIVATE = '{not valid';
     await expect(loadUCPSigningKeyFromEnv()).rejects.toThrow();
-    // Fix the env, retry — should succeed.
+    // Fix the env, retry: should succeed.
     delete process.env.UCP_SIGNING_KEY_JWK_PRIVATE;
     const result = await loadUCPSigningKeyFromEnv();
     expect(result.publicJWK.alg).toBe('EdDSA');

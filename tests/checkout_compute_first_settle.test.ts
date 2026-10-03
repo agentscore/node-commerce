@@ -63,7 +63,7 @@ function makeX402PaymentHeader(network = X402_NETWORK, payTo = X402_PAY_TO): str
   return Buffer.from(JSON.stringify(payload)).toString('base64');
 }
 
-describe('computeFirstCheckout — x402 settle path', () => {
+describe('computeFirstCheckout: x402 settle path', () => {
   // computeFirstCheckout enforces wallet OFAC SDN before settle (matches
   // Checkout's `runWalletSanctionsOnly`). Stub the env to opt these tests into
   // the "no API key → log+skip" path so the focus stays on x402 settle, not on
@@ -227,7 +227,7 @@ describe('computeFirstCheckout — x402 settle path', () => {
   });
 
   it('ACCEPTS an x402 settle whose payTo equals the advertised recipient', async () => {
-    // Control case: the same flow with the honest payTo settles normally — the bind is exact-match,
+    // Control case: the same flow with the honest payTo settles normally: the bind is exact-match,
     // not a blanket rejection.
     const cache = createQuoteCache();
     const fakeServer = makeFakeX402Server();
@@ -258,7 +258,7 @@ describe('computeFirstCheckout — x402 settle path', () => {
   });
 });
 
-describe('computeFirstCheckout — MPP settle path', () => {
+describe('computeFirstCheckout: MPP settle path', () => {
   // Same env-stub pattern as x402 settle (wallet OFAC path needs an API key
   // or a mocked SDK; we cover the actual OFAC path in seamless-helpers).
   beforeEach(() => { vi.stubEnv('AGENTSCORE_API_KEY', ''); });
@@ -335,7 +335,7 @@ describe('computeFirstCheckout — MPP settle path', () => {
       },
       onSettled: async () => {
         onSettledFired = true;
-        throw new Error('intentional onSettled error — should be caught + logged');
+        throw new Error('intentional onSettled error: should be caught + logged');
       },
     });
 
@@ -353,7 +353,7 @@ describe('computeFirstCheckout — MPP settle path', () => {
       },
       body: JSON.stringify(body),
     }));
-    // Should succeed (200) even though onSettled threw — error is caught + logged.
+    // Should succeed (200) even though onSettled threw: error is caught + logged.
     expect(settleRes.status).toBe(200);
     expect(onSettledFired).toBe(true);
   });
@@ -530,7 +530,7 @@ describe('computeFirstCheckout — MPP settle path', () => {
       runWork: async () => ({ resultCount: 1, body: {} }),
       composeMppx: async (ctx) => {
         if (!ctx.request.headers.get('authorization')) return { status: 402, headers: {} };
-        // No signerAddress in result — helper falls back to extractPaymentSigner.
+        // No signerAddress in result: helper falls back to extractPaymentSigner.
         return { status: 200, raw: { receipt: { method: 'tempo' } } };
       },
     });
@@ -548,7 +548,7 @@ describe('computeFirstCheckout — MPP settle path', () => {
 
   it('MPP signer resolves from the Authorization DID when composeMppx omits signerAddress (onSettled gets signer + txHash)', async () => {
     // Mock mppx so extractPaymentSigner's MPP-credential path returns a real
-    // EVM signer from the `did:pkh:eip155` source — exercising the line-559
+    // EVM signer from the `did:pkh:eip155` source: exercising the line-559
     // `.then(s => s ? {...} : undefined)` truthy branch + the onSettled
     // signer/txHash spreads (572-573) that the signerAddress-supplied tests skip.
     vi.doMock('mppx', () => ({
@@ -571,7 +571,7 @@ describe('computeFirstCheckout — MPP settle path', () => {
         runWork: async () => ({ resultCount: 1, body: { matches: ['a'] } }),
         composeMppx: async (ctx) => {
           if (!ctx.request.headers.get('authorization')) return { status: 402, headers: {} };
-          // No signerAddress — forces the extractPaymentSigner fallback.
+          // No signerAddress: forces the extractPaymentSigner fallback.
           return { status: 200, raw: { receipt: { method: 'tempo' } }, txHash: 'pi_did_999' };
         },
         onSettled: async (ctx) => {
@@ -660,7 +660,7 @@ describe('computeFirstCheckout — MPP settle path', () => {
   });
 });
 
-describe('computeFirstCheckout — wallet OFAC enforcement (always-on default)', () => {
+describe('computeFirstCheckout: wallet OFAC enforcement (always-on default)', () => {
   it('denies on signer-sanctions outcome before the rail handler fires', async () => {
     vi.doMock('../src/core', async () => {
       const real = await vi.importActual<typeof import('../src/core')>('../src/core');
@@ -712,7 +712,7 @@ describe('computeFirstCheckout — wallet OFAC enforcement (always-on default)',
   it('no AGENTSCORE_API_KEY: logs warn once, skips OFAC, x402 settle proceeds', async () => {
     vi.stubEnv('AGENTSCORE_API_KEY', '');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    // Reset the shared warn-once flag — earlier tests in this run may have
+    // Reset the shared warn-once flag: earlier tests in this run may have
     // tripped it (see src/_warnings.ts).
     const { _resetWarnedNoApiKey } = await import('../src/_warnings');
     _resetWarnedNoApiKey();

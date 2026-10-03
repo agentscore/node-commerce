@@ -1,5 +1,5 @@
 /**
- * Tests for `detectRailFromHeaders` — reports which payment-protocol family
+ * Tests for `detectRailFromHeaders`: reports which payment-protocol family
  * the inbound request carries.
  *
  * The fixture corpus below is locked as the cross-language contract with the

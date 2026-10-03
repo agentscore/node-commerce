@@ -12,7 +12,7 @@
  *     before?" in their own DB
  *   - On first encounter (no prior request from this operator/wallet/IP), include the hint
  *     so the agent saves the pattern
- *   - On subsequent encounters, skip — the agent already has it (or never will)
+ *   - On subsequent encounters, skip: the agent already has it (or never will)
  *
  * The hint contents come from `buildAgentMemoryHint` (re-exported here for convenience).
  * Keep it stateless: AgentScore's pattern doesn't depend on the merchant's identity, so

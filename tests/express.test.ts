@@ -50,7 +50,7 @@ function mockFetchOk(body: unknown): void {
 }
 
 function mockFetchStatus(status: number, errorCode?: string): void {
-  // SDK retries once on 429 — use mockResolvedValue so both attempts get the same body.
+  // SDK retries once on 429: use mockResolvedValue so both attempts get the same body.
   // Include retry-after: 0 so the SDK retry path doesn't wait.
   // Include error.code in the body when provided so SDK maps to a typed error subclass.
   const body = errorCode ? { error: { code: errorCode, message: 'mock' } } : {};
@@ -81,7 +81,7 @@ describe('agentscoreGate factory', () => {
   });
 });
 
-describe('agentscoreGate middleware — missing wallet address', () => {
+describe('agentscoreGate middleware: missing wallet address', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -111,7 +111,7 @@ describe('agentscoreGate middleware — missing wallet address', () => {
   });
 });
 
-describe('agentscoreGate middleware — successful assessment', () => {
+describe('agentscoreGate middleware: successful assessment', () => {
   beforeEach(() => {
     mockFetchOk(ALLOW_RESPONSE);
   });
@@ -133,7 +133,7 @@ describe('agentscoreGate middleware — successful assessment', () => {
   });
 });
 
-describe('agentscoreGate middleware — denied assessment', () => {
+describe('agentscoreGate middleware: denied assessment', () => {
   beforeEach(() => {
     mockFetchOk(DENY_RESPONSE);
   });
@@ -160,7 +160,7 @@ describe('agentscoreGate middleware — denied assessment', () => {
   });
 });
 
-describe('agentscoreGate middleware — API error', () => {
+describe('agentscoreGate middleware: API error', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -293,7 +293,7 @@ describe('agentscoreGate middleware — API error', () => {
   });
 });
 
-describe('agentscoreGate middleware — 402 payment required', () => {
+describe('agentscoreGate middleware: 402 payment required', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -325,7 +325,7 @@ describe('agentscoreGate middleware — 402 payment required', () => {
   });
 });
 
-describe('agentscoreGate middleware — cache', () => {
+describe('agentscoreGate middleware: cache', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -342,7 +342,7 @@ describe('agentscoreGate middleware — cache', () => {
     // fetch should have been called once
     expect(global.fetch).toHaveBeenCalledTimes(1);
 
-    // Second request — same wallet, no new fetch stub needed
+    // Second request: same wallet, no new fetch stub needed
     const req2 = makeReq(WALLET);
     const { res: res2 } = makeRes();
     const next2 = makeNext();
@@ -377,7 +377,7 @@ describe('agentscoreGate middleware — cache', () => {
 });
 
 
-describe('agentscoreGate middleware — a response with no decision fails closed', () => {
+describe('agentscoreGate middleware: a response with no decision fails closed', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -457,7 +457,7 @@ describe('agentscoreGate middleware — a response with no decision fails closed
   });
 });
 
-describe('agentscoreGate middleware — a sent policy must come back evaluated', () => {
+describe('agentscoreGate middleware: a sent policy must come back evaluated', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -543,7 +543,7 @@ describe('agentscoreGate middleware — a sent policy must come back evaluated',
   });
 });
 
-describe('agentscoreGate middleware — chain option', () => {
+describe('agentscoreGate middleware: chain option', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -580,7 +580,7 @@ describe('agentscoreGate middleware — chain option', () => {
   });
 });
 
-describe('agentscoreGate middleware — policy fields in request body', () => {
+describe('agentscoreGate middleware: policy fields in request body', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -603,7 +603,7 @@ describe('agentscoreGate middleware — policy fields in request body', () => {
   });
 });
 
-describe('agentscoreGate middleware — custom onDenied', () => {
+describe('agentscoreGate middleware: custom onDenied', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -681,7 +681,7 @@ describe('agentscoreGate middleware — custom onDenied', () => {
   });
 });
 
-describe('agentscoreGate middleware — edge cases', () => {
+describe('agentscoreGate middleware: edge cases', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -910,7 +910,7 @@ describe('agentscoreGate middleware — edge cases', () => {
   });
 });
 
-describe('agentscoreGate middleware — verify_url and operator_verification in response', () => {
+describe('agentscoreGate middleware: verify_url and operator_verification in response', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -1170,7 +1170,7 @@ describe('agentscoreGate middleware — verify_url and operator_verification in 
 // Identity model: extractIdentity, operator token, header aliases
 // ---------------------------------------------------------------------------
 
-describe('agentscoreGate — identity model', () => {
+describe('agentscoreGate: identity model', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -1316,7 +1316,7 @@ describe('agentscoreGate — identity model', () => {
 // createSessionOnMissing
 // ---------------------------------------------------------------------------
 
-describe('agentscoreGate middleware — createSessionOnMissing', () => {
+describe('agentscoreGate middleware: createSessionOnMissing', () => {
   const SESSION_RESPONSE = {
     session_id: 'sess_abc123',
     verify_url: 'https://www.agentscore.com/verify/sess_abc123',
@@ -1538,7 +1538,7 @@ describe('agentscoreGate middleware — createSessionOnMissing', () => {
   });
 });
 
-describe('Express adapter — captureWallet', () => {
+describe('Express adapter: captureWallet', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('posts to /v1/credentials/wallets with operator_token + signer + network after gate ran', async () => {
@@ -1595,7 +1595,7 @@ describe('Express adapter — captureWallet', () => {
     expect(body.idempotency_key).toBe('pi_abc');
   });
 
-  it('swallows capture failures silently — does not throw to the caller', async () => {
+  it('swallows capture failures silently: does not throw to the caller', async () => {
     global.fetch = vi.fn()
       .mockResolvedValueOnce({ ok: true, status: 200, json: vi.fn().mockResolvedValueOnce(ALLOW_RESPONSE) } as unknown as Response)
       .mockRejectedValueOnce(new Error('network down'));

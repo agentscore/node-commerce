@@ -1,8 +1,8 @@
 /** Classifier for known mppx verification-failure patterns.
  *
  *  mppx's `payment.failed` event fires when an mppx rail's verify() throws.
- *  Some failures carry actionable signals — the agent's wallet isn't
- *  enrolled with Tempo's keychain, for example — that we want to surface
+ *  Some failures carry actionable signals: the agent's wallet isn't
+ *  enrolled with Tempo's keychain, for example: that we want to surface
  *  to the client as typed error codes instead of the generic
  *  `payment_proof_invalid: regenerate`.
  *
@@ -71,14 +71,14 @@ const SOLANA_CONFIRMATION_TIMEOUT: ClassifiedMppxFailure = {
   nextSteps: {
     action: 'check_settlement_before_retry',
     user_message:
-      'Your payment was broadcast to the network but confirmation timed out, so it is unconfirmed rather than failed. Check your wallet balance and the recipient before retrying: if the balance decreased, the payment likely landed and you should NOT pay again — wait for the merchant to reconcile or contact support. Only resubmit if the funds are still in your wallet.',
+      'Your payment was broadcast to the network but confirmation timed out, so it is unconfirmed rather than failed. Check your wallet balance and the recipient before retrying: if the balance decreased, the payment likely landed and you should NOT pay again: wait for the merchant to reconcile or contact support. Only resubmit if the funds are still in your wallet.',
   },
   extra: { chain: 'solana', broadcast: true },
 };
 
 /** Classify a failure reason against known patterns.
  *
- *  Returns `null` when the reason is unrecognized — callers fall back to
+ *  Returns `null` when the reason is unrecognized: callers fall back to
  *  the generic `payment_proof_invalid` envelope. The reason argument may
  *  be the raw `Error.message`, `error.shortMessage` (viem), or any
  *  string carrying the upstream description; we substring-match.

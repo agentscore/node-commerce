@@ -1,5 +1,5 @@
 /**
- * Canonical `*RailSpec` types — one shape per rail, consumed by every helper.
+ * Canonical `*RailSpec` types: one shape per rail, consumed by every helper.
  *
  * A merchant accepting Tempo + Base + Solana + Stripe declares one `*RailSpec`
  * per rail and passes it to every helper (`buildAcceptedMethods`,
@@ -55,7 +55,7 @@ export interface X402BaseRailSpec {
 /**
  * Canonical config for the Solana MPP rail.
  *
- * `signer` is an optional fee-payer signer for server-side fee sponsorship —
+ * `signer` is an optional fee-payer signer for server-side fee sponsorship:
  * typed as `unknown` to avoid hard-importing `@solana/kit` types here. Pass any
  * `TransactionPartialSigner`.
  */
@@ -73,7 +73,7 @@ export interface SolanaMppRailSpec {
 /**
  * Canonical config for the Stripe SPT rail.
  *
- * `recipient` is intentionally absent — Stripe rails use `profileId` as the
+ * `recipient` is intentionally absent: Stripe rails use `profileId` as the
  * merchant-side network identifier the agent's SPT is scoped to; the
  * transaction recipient is the merchant's Stripe account, not an on-chain
  * address.
@@ -91,7 +91,7 @@ export interface StripeRailSpec {
  *
  * `escrowContract` is the merchant-deployed on-chain escrow that holds channel
  * deposits + pays out cumulative vouchers on settlement. `store` is a
- * `ChannelStore` instance — typed as `unknown` to avoid hard-importing `mppx`'s
+ * `ChannelStore` instance: typed as `unknown` to avoid hard-importing `mppx`'s
  * store interface here.
  */
 export interface TempoSessionRailSpec {
@@ -104,7 +104,7 @@ export interface TempoSessionRailSpec {
 }
 
 /**
- * Default field values for each `*RailSpec` — callers can spread these into
+ * Default field values for each `*RailSpec`: callers can spread these into
  * their spec literal when they want defaults without typing them out. Sourced
  * from the USDC registry so they stay in sync with on-chain reality.
  */

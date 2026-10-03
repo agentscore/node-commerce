@@ -23,7 +23,7 @@
  *   bun add @agent-score/commerce hono
  *
  * Env vars:
- *   AGENTSCORE_API_KEY — your AgentScore API key
+ *   AGENTSCORE_API_KEY: your AgentScore API key
  *
  * Run: bun run examples/per-product-policy-merchant.ts
  */

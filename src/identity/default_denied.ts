@@ -2,7 +2,7 @@
  *  gate config. Replaces the denial-mapping switch a merchant would otherwise
  *  hand-write.
  *
- *  The shape is framework-neutral (`{status, body, headers?}`) — matches
+ *  The shape is framework-neutral (`{status, body, headers?}`): matches
  *  `Checkout`'s `onDenied` signature directly. For per-framework gate
  *  middleware (`agentscoreGate(...)`) the merchant adapts at the call site
  *  with `c.json(body, status, headers)` / equivalent.
@@ -37,7 +37,7 @@ export interface DefaultOnDeniedResult {
 
 /** Build the canonical `onDenied(ctx, reason)` callback. Returns
  *  framework-neutral `{status, body, headers?}` matching `Checkout`'s
- *  `onDenied` signature. The `ctx` arg is ignored — pass `_ctx`-style if
+ *  `onDenied` signature. The `ctx` arg is ignored: pass `_ctx`-style if
  *  unused.
  *
  *  Branch table (matches the hand-rolled version in every consumer):

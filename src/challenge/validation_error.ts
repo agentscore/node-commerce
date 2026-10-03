@@ -4,7 +4,7 @@
  * `bad_request` / `not_found` / `out_of_stock` / etc. errors converges on the
  * same shape: `{ error: {code, message}, ...optional_hints, next_steps? }`.
  *
- * This builder doesn't choose the HTTP status — vendors wrap the returned
+ * This builder doesn't choose the HTTP status: vendors wrap the returned
  * body in their framework's response (`c.json(body, 400)` in Hono,
  * `Response.json(body, {status: 400})` for the Web Fetch path, etc.). Status
  * stays the merchant's call because the same shape works for 400/404/409/422.

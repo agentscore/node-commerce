@@ -36,7 +36,7 @@ describe('isAitShape', () => {
   });
 });
 
-describe('validateAitPayload — required claims', () => {
+describe('validateAitPayload: required claims', () => {
   it('accepts a well-formed payload', () => {
     const r = validateAitPayload(validPayload);
     expect(r.ok).toBe(true);
@@ -78,7 +78,7 @@ describe('validateAitPayload — required claims', () => {
   });
 });
 
-describe('validateAitPayload — human_confirmed requires auth.amr', () => {
+describe('validateAitPayload: human_confirmed requires auth.amr', () => {
   it('rejects human_confirmed with no auth at all', () => {
     const r = validateAitPayload({ ...validPayload, trust_level: 'human_confirmed' });
     expect(r).toEqual({ ok: false, reason: 'human_confirmed_without_amr' });
@@ -100,7 +100,7 @@ describe('validateAitPayload — human_confirmed requires auth.amr', () => {
   });
 });
 
-describe('validateAitPayload — extension claims pass through', () => {
+describe('validateAitPayload: extension claims pass through', () => {
   it('preserves identity + payment extension claims on success', () => {
     const withExtensions: AitPayload = {
       ...validPayload,

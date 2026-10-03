@@ -8,9 +8,9 @@ describe('loadSolanaFeePayer', () => {
   });
 
   it('attempts to construct a signer with valid hex privateKey (loads @solana/kit)', async () => {
-    // 128-char hex string — exercises the hex branch (lines 38-39)
+    // 128-char hex string: exercises the hex branch (lines 38-39)
     const hex = 'a'.repeat(128);
-    // Either succeeds (kit installed) or throws (kit missing) — either path is
+    // Either succeeds (kit installed) or throws (kit missing): either path is
     // valid. We just need to exercise the branch.
     try {
       await loadSolanaFeePayer({ privateKey: hex });
@@ -29,7 +29,7 @@ describe('loadSolanaFeePayer', () => {
   });
 });
 
-describe('loadSolanaFeePayer — peer-dep guard', () => {
+describe('loadSolanaFeePayer: peer-dep guard', () => {
   afterEach(() => { vi.doUnmock('@solana/kit'); });
 
   it('throws a guiding error when @solana/kit lacks the required exports', async () => {

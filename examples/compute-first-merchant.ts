@@ -11,7 +11,7 @@
  * Why this exists (vs x402 upto / Permit2):
  *   - upto's facilitator support is still limited (Coinbase CDP testnet rejects
  *     upto-mode settles today; only mainnet claims support).
- *   - Permit2 is Ethereum-only — no Solana, no Tempo non-EIP-3009, no Stripe.
+ *   - Permit2 is Ethereum-only: no Solana, no Tempo non-EIP-3009, no Stripe.
  *   - Compute-first works on every exact-mode rail in the ecosystem with no
  *     buyer setup and no facilitator extensions.
  *
@@ -21,11 +21,11 @@
  *
  * This example wires the x402-exact rail on Base only. To add MPP rails
  * (Tempo, Solana, Stripe SPT), pass a `composeMppx` callback that builds
- * mppx intents at the exact cached price — see
+ * mppx intents at the exact cached price: see
  * `examples/multi-rail-merchant.ts` for the fixed-price MPP compose pattern;
  * the compute-first variant is structurally identical except the helper
  * passes the cached price + recipients into your callback. Stripe SPT
- * requires the computed price to be at least $0.50 USD — below that
+ * requires the computed price to be at least $0.50 USD: below that
  * Stripe's fixed ~$0.30 fee makes the charge unprofitable, so
  * `buildMppxComposeRails` auto-drops the stripe rail and sub-50-cent
  * pay-per-result APIs ship Tempo + x402 + Solana only.
@@ -71,7 +71,7 @@ const x402Server = await createX402Server({
 const searchHandler = computeFirstCheckout({
   name: 'search',
   url: `${APP_URL}/search`,
-  // $0.01 per result. Use `0.0001` for sub-cent / per-token pricing — the
+  // $0.01 per result. Use `0.0001` for sub-cent / per-token pricing: the
   // helper auto-derives decimal precision from the unit price.
   unitPriceCents: 1,
   rails: {

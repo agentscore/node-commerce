@@ -1,7 +1,7 @@
 // Network-aware address normalization. EVM addresses (0x + 40 hex) are
-// case-insensitive in the protocol — we lowercase them so DB lookups against
+// case-insensitive in the protocol: we lowercase them so DB lookups against
 // `address_lower`-style columns work. Solana addresses are base58 and are
-// case-sensitive — we MUST preserve the input verbatim, never lowercase.
+// case-sensitive: we MUST preserve the input verbatim, never lowercase.
 //
 // Must produce the same normalization the AgentScore API applies, so the gate, API,
 // and merchants resolve wallets the same way. If they drift, captured wallets won't

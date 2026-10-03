@@ -3,7 +3,7 @@ import { extractOwnerScope, hashOperatorToken } from '../src/identity/tokens';
 
 // A real EIP-55 checksummed EVM address + its lowercase form. The stored `orders.wallet_address`
 // column persists the lowercased signer, so extractOwnerScope MUST lowercase the inbound
-// X-Wallet-Address — otherwise a checksummed header misses its own order rows (404).
+// X-Wallet-Address: otherwise a checksummed header misses its own order rows (404).
 const CHECKSUMMED = '0xeb2Ca790F72787c7e61bC6c861353a1e4ACDFCa5';
 const LOWERCASED = CHECKSUMMED.toLowerCase();
 
@@ -24,7 +24,7 @@ describe('extractOwnerScope', () => {
   });
 
   it('preserves a Solana base58 address verbatim (case-sensitive)', () => {
-    // Solana addresses are base58 and case-sensitive — normalization MUST NOT lowercase them.
+    // Solana addresses are base58 and case-sensitive: normalization MUST NOT lowercase them.
     const sol = 'DQyrAcCrDXQ7iiRTHtPhHkjFmh1mVGwXqUL9F4FUe9YN';
     const scope = extractOwnerScope({ 'x-wallet-address': sol });
     expect(scope.walletAddress).toBe(sol);

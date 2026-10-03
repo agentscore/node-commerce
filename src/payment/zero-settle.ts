@@ -16,7 +16,7 @@
  * - **Every other MPP credential at $0** (`hash` / `transaction` payloads,
  *   token-style credentials, Solana): carved out. These arise when the agent
  *   signed against a NONZERO quote that the merchant re-priced to $0 at
- *   settle (no-match / full-discount flows — the authorization is simply
+ *   settle (no-match / full-discount flows: the authorization is simply
  *   never exercised), or on rails with no upstream $0 contract
  *   (`@solana/mpp` has no proof-credential surface). Upstream would reject
  *   all of them at $0, so the carve-out lifts the signer for wallet-capture

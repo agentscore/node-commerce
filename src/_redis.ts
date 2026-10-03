@@ -2,14 +2,14 @@
  *  and `stripe-multichain/pi-cache` so they don't drift on connect-timeout,
  *  TLS handling, or error-logging posture.
  *
- *  `ioredis` is an optional peer dep — callers pass `redisUrl` (or rely on
+ *  `ioredis` is an optional peer dep: callers pass `redisUrl` (or rely on
  *  `process.env.REDIS_URL`); when unset or the lazy import fails, this returns
  *  null and the caller falls back to its in-process `Map`.
  *
  *  Not part of the public API.
  */
 
-/** Minimal Redis surface — each caller intersects with its own usage
+/** Minimal Redis surface: each caller intersects with its own usage
  *  (incr/expire for rate-limit, get/set/del for caches). Returning `unknown`
  *  on commands keeps the shape narrow; cast at the call site. */
 export interface MinimalRedis {
