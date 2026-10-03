@@ -277,7 +277,14 @@ return new Response(JSON.stringify(responseBody), { status: 402, headers });
 ### Identity publishing (cross-vendor standards)
 
 ```typescript
-import { buildA2AAgentCard, buildUCPProfile, ucpA2AExtension } from "@agent-score/commerce";
+import {
+  buildA2AAgentCard,
+  buildUCPProfile,
+  mppPaymentHandler,
+  stripeSptPaymentHandler,
+  ucpA2AExtension,
+  x402PaymentHandler,
+} from "@agent-score/commerce";
 
 // A2A v1.0 Agent Card; publish at /.well-known/agent-card.json.
 // Per UCP §A2A binding, the card MUST declare the canonical UCP extension URI in
