@@ -73,6 +73,10 @@ const API_ERROR_INSTRUCTIONS = JSON.stringify({
     'Verification is temporarily unavailable. Please try again in a moment: this is a transient issue, not a problem with your account.',
 });
 
+// The message paired with QUOTA_EXCEEDED_INSTRUCTIONS. The api_error default says the failure is
+// transient and worth retrying, which contradicts the contact_merchant instructions on this path.
+export const QUOTA_EXCEEDED_MESSAGE = 'AgentScore identity verification is unavailable for this merchant. Retrying will not help.';
+
 export const QUOTA_EXCEEDED_INSTRUCTIONS = JSON.stringify({
   action: 'contact_merchant',
   steps: [

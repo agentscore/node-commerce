@@ -223,7 +223,9 @@ describe('error response edge cases', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(status).toHaveBeenCalledWith(503);
-    expect(json).toHaveBeenCalledWith(expect.objectContaining({ error: expect.objectContaining({ code: 'api_error' }) }));
+    expect(json).toHaveBeenCalledWith(expect.objectContaining({
+      error: expect.objectContaining({ code: 'api_error', message: expect.stringContaining('Retrying will not help') }),
+    }));
   });
 
   it('typed QuotaExceededError fails open (degraded allow) when failOpen is true', async () => {

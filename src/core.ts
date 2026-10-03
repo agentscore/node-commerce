@@ -9,7 +9,7 @@ import {
   TokenExpiredError,
 } from '@agent-score/sdk';
 import { isFixableDenial } from './_denial';
-import { QUOTA_EXCEEDED_INSTRUCTIONS } from './_response';
+import { QUOTA_EXCEEDED_INSTRUCTIONS, QUOTA_EXCEEDED_MESSAGE } from './_response';
 import { normalizeAddress } from './address';
 import { TTLCache } from './cache';
 import type { PaymentSigner } from './signer';
@@ -864,7 +864,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         if (failOpen) return { kind: 'allow', degraded: true, infraReason: 'quota_exceeded' };
         return {
           kind: 'deny',
-          reason: { code: 'api_error', agent_instructions: QUOTA_EXCEEDED_INSTRUCTIONS },
+          reason: { code: 'api_error', agent_instructions: QUOTA_EXCEEDED_INSTRUCTIONS, message: QUOTA_EXCEEDED_MESSAGE },
         };
       }
       if (err instanceof SdkTimeoutError) {
@@ -883,7 +883,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         if (failOpen) return { kind: 'allow', degraded: true, infraReason: 'quota_exceeded' };
         return {
           kind: 'deny',
-          reason: { code: 'api_error', agent_instructions: QUOTA_EXCEEDED_INSTRUCTIONS },
+          reason: { code: 'api_error', agent_instructions: QUOTA_EXCEEDED_INSTRUCTIONS, message: QUOTA_EXCEEDED_MESSAGE },
         };
       }
       if (errName === 'TimeoutError' || errName === 'AbortError') {
