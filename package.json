@@ -152,7 +152,7 @@
   "overrides": {
     "axios": "^1.20.0",
     "esbuild": "^0.28.1",
-    "viem": "2.57.2"
+    "viem": "2.57.3"
   },
   "peerDependencies": {
     "@solana/kit": ">=8.0.0 <9.0.0",
@@ -208,7 +208,7 @@
     "eslint-plugin-unused-imports": "^4.4.1",
     "express": "^5.2.1",
     "fastify": "^5.12.5",
-    "hono": "^4.13.12",
+    "hono": "^4.13.13",
     "ioredis": "^6.0.0",
     "jose": "^6.2.12",
     "knip": "^6.39.0",
@@ -217,7 +217,7 @@
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.71.0",
-    "viem": "2.57.2",
+    "viem": "2.57.3",
     "vitest": "^5.0.3"
   },
   "packageManager": "bun@1.4.2"
