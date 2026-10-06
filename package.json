@@ -215,11 +215,11 @@
     "ioredis": "^6.0.0",
     "jose": "^6.2.12",
     "knip": "^6.39.0",
-    "lefthook": "^2.1.16",
+    "lefthook": "^2.1.17",
     "mppx": "0.13.1",
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.0",
+    "typescript-eslint": "^8.71.1",
     "viem": "2.57.3",
     "vitest": "^5.0.3"
   },
