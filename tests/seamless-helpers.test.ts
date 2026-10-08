@@ -308,13 +308,13 @@ describe('purchaseModeNote', () => {
 describe('buildAgentscoreOnboardingSteps', () => {
   it('substitutes merchant name, url, and rails', () => {
     const steps = buildAgentscoreOnboardingSteps({
-      merchantName: 'AgentScore Store',
+      merchantName: 'Example Merchant',
       appUrl: 'https://store.example',
       acceptedRails: ['tempo', 'x402-base', 'solana-mpp'],
       requiresKyc: true,
     });
     const text = steps.join('\n');
-    expect(text).toContain('AgentScore Store');
+    expect(text).toContain('Example Merchant');
     expect(text).toContain('Tempo USDC');
     expect(text).toContain('x402 USDC on Base');
     expect(text).toContain('Solana SPL USDC');
@@ -376,10 +376,10 @@ describe('buildSuccessNextSteps', () => {
 describe('buildRedemptionSkillMd', () => {
   it('substitutes merchant name and url, omits peer section by default', () => {
     const md = buildRedemptionSkillMd({
-      merchantName: 'AgentScore Store',
+      merchantName: 'Example Merchant',
       appUrl: 'https://store.example',
     });
-    expect(md).toContain('AgentScore Store');
+    expect(md).toContain('Example Merchant');
     expect(md).toContain('https://store.example/catalog');
     expect(md).not.toContain("Don't have a code?");
   });
@@ -947,13 +947,13 @@ describe('buildMerchantIndexJson', () => {
   it('emits canonical fields', async () => {
     const { buildMerchantIndexJson } = await import('../src/discovery/agentscore_content');
     const body = buildMerchantIndexJson({
-      name: 'AgentScore Store',
+      name: 'Example Merchant',
       description: 'Wine and merch for agents.',
       docs: { llms: 'https://x/llms.txt' },
       endpoints: { 'GET /catalog': 'List products.' },
       supportedRails: ['tempo', 'x402-base'],
     });
-    expect(body.name).toBe('AgentScore Store');
+    expect(body.name).toBe('Example Merchant');
     expect(body.audience).toBe('agents');
     expect(body.supported_rails).toEqual(['tempo', 'x402-base']);
     expect(body.docs).toEqual({ llms: 'https://x/llms.txt' });
@@ -1198,7 +1198,7 @@ describe('buildSignedUcpResponse happy path', () => {
     process.env.UCP_SIGNING_KEY_JWK_PRIVATE = JSON.stringify({ ...privJwk, kid: 'ucp-test' });
     try {
       const checkout = new Checkout({
-        merchantName: 'AgentScore Store',
+        merchantName: 'Example Merchant',
         rails: {
           tempo: {
             recipient: RECIPIENT,
@@ -1212,7 +1212,7 @@ describe('buildSignedUcpResponse happy path', () => {
       });
       const resp = await buildSignedUcpResponse({
         checkout,
-        name: 'AgentScore Store',
+        name: 'Example Merchant',
         wellKnownUcpUrl: 'https://x/.well-known/ucp',
         services: { 'dev.ucp.shopping': [] },
         requestHeaders: { 'X-Request-Id': 'req-ucp' },
@@ -1223,7 +1223,7 @@ describe('buildSignedUcpResponse happy path', () => {
       expect(resp.headers['X-Request-ID']).toBe('req-ucp');
       expect(resp.headers['Cache-Control']).toContain('max-age=60');
       const body = JSON.parse(resp.body) as { ucp: { name?: string; payment_handlers: Record<string, unknown> }; signature: string };
-      expect(body.ucp.name).toBe('AgentScore Store');
+      expect(body.ucp.name).toBe('Example Merchant');
       expect(body.signature).toBeDefined();
       expect(body.ucp.payment_handlers).toBeDefined();
     } finally {
