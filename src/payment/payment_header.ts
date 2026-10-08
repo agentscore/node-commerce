@@ -60,14 +60,12 @@ export function hasPaymentHeader(input: Request | HeadersLike): boolean {
 export const VERIFICATION_SESSION_HEADER = 'X-Verification-Session';
 export const VERIFICATION_SESSION_VALUE = 'create';
 
-/** True when the request carries an identity: an operator token, a wallet address, or an AIP
- *  `Agent-Identity` token. */
+/** True when the request carries an identity: an operator token or a wallet address. */
 export function hasIdentityHeader(input: Request | HeadersLike): boolean {
   const headers = asHeaders(input);
   return Boolean(
     readHeader(headers, 'x-operator-token') ||
-    readHeader(headers, 'x-wallet-address') ||
-    readHeader(headers, 'agent-identity')?.split(',').some((s) => s.trim().length > 0),
+    readHeader(headers, 'x-wallet-address'),
   );
 }
 

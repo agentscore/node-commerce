@@ -37,9 +37,6 @@ import { normalizeHeadersToLowercase } from './_headers';
 import { extractMppxReceiptHeaderFromRaw, extractMppxReceiptMethod } from './_mppx_receipt';
 import { denialReasonToBody } from './_response';
 import { warnMissingApiKeyOnce } from './_warnings';
-import { buildAipErrorBody, buildAipPolicyDenyBody, buildAipWeakAuthBody, checkTrustRequirements, verifyAitParts } from './aip/gate';
-import { AGENTSCORE_CANONICAL_ISSUER, canonicalizeIssuer, JwksCache } from './aip/jwks';
-import { hasAgentIdentityHeaderNode } from './aip/request';
 import { buildAcceptedMethods } from './challenge/accepted_methods';
 import { type RailKey, buildAgentInstructions } from './challenge/agent_instructions';
 import { firstEncounterAgentMemory } from './challenge/agent_memory';
@@ -81,7 +78,6 @@ import { classifyX402SettleResult, processX402Settle } from './payment/x402_sett
 import { verifyX402Request } from './payment/x402_validation';
 import { mppCredentialPayloadType, zeroAmountCarveOut, type ZeroSettleRail } from './payment/zero-settle';
 import { extractPaymentSignerFromAuth } from './signer';
-import type { TrustLevel } from './aip/types';
 import type { SignedDiscoveryResponse } from './discovery/well_known';
 
 
@@ -288,7 +284,7 @@ export interface CheckoutContext {
    *  survives the token rotating, expiring or being revoked, whereas state keyed on the
    *  token instance is stranded every time one rotates.
    *
-   *  `undefined` when no gate is configured, on wallet or AIT paths, on anonymous discovery
+   *  `undefined` when no gate is configured, on wallet paths, on anonymous discovery
    *  legs, or when the API has no handle salt configured.
    *
    *  ORDERING: populated by the gate, which runs AFTER `preValidate`, so it is readable
@@ -403,74 +399,8 @@ export interface CheckoutGateConfig {
    *  DenialReason. Return a `GateDenial` to override the canonical body, or
    *  null to use `denialReasonToBody`. */
   onDenied?: (ctx: CheckoutContext, reason: DenialReason) => GateDenial | null | Promise<GateDenial | null>;
-  /** Accept AIP Agent Identity Tokens (AITs) on this route. When set and a request carries
-   *  an `Agent-Identity` header, the gate verifies the token offline (issuer signature via the
-   *  trusted-issuer JWKS + RFC 9421 proof-of-possession) BEFORE the assess call, then sends the
-   *  raw token to `/v1/assess` as `aip_token` so the same wine/age/sanctions policy evaluates
-   *  against the token's attested identity. A present-but-invalid AIT is a hard deny (the gate
-   *  does NOT fall through to wallet / operator-token). Requests with no `Agent-Identity` header
-   *  use the existing wallet / operator-token path unchanged.
-   *
-   *  Ignored when `runGate` is also set (a custom gate fully owns the flow). Without an `apiKey`,
-   *  a verified AIT is honored offline for identity-only gates, but a gate that declares policy
-   *  fields (KYC / age / sanctions / jurisdiction) without an `apiKey` fails closed
-   *  (`aip_policy_requires_api_key`) since policy can only be evaluated via `/v1/assess`. */
-  aip?: AipGateConfig;
   /** Full escape hatch: replaces the SDK gate flow. */
   runGate?: RunGateFn;
-}
-
-/** AIP acceptance config for {@link CheckoutGateConfig.aip}. */
-export interface AipGateConfig {
-  /** ADDITIONAL external issuers to trust beyond AgentScore's own (e.g. `['https://issuer.example']`),
-   *  matched after canonicalization. AgentScore's canonical issuer
-   *  ({@link AGENTSCORE_CANONICAL_ISSUER}) is ALWAYS trusted and never needs listing: this SDK
-   *  is the AgentScore verifier, so a merchant can't accidentally fail to trust AgentScore AITs.
-   *  Omit/empty to accept only AgentScore-issued AITs. */
-  trustedIssuers?: string[];
-  /** Clock-skew tolerance in seconds for the RFC 9421 signature window (and, as an override,
-   *  the AIT JWT `exp`/`iat`). Defaults to 60s for both. */
-  maxSkewSeconds?: number;
-  /** Expected `@authority` (public hostname) the RFC 9421 signature must cover. When set, the
-   *  verifier binds the signature to this value instead of trusting the inbound `Host` header:
-   *  pin it to your real public host (e.g. `'wine.example.com'`) when behind a proxy that does
-   *  not normalize `Host`, to prevent a captured AIT+signature from being replayed to a
-   *  different virtual host on the same origin. */
-  authority?: string;
-  /** Minimum `trust_level` an AIT must assert to pass this gate (autonomous < human_present <
-   *  human_confirmed): the spec's human-presence gate (e.g. require `human_confirmed` for
-   *  checkout). Enforced at the edge from the verified token; insufficient → 403 weak_auth with
-   *  `required_trust_level`. Unset = any trust level accepted. */
-  requireTrustLevel?: TrustLevel;
-  /** Acceptable `auth.amr` methods (RFC 8176); the AIT must carry at least one (e.g.
-   *  `['face','fpt','hwk']` to require strong human auth). Insufficient → 403 weak_auth with
-   *  `required_amr`. Unset = not enforced. */
-  requireAmr?: string[];
-  /** Per-issuer compliance policy override, keyed by issuer URL (canonicalized before lookup).
-   *  When a request's AIT is verified and its `iss` matches a key here, that block REPLACES the
-   *  gate's default policy fields (`requireKyc` / `requireSanctionsClear` / `minAge` /
-   *  `allowed/blockedJurisdictions`) for that request: letting a merchant apply different rules
-   *  by issuer (e.g. full compliance for its own AITs, a relaxed set for a partner issuer whose
-   *  tokens carry fewer attested claims). The replacement is whole-policy, not a merge: an issuer
-   *  block of `{ requireKyc: true, minAge: 21 }` evaluates ONLY those two rules for that issuer
-   *  (sanctions / jurisdiction omitted → not enforced for that issuer). Issuers NOT listed here
-   *  use the gate's default policy unchanged. Only the AIT path consults this: wallet /
-   *  operator-token requests are unaffected.
-   *
-   *  This is a deliberate compliance posture per issuer, not a default; an empty/absent map keeps
-   *  every issuer on the gate's default policy. */
-  issuerPolicies?: Record<string, AipIssuerPolicy>;
-}
-
-/** A per-issuer compliance policy block for {@link AipGateConfig.issuerPolicies}. The same
- *  compliance fields as the gate, applied (as a whole-policy replacement) only to AITs from the
- *  matching issuer. */
-interface AipIssuerPolicy {
-  requireKyc?: boolean;
-  requireSanctionsClear?: boolean;
-  minAge?: number;
-  blockedJurisdictions?: string[];
-  allowedJurisdictions?: string[];
 }
 
 /** Surface passed to `Checkout.onSettled` after a payment lands. */
@@ -776,61 +706,6 @@ function pickRail<T>(rails: Record<string, CheckoutRailSpec>, key: string): T | 
   return spec === undefined ? undefined : (spec as unknown as T);
 }
 
-/** Resolve a per-issuer compliance-policy override for a verified AIT's issuer. Both the verified
- *  `iss` and the map keys are canonicalized (lowercase scheme+host, no default port / trailing
- *  slash) before comparison so `https://issuer.example` and `https://issuer.example/` resolve the same.
- *  Returns the matching policy block, or undefined when the issuer is not overridden (→ caller
- *  falls back to the gate's default policy). */
-/** The effective AIP trusted-issuer list: AgentScore's canonical issuer (ALWAYS trusted) plus any
- *  external issuers. De-duped after canonicalization. Use this for the `agent_memory` hint and any
- *  presentation surface (llms.txt / mpp.json / skill.md) that advertises AIP acceptance, so a
- *  merchant relying solely on AgentScore AITs (no external issuers) still advertises the
- *  `agent_identity` path. Trust enforcement itself lives in {@link JwksCache}, which merges the
- *  canonical issuer independently. */
-export function buildAipTrustedIssuers(externalIssuers?: string[]): string[] {
-  const out = [AGENTSCORE_CANONICAL_ISSUER, ...(externalIssuers ?? [])];
-  // De-dupe on canonical form so an explicit `https://www.agentscore.com` (or trailing-slash variant)
-  // doesn't double up; keep the first-seen original string for each canonical key.
-  const seen = new Set<string>();
-  const deduped: string[] = [];
-  for (const iss of out) {
-    const key = canonicalizeIssuer(iss) ?? iss;
-    if (!seen.has(key)) { seen.add(key); deduped.push(iss); }
-  }
-  return deduped;
-}
-
-function aipTrustedIssuerSet(cfg: AipGateConfig): string[] {
-  return buildAipTrustedIssuers(cfg.trustedIssuers);
-}
-
-/** Project the gate's effective compliance policy onto the AIT identity claims it requires, for
- *  the `required_claims` escalation hint on an `insufficient_claims` AIP denial. Mirrors the
- *  claim names the API checks an AIT against (`id_verified` / `sanctions_clear` / `age_over_<N>` /
- *  `jurisdiction`). Empty when the policy is identity-only. */
-function aipRequiredClaims(policy: AipIssuerPolicy): string[] {
-  const claims: string[] = [];
-  if (policy.requireKyc) claims.push('id_verified');
-  if (policy.requireSanctionsClear) claims.push('sanctions_clear');
-  if (policy.minAge != null) claims.push(`age_over_${policy.minAge}`);
-  if (policy.blockedJurisdictions !== undefined || policy.allowedJurisdictions !== undefined) {
-    claims.push('jurisdiction');
-  }
-  return claims;
-}
-
-function resolveIssuerPolicy(
-  issuerPolicies: Record<string, AipIssuerPolicy>,
-  iss: string,
-): AipIssuerPolicy | undefined {
-  const target = canonicalizeIssuer(iss);
-  if (target === null) return undefined;
-  for (const [key, policy] of Object.entries(issuerPolicies)) {
-    if (canonicalizeIssuer(key) === target) return policy;
-  }
-  return undefined;
-}
-
 /**
  * High-level agentic-commerce orchestrator.
  *
@@ -873,19 +748,6 @@ export class Checkout {
   readonly resourceInfo: { serviceName?: string; tags?: string[]; iconUrl?: string; description?: string } | undefined;
   readonly discoveryProbe: DiscoveryProbeConfig | undefined;
   private _x402ServerGetter: (() => Promise<X402Server>) | undefined;
-
-  /** Lazily-built JWKS cache for AIP verification, shared across requests so issuer keys
-   *  are fetched once and cached (per the verifier's hard 24h cap). Built on first AIT. */
-  private aipJwks: JwksCache | undefined;
-
-  private getAipJwks(cfg: AipGateConfig): JwksCache {
-    if (this.aipJwks === undefined) {
-      // JwksCache merges AgentScore's canonical issuer itself, so pass only the merchant's
-      // external issuers (if any).
-      this.aipJwks = new JwksCache(cfg.trustedIssuers !== undefined ? { trustedIssuers: cfg.trustedIssuers } : {});
-    }
-    return this.aipJwks;
-  }
 
   /**
    * True when the merchant has configured an identity-bearing policy flag:
@@ -1363,9 +1225,7 @@ export class Checkout {
       // (apiKey === undefined → runWalletSanctionsOnly) does NOT fire here;
       // merchants who supply runGate are taking explicit ownership of
       // compliance enforcement and should call /v1/assess themselves (or
-      // accept that they're not getting SDN protection). NOTE: `runGate` also
-      // bypasses the `gate.aip` AIP pre-step below: a custom gate owns AIT
-      // verification too. `runGate` and `gate.aip` are mutually exclusive.
+      // accept that they're not getting SDN protection).
       const result = await gate.runGate(ctx);
       // Allow merchants to return undefined as an alias for `null` (allow).
       if (result === undefined || result === null) return null;
@@ -1376,108 +1236,12 @@ export class Checkout {
       }
       return result;
     }
-    // AIP pre-step: runs BEFORE the no-apiKey fallback so a present-but-invalid AIT is always
-    // a hard deny, and a cryptographically verified AIT is honored even on an offline-only gate.
-    // The RFC 9421 proof-of-possession can only be checked here at the edge, where the signed
-    // HTTP message lives. A valid AIT becomes the sole identity (wins over wallet / operator-token).
     const headers = normalizeHeadersToLowercase(ctx.request.headers);
     const walletAddress = headers['x-wallet-address'];
     const operatorToken = headers['x-operator-token'];
-    let aipToken: string | undefined;
-    let aipIssuer: string | undefined;
-    let aipSignature: AgentIdentity['aipSignature'];
-    if (gate.aip !== undefined && hasAgentIdentityHeaderNode(headers)) {
-      const aipResult = await verifyAitParts(
-        {
-          method: ctx.request.method,
-          url: ctx.request.url,
-          headers,
-          ...(gate.aip.authority !== undefined && { authority: gate.aip.authority }),
-        },
-        {
-          jwks: this.getAipJwks(gate.aip),
-          ...(gate.aip.maxSkewSeconds !== undefined && { maxSkewSeconds: gate.aip.maxSkewSeconds }),
-        },
-      );
-      if (!aipResult.ok) {
-        const body = buildAipErrorBody(aipResult.failure, {
-          trustedIssuers: aipTrustedIssuerSet(gate.aip),
-          ...(gate.aip.requireTrustLevel !== undefined && { requiredTrustLevel: gate.aip.requireTrustLevel }),
-          ...(gate.aip.requireAmr !== undefined && { requiredAmr: gate.aip.requireAmr }),
-        });
-        return {
-          status: body.status,
-          body: body as unknown as Record<string, unknown>,
-          headers: {
-            'content-type': 'application/problem+json',
-            // 503 = the IdP's JWKS was unreachable (transient infra, not a bad token). Hint a
-            // short backoff so agents retry rather than uselessly re-signing.
-            ...(body.status === 503 && { 'retry-after': '5' }),
-          },
-        };
-      }
-      aipToken = aipResult.ait.token;
-      aipIssuer = aipResult.ait.iss;
-      aipSignature = aipResult.ait.signatureMaterial;
-
-      // Enforce the merchant's trust_level / auth.amr requirement (the spec's human-presence gate).
-      // Verification-derived (carried in the verified token), so enforced here at the edge:
-      // insufficient → weak_auth (403) with required_* so the agent can step up (re-mint a
-      // higher-trust AIT) rather than guess.
-      const weakAuthDetail = checkTrustRequirements(aipResult.ait.payload, gate.aip.requireTrustLevel, gate.aip.requireAmr);
-      if (weakAuthDetail) {
-        const body = buildAipWeakAuthBody({
-          detail: weakAuthDetail,
-          ...(gate.aip.requireTrustLevel !== undefined && { requiredTrustLevel: gate.aip.requireTrustLevel }),
-          ...(gate.aip.requireAmr !== undefined && { requiredAmr: gate.aip.requireAmr }),
-          trustedIssuers: aipTrustedIssuerSet(gate.aip),
-        });
-        return { status: 403, body: body as unknown as Record<string, unknown>, headers: { 'content-type': 'application/problem+json' } };
-      }
-    }
-
-    // Resolve the per-issuer policy override (if any) for the verified AIT's issuer. Matched on
-    // the canonicalized issuer so keys line up with the trust list's canonicalization. When set,
-    // it REPLACES the gate's default compliance policy for this request.
-    const issuerPolicy: AipIssuerPolicy | undefined =
-      aipIssuer !== undefined && gate.aip?.issuerPolicies !== undefined
-        ? resolveIssuerPolicy(gate.aip.issuerPolicies, aipIssuer)
-        : undefined;
-    // The effective compliance fields for this request: the issuer override when present, else
-    // the gate defaults. Used by both the no-apiKey policy-presence check and the coreOpts build.
-    const effPolicy: AipIssuerPolicy = issuerPolicy ?? {
-      ...(gate.requireKyc !== undefined && { requireKyc: gate.requireKyc }),
-      ...(gate.requireSanctionsClear !== undefined && { requireSanctionsClear: gate.requireSanctionsClear }),
-      ...(gate.minAge !== undefined && { minAge: gate.minAge }),
-      ...(gate.blockedJurisdictions !== undefined && { blockedJurisdictions: gate.blockedJurisdictions }),
-      ...(gate.allowedJurisdictions !== undefined && { allowedJurisdictions: gate.allowedJurisdictions }),
-    };
 
     if (gate.apiKey === undefined) {
-      if (aipToken !== undefined) {
-        // A cryptographically verified AIT is a complete offline *identity* check (issuer
-        // signature + RFC 9421 PoP). But compliance *policy* (KYC / age / sanctions /
-        // jurisdiction) is evaluated against the token's claims by `/v1/assess`, which needs an
-        // apiKey. If the merchant declared policy fields without an apiKey we cannot enforce
-        // them: fail closed rather than silently allow a verified-but-non-compliant identity
-        // (e.g. an under-21 AIT through a `minAge: 21` gate). Identity-only gates (no policy
-        // fields) are satisfied by the verified AIT alone.
-        const hasPolicy = effPolicy.requireKyc || effPolicy.requireSanctionsClear || effPolicy.minAge != null
-          || effPolicy.blockedJurisdictions !== undefined || effPolicy.allowedJurisdictions !== undefined;
-        if (hasPolicy) {
-          return {
-            status: 403,
-            body: {
-              error: {
-                code: 'aip_policy_requires_api_key',
-                message: 'This gate declares compliance policy (KYC / age / sanctions / jurisdiction) but has no AgentScore apiKey, so the Agent Identity Token’s claims cannot be evaluated. Configure gate.apiKey to enable policy enforcement on AITs.',
-              },
-            },
-          };
-        }
-        return null;
-      }
-      // No AIT, no apiKey → fall through to wallet OFAC SDN enforcement (the strict-liability
+      // No apiKey → fall through to wallet OFAC SDN enforcement (the strict-liability
       // default) so the merchant still gets the basic protection layer instead of allowing.
       return this.runWalletSanctionsOnly(ctx);
     }
@@ -1498,21 +1262,14 @@ export class Checkout {
       apiKey: gate.apiKey,
       ...(gate.baseUrl !== undefined && { baseUrl: gate.baseUrl }),
       ...(gate.userAgent !== undefined && { userAgent: gate.userAgent }),
-      // Compliance fields come from effPolicy: the per-issuer override for the verified AIT's
-      // issuer when one is configured, else the gate defaults (see effPolicy above). A whole-
-      // policy replacement: an issuer override of `{ requireKyc, minAge }` sends ONLY those,
-      // so sanctions / jurisdiction are not enforced for that issuer.
-      ...(effPolicy.requireKyc !== undefined && { requireKyc: effPolicy.requireKyc }),
-      ...(effPolicy.requireSanctionsClear !== undefined && { requireSanctionsClear: effPolicy.requireSanctionsClear }),
-      ...(effPolicy.minAge !== undefined && { minAge: effPolicy.minAge }),
-      ...(effPolicy.blockedJurisdictions !== undefined && { blockedJurisdictions: effPolicy.blockedJurisdictions }),
-      ...(effPolicy.allowedJurisdictions !== undefined && { allowedJurisdictions: effPolicy.allowedJurisdictions }),
+      ...(gate.requireKyc !== undefined && { requireKyc: gate.requireKyc }),
+      ...(gate.requireSanctionsClear !== undefined && { requireSanctionsClear: gate.requireSanctionsClear }),
+      ...(gate.minAge !== undefined && { minAge: gate.minAge }),
+      ...(gate.blockedJurisdictions !== undefined && { blockedJurisdictions: gate.blockedJurisdictions }),
+      ...(gate.allowedJurisdictions !== undefined && { allowedJurisdictions: gate.allowedJurisdictions }),
       ...(gate.failOpen !== undefined && { failOpen: gate.failOpen }),
       ...(gate.cacheSeconds !== undefined && { cacheSeconds: gate.cacheSeconds }),
       ...(gate.chain !== undefined && { chain: gate.chain }),
-      // Surface AIP acceptance in the missing-identity recovery instructions + agent_memory
-      // hint so agents holding an AIT learn they can present it instead of bootstrapping.
-      ...(gate.aip !== undefined && { aipTrustedIssuers: aipTrustedIssuerSet(gate.aip) }),
       // Auto-default `createSessionOnMissing` from gate config when the merchant
       // didn't supply one, so every gated route gets the bootstrap session-mint UX
       // out of the box. Merchants who need custom session context or onBeforeSession
@@ -1528,17 +1285,13 @@ export class Checkout {
 
     const core = createAgentScoreCore(coreOpts);
 
-    // headers / walletAddress / operatorToken / aipToken were resolved in the AIP pre-step
-    // above (which runs before the no-apiKey fallback). AIT wins when present; else wallet/operator.
     const identity: AgentIdentity | undefined =
-      aipToken !== undefined
-        ? { aipToken, ...(aipSignature !== undefined && { aipSignature }) }
-        : walletAddress !== undefined || operatorToken !== undefined
-          ? {
-              ...(walletAddress !== undefined && { address: walletAddress }),
-              ...(operatorToken !== undefined && { operatorToken }),
-            }
-          : undefined;
+      walletAddress !== undefined || operatorToken !== undefined
+        ? {
+            ...(walletAddress !== undefined && { address: walletAddress }),
+            ...(operatorToken !== undefined && { operatorToken }),
+          }
+        : undefined;
     const x402Header = headers['payment-signature'] ?? headers['x-payment'];
     const signer = await extractPaymentSignerFromAuth(headers['authorization'], x402Header);
     const outcome: EvaluateOutcome = await core.evaluate(identity, ctx, signer);
@@ -1566,12 +1319,8 @@ export class Checkout {
       // the assess call when a signer was extracted; convert non-pass verdicts
       // into wallet_signer_mismatch / wallet_auth_requires_wallet_signing
       // denials so the gate enforces wallet binding inline (no separate hook).
-      // Signer-match enforcement applies only to the wallet identity path. On the AIT path the
-      // identity is the token (PoP-bound via cnf) and assess was keyed by aip_token, so there is
-      // no address-keyed signer verdict to read: the wallet binding for AITs is the IdP's
-      // `payment.signer` claim, enforced server-side. Guarding on aipToken===undefined keeps
-      // this from being dead code that silently no-ops on a cache miss.
-      if (aipToken === undefined && walletAddress !== undefined) {
+      // Signer-match enforcement applies only to the wallet identity path.
+      if (walletAddress !== undefined) {
         const sm = outcome.signerVerdict?.signer_match;
         if (sm && sm.kind !== 'pass') {
           const reason: DenialReason = sm.kind === 'wallet_auth_requires_wallet_signing'
@@ -1606,25 +1355,6 @@ export class Checkout {
       if (custom !== null) return custom;
     }
     const body = denialReasonToBody(reason);
-    // AIT-input denial (a verified AIT that /v1/assess then denied): emit the AgentScore body as
-    // an RFC 9457 + AIP-spec SUPERSET so the response is both schemes at once: the rich
-    // AgentScore `{ error, agent_instructions, ... }` AND the spec's `type`/`title`/`status`/
-    // `detail` (+ escalation). `application/problem+json` so spec consumers content-negotiate it.
-    // The wallet / operator-token paths (aipToken undefined) keep the bare AgentScore body +
-    // application/json (the renderers' default), untouched.
-    if (aipToken !== undefined) {
-      const superset = buildAipPolicyDenyBody(reason.code, reason.reasons, body, {
-        trustedIssuers: gate.aip !== undefined ? aipTrustedIssuerSet(gate.aip) : undefined,
-        requiredClaims: aipRequiredClaims(effPolicy),
-        ...(gate.aip?.requireTrustLevel !== undefined && { requiredTrustLevel: gate.aip.requireTrustLevel }),
-        ...(gate.aip?.requireAmr !== undefined && { requiredAmr: gate.aip.requireAmr }),
-      });
-      return {
-        status: superset.status as number,
-        body: superset,
-        headers: { 'content-type': 'application/problem+json' },
-      };
-    }
     const status =
       reason.code === 'token_expired' || reason.code === 'invalid_credential'
         ? 401
@@ -2160,13 +1890,8 @@ export class Checkout {
       retryBody: ctx.request.body,
       // Merchants without an identity-bearing gate get a clean 402: no
       // AgentScore-identity bootstrap describing a verification flow they
-      // don't run. Wallet OFAC (the always-on default) doesn't need it. When the
-      // merchant accepts AIP, advertise the agent_identity path too (AgentScore's
-      // own issuer is always trusted, so this fires even with no external issuers).
-      agentMemory: firstEncounterAgentMemory({
-        firstEncounter: this.hasIdentityGate(),
-        ...(this.gate?.aip !== undefined && { aipTrustedIssuers: aipTrustedIssuerSet(this.gate.aip) }),
-      }),
+      // don't run. Wallet OFAC (the always-on default) doesn't need it.
+      agentMemory: firstEncounterAgentMemory({ firstEncounter: this.hasIdentityGate() }),
       ...(ctx.pricing.product ? { product: ctx.pricing.product as { id: string; name: string } } : {}),
       ...(ctx.pricing.bodyExtras || identityBootstrap
         ? { extra: { ...(identityBootstrap && { identity_bootstrap: identityBootstrap }), ...ctx.pricing.bodyExtras } }
@@ -2341,10 +2066,9 @@ function stripContentType(headers: Record<string, string>): Record<string, strin
 
 /**
  * The explicitly-set `content-type` from a result's headers, or `undefined` when none was set.
- * Only the AIP deny paths set one (`application/problem+json`, for both the edge-deny and the
- * policy-deny superset, so they content-negotiate as RFC 9457). Every other response leaves it
- * unset: callers fall back to `application/json` WITHOUT mutating the response otherwise, so the
- * non-AIP paths are byte-for-byte unchanged.
+ * Only a merchant's own denial (an `onDenied` or `runGate` result carrying a `content-type`
+ * header) sets one. Every other response leaves it unset: callers fall back to
+ * `application/json` WITHOUT mutating the response otherwise.
  */
 function explicitContentType(headers: Record<string, string>): string | undefined {
   for (const [k, v] of Object.entries(headers)) {
@@ -2458,9 +2182,9 @@ declare module './checkout' {
     raw: req,
   });
   for (const [k, v] of Object.entries(stripContentType(result.headers))) res.setHeader(k, v);
-  // Honor an explicit content-type (AIP problem+json): setting it before json() makes Express
-  // respect it instead of forcing application/json. Only the AIP path sets one, so non-AIP
-  // responses are untouched (res.json defaults to application/json as before).
+  // Honor an explicit content-type: setting it before json() makes Express respect it instead
+  // of forcing application/json. Responses without one are untouched (res.json defaults to
+  // application/json).
   const ct = explicitContentType(result.headers);
   if (ct !== undefined) res.setHeader('Content-Type', ct);
   res.status(result.status);
@@ -2505,10 +2229,10 @@ declare module './checkout' {
   });
   for (const [k, v] of Object.entries(stripContentType(result.headers))) reply.header(k, v);
   reply.code(result.status);
-  // Honor an explicit content-type (AIP problem+json): set it + send a pre-serialized string so
-  // Fastify emits the body verbatim under the chosen content-type instead of forcing
-  // application/json via its object serializer. The string is valid JSON, so parsers still read it
-  // back. Non-AIP responses keep the object path (Fastify serializes + sets application/json).
+  // Honor an explicit content-type: set it + send a pre-serialized string so Fastify emits the
+  // body verbatim under the chosen content-type instead of forcing application/json via its
+  // object serializer. The string is valid JSON, so parsers still read it back. Responses
+  // without one keep the object path (Fastify serializes + sets application/json).
   const ct = explicitContentType(result.headers);
   if (ct !== undefined) {
     reply.header('content-type', ct);

@@ -23,14 +23,15 @@ describe('verification-session request helpers', () => {
     const base = { 'x-verification-session': 'create' };
     expect(requestsVerificationSession({ ...base, 'x-operator-token': 'opc_x' })).toBe(false);
     expect(requestsVerificationSession({ ...base, 'x-wallet-address': '0xabc' })).toBe(false);
-    expect(requestsVerificationSession({ ...base, 'agent-identity': 'eyJ.e30.sig' })).toBe(false);
     expect(requestsVerificationSession({ ...base, authorization: 'Payment abc' })).toBe(false);
     expect(requestsVerificationSession({ ...base, 'x-payment': 'abc' })).toBe(false);
   });
 
-  it('treats an empty Agent-Identity value as no identity', () => {
-    expect(hasIdentityHeader({ 'agent-identity': ' , ' })).toBe(false);
-    expect(hasIdentityHeader({ 'agent-identity': 'eyJ.e30.sig' })).toBe(true);
+  it('counts only an operator token or a wallet address as an identity', () => {
+    expect(hasIdentityHeader({ 'x-operator-token': 'opc_x' })).toBe(true);
+    expect(hasIdentityHeader({ 'x-wallet-address': '0xabc' })).toBe(true);
+    expect(hasIdentityHeader({ 'x-verification-session': 'create' })).toBe(false);
+    expect(hasIdentityHeader({})).toBe(false);
   });
 
   it('runs the conditional gate on a payment credential or a session request, and not otherwise', () => {

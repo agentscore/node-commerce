@@ -1,7 +1,5 @@
-import { createHash } from 'node:crypto';
 import {
   AgentScore,
-  type AipSignatureMaterial,
   InvalidCredentialError,
   PaymentRequiredError,
   QuotaExceededError,
@@ -31,15 +29,6 @@ declare const __VERSION__: string;
 export interface AgentIdentity {
   address?: string;
   operatorToken?: string;
-  /** Raw AIP Agent Identity Token (a JWT). When set, the gate has verified the token's RFC 9421
-   *  proof-of-possession at the edge as a fail-fast filter; `evaluate` forwards it to `/v1/assess`
-   *  as `aip_token` (with {@link aipSignature}) for AUTHORITATIVE server-side re-verification of the
-   *  IdP signature + proof-of-possession + policy. */
-  aipToken?: string;
-  /** RFC 9421 signature material accompanying {@link aipToken}, forwarded to `/v1/assess` as
-   *  `aip_signature` so the API re-verifies proof-of-possession itself (the edge is not trusted as
-   *  the authority). Always set together with `aipToken`. */
-  aipSignature?: AipSignatureMaterial;
 }
 
 /**
@@ -117,11 +106,6 @@ export interface AgentScoreCoreOptions {
   userAgent?: string;
   /** When set and no identity is found, create a verification session instead of denying immediately. */
   createSessionOnMissing?: CreateSessionOnMissing;
-  /** Issuers whose AIP Agent Identity Tokens this gate accepts. When set, the missing-identity
-   *  recovery instructions and the `agent_memory` hint advertise the AIT path so agents holding
-   *  one can present it. Set by Checkout from `gate.aip.trustedIssuers`; the actual AIT
-   *  verification happens at the edge (Checkout) before `evaluate`. */
-  aipTrustedIssuers?: string[];
 }
 
 export type DenialCode =
@@ -154,11 +138,7 @@ export interface AgentMemoryHint {
   quickstart: string;
   identity_check_endpoint: string;
   list_wallets_endpoint?: string;
-  identity_paths: { wallet: string; operator_token: string; agent_identity?: string };
-  /** Issuers whose AIP Agent Identity Tokens this merchant accepts. Present only when the
-   *  merchant opted into AIP; an agent holding an AIT from one of these can present it via an
-   *  `Agent-Identity` header + RFC 9421 signature instead of bootstrapping a fresh credential. */
-  aip_trusted_issuers?: string[];
+  identity_paths: { wallet: string; operator_token: string };
   bootstrap: string;
   do_not_persist_in_memory: string[];
   persist_in_credential_store: string[];
@@ -251,16 +231,6 @@ export interface AssessResult {
   operator_handle?: string;
   verify_url?: string;
   policy_result?: PolicyResult | null;
-  /** IdP provenance, present only when `identity_method === 'aip_token'`: which issuer attested
-   *  the identity and the trust level it asserted. Mirrors the SDK's `AssessResponse.aip`. */
-  aip?: {
-    issuer: string;
-    subject: string;
-    trust_level?: 'autonomous' | 'human_present' | 'human_confirmed';
-    agent_provider?: string;
-    /** True when /v1/assess re-verified the RFC 9421 proof-of-possession (always true on success). */
-    pop_verified?: boolean;
-  };
 }
 
 /**
@@ -300,7 +270,7 @@ export interface GateQuotaInfo {
  *   core) so concurrent same-wallet/different-signer requests can't read each other's verdict:
  *   the adapter stashes it on its per-request state for `getSignerVerdict(ctx)` to read back.
  *   Present only on wallet-only identity when the response carried either signer block; `undefined`
- *   otherwise (operator-token / AIT paths, discovery legs with no signer).
+ *   otherwise (operator-token paths, discovery legs with no signer).
  * - `{ kind: 'deny', reason }`: the request was denied. Adapters should render a 403 with the
  *   reason, or invoke the caller's custom denial handler.
  */
@@ -466,12 +436,11 @@ const INVALID_CREDENTIAL_INSTRUCTIONS = JSON.stringify({
     'The operator_token is not recognized. Use a different stored token, or restart the verification session flow to mint a new one.',
 });
 
-export function buildAgentMemoryHint(aipTrustedIssuers?: string[]): AgentMemoryHint {
+export function buildAgentMemoryHint(): AgentMemoryHint {
   // Memory pointers always point at the canonical production API: merchants must not be
   // able to redirect the cross-merchant memory surface, since that would be a phishing
   // vector for the verify URL.
   const api = CANONICAL_AGENTSCORE_API;
-  const acceptsAip = aipTrustedIssuers !== undefined && aipTrustedIssuers.length > 0;
   return {
     save_for_future_agentscore_gates: true,
     pattern_summary:
@@ -489,16 +458,7 @@ export function buildAgentMemoryHint(aipTrustedIssuers?: string[]): AgentMemoryH
       operator_token:
         'For any rail (Stripe SPT, card, or a wallet you have not linked yet), send ' +
         '`X-Operator-Token: opc_...`. Reusable across merchants until the token expires.',
-      ...(acceptsAip && {
-        agent_identity:
-          'If you hold an AIP Agent Identity Token from a trusted issuer (see aip_trusted_issuers), ' +
-          'present it: send the JWT in an `Agent-Identity` header plus an RFC 9421 HTTP Message ' +
-          'Signature (Signature-Input + Signature over @method @authority @path agent-identity, ' +
-          'tag="agent-identity") signed with the token-bound cnf key. The merchant verifies it and ' +
-          'applies its policy: no separate AgentScore credential needed.',
-      }),
     },
-    ...(acceptsAip && { aip_trusted_issuers: aipTrustedIssuers }),
     bootstrap:
       'If you have neither a linked wallet nor a valid operator_token, follow the session/verify ' +
       'flow in the per-request `agent_instructions` block. This happens at most once per agent ' +
@@ -531,11 +491,10 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     chain: gateChain,
     userAgent,
     createSessionOnMissing,
-    aipTrustedIssuers,
   } = options;
 
   const baseUrl = stripTrailingSlashes(rawBaseUrl);
-  const agentMemoryHint = buildAgentMemoryHint(aipTrustedIssuers);
+  const agentMemoryHint = buildAgentMemoryHint();
 
   const defaultUa = `@agent-score/commerce@${__VERSION__}`;
   const userAgentHeader = userAgent ? `${userAgent} (${defaultUa})` : defaultUa;
@@ -668,7 +627,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
   ): Promise<EvaluateOutcome> {
     // Treat "returned identity object with no usable fields" the same as "no identity at all":
     // otherwise a misbehaving custom extractIdentity would send an empty body to /v1/assess.
-    if (!identity || (!identity.address?.trim() && !identity.operatorToken?.trim() && !identity.aipToken?.trim())) {
+    if (!identity || (!identity.address?.trim() && !identity.operatorToken?.trim())) {
       // failOpen short-circuits BEFORE the session mint. This branch isn't an infra failure
       // (no AgentScore call has been made yet) so we don't mark the gate state as degraded:
       // missing identity + failOpen is the explicit opt-in pass-through behavior, not a
@@ -684,16 +643,9 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
       // strategy so agents without memory can recover: try wallet first on signing rails,
       // fall back to stored opc_..., fall back to session flow (noting that only
       // auto-session merchants return verify_url + poll data on the retry).
-      const acceptsAip = aipTrustedIssuers !== undefined && aipTrustedIssuers.length > 0;
-      const aipStep = acceptsAip
-        ? [
-            `If you hold an AIP Agent Identity Token from a trusted issuer (${aipTrustedIssuers.join(', ')}): present it: send the JWT in an Agent-Identity header plus an RFC 9421 HTTP Message Signature (Signature-Input + Signature over @method @authority @path agent-identity, tag="agent-identity") signed with the token-bound cnf key. This satisfies identity in one round trip without an AgentScore credential.`,
-          ]
-        : [];
       const missingIdentityInstructions = JSON.stringify({
         action: 'probe_identity_then_session',
         steps: [
-          ...aipStep,
           'If you have a wallet AND this merchant accepts a wallet-signing rail (Tempo MPP or x402; see openapi.json x-payment-info): send X-Wallet-Address and retry. If the wallet is already linked to an AgentScore operator (via prior SIWE claim or prior captureWallet), this passes in one round trip. If the wallet is unlinked or the account has no KYC, the 403 will include a verify_url: share it with the user to claim the wallet + complete KYC, then retry.',
           'If step 1 is denied or you already have a stored operator_token (valid + not expired): send X-Operator-Token: opc_... and retry.',
           'If neither applies: retry with NO identity header. Merchants that auto-create verification sessions (most AgentScore merchants do) return verify_url + session_id + poll_secret in the 403 body: share verify_url with the user, then poll poll_url every 5s with the X-Poll-Secret header until status=verified (the poll returns a one-time operator_token). If the retry returns the same bare 403, this merchant does not support self-service session bootstrapping: direct the user to https://www.agentscore.com/sign-up to create an AgentScore identity and mint an operator_token from their dashboard (https://www.agentscore.com/dashboard/verify). The user hands the opc_... to you, and you retry with X-Operator-Token.',
@@ -715,12 +667,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
     // through normalizeAddress because Solana base58 is case-sensitive and lowercasing
     // would corrupt the cache key (a Solana cache miss every time, plus collision risk
     // with mixed-case variants of the same operator).
-    // AIT cache key: hash the raw token so the (short-lived) JWT isn't held verbatim as a
-    // Map key. AITs are seconds-to-minutes TTL anyway; this just dedupes repeated presents
-    // within the cache window. Falls through to operator_token / address otherwise.
-    const identityKey = identity.aipToken
-      ? `aip:${createHash('sha256').update(identity.aipToken).digest('hex')}`
-      : identity.operatorToken?.toLowerCase() ?? (identity.address ? normalizeAddress(identity.address) : '');
+    const identityKey = identity.operatorToken?.toLowerCase() ?? (identity.address ? normalizeAddress(identity.address) : '');
 
     // The assess response carries per-request, signer-derived verdicts (signer_match +
     // signer_sanctions). The signer is NOT part of the identity, so it must be folded into the
@@ -812,19 +759,9 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
         ...(signer && { signer: { address: signer.address, network: signer.network } }),
       };
       // SDK has overloads: narrow by which identity is set so TS picks the right one.
-      // AIT takes precedence: when present it's the sole identity input. The edge already
-      // PoP-verified as a fail-fast filter; we forward the token + signature material so the API
-      // re-verifies the IdP signature AND the proof-of-possession authoritatively. Checkout always
-      // sets both together; a hand-rolled evaluate() with aipToken but no aipSignature is a caller
-      // error: fail loudly rather than silently misrouting to the operator-token branch.
-      if (identity.aipToken !== undefined && identity.aipSignature === undefined) {
-        throw new Error('AgentScoreCore.evaluate: aipToken requires aipSignature (RFC 9421 proof-of-possession material).');
-      }
-      const result = identity.aipToken !== undefined && identity.aipSignature !== undefined
-        ? await sdk.assess(null, { ...opts, aipToken: identity.aipToken, aipSignature: identity.aipSignature })
-        : identity.address
-          ? await sdk.assess(identity.address, { ...opts, operatorToken: identity.operatorToken })
-          : await sdk.assess(null, { ...opts, operatorToken: identity.operatorToken! });
+      const result = identity.address
+        ? await sdk.assess(identity.address, { ...opts, operatorToken: identity.operatorToken })
+        : await sdk.assess(null, { ...opts, operatorToken: identity.operatorToken! });
       data = result as unknown as Record<string, unknown>;
     } catch (err) {
       if (err instanceof PaymentRequiredError) {
@@ -1082,8 +1019,8 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
 
   /**
    * Build the per-request signer verdicts (signer_match + signer_sanctions) from an assess
-   * response. Returns `undefined` unless the wallet is the EFFECTIVE identity (no operator_token,
-   * no AIT: operator-token / AIT wins and signer-match is deliberately NOT enforced) AND the
+   * response. Returns `undefined` unless the wallet is the EFFECTIVE identity (no operator_token:
+   * operator-token wins and signer-match is deliberately NOT enforced) AND the
    * response carried at least one signer block.
    *
    * The verdict is returned on the `EvaluateOutcome` and stashed by each adapter on its
@@ -1096,8 +1033,7 @@ export function createAgentScoreCore(options: AgentScoreCoreOptions): AgentScore
   ): SignerVerdict | undefined {
     if (
       identity.address === undefined ||
-      identity.operatorToken !== undefined ||
-      identity.aipToken !== undefined
+      identity.operatorToken !== undefined
     ) {
       return undefined;
     }

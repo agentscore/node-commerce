@@ -1,8 +1,8 @@
 /**
  * Cache-poisoning bypass of wallet-signer binding + signer-OFAC (src/core.ts).
  *
- * The assess response cache was keyed by IDENTITY only (claimed wallet / operator_token / aip
- * hash); the payment SIGNER was not part of the key. So a 2nd request inside `cacheSeconds` that
+ * The assess response cache was keyed by IDENTITY only (claimed wallet / operator_token); the
+ * payment SIGNER was not part of the key. So a 2nd request inside `cacheSeconds` that
  * claimed the same wallet but signed with a DIFFERENT wallet hit the cached decision and returned
  * the first signer's stale `signer_match: pass` / `signer_sanctions: clear`: the API never
  * re-screened the new signer. Variant: a sanctioned 2nd signer would settle on the cached `clear`.

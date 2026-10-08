@@ -55,7 +55,7 @@ describe('denialReasonToBody', () => {
       agent_memory: {
         save_for_future_agentscore_gates: true,
         pattern_summary: 'test',
-        quickstart: 'https://docs/agent-identity',
+        quickstart: 'https://docs/passport',
         identity_check_endpoint: 'https://api.agentscore.com/v1/credentials',
         identity_paths: { wallet: 'X-Wallet-Address', operator_token: 'X-Operator-Token' },
         bootstrap: 'Follow verify_url',

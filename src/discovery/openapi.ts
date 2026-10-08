@@ -15,17 +15,8 @@ import { usdToAtomic } from '../payment/amounts';
  * Includes `siwx` (Sign-In With X) per the x402scan discovery spec so identity-gated
  * operations can declare `security: [{ siwx: [] }]` and stay classified as identity-only,
  * not paid.
- *
- * When `aip` is true, also advertise the AIP Agent Identity Token scheme. AgentScore's own
- * issuer is always trusted, so set this whenever the merchant has an AIP gate (even with no
- * external issuers).
  */
-export function agentscoreSecuritySchemes({
-  aip = false,
-}: {
-  /** Advertise the AIP Agent Identity Token scheme. Default false. */
-  aip?: boolean;
-} = {}): Record<string, unknown> {
+export function agentscoreSecuritySchemes(): Record<string, unknown> {
   const schemes: Record<string, unknown> = {
     OperatorToken: {
       type: 'apiKey',
@@ -42,15 +33,6 @@ export function agentscoreSecuritySchemes({
         'Wallet-path identity (0x... or base58). Only works on rails that carry a wallet signature (Tempo MPP, x402 EIP-3009 on Base, Solana MPP). The wallet you claim MUST sign the payment.',
     },
   };
-  if (aip) {
-    schemes.AgentIdentity = {
-      type: 'apiKey',
-      in: 'header',
-      name: 'Agent-Identity',
-      description:
-        'AIP Agent Identity Token path (a JWT from a trusted issuer; AgentScore is always trusted). Opt-in. The token is bound to the agent key via `cnf`; the request MUST also carry an RFC 9421 HTTP Message Signature (`Signature-Input` + `Signature` over `@method @authority @path agent-identity`, tag `agent-identity`) proving possession. A verified AIT is the sole identity and is evaluated against the merchant policy via its attested claims.',
-    };
-  }
   schemes.siwx = siwxSecurityScheme();
   return schemes;
 }
@@ -425,7 +407,6 @@ export function agentscoreOpenApiSnippets({
   security = true,
   denials = true,
   paymentRequired = true,
-  aip = false,
 }: {
   /** Include security schemes in the snippet. Default true. */
   security?: boolean;
@@ -433,12 +414,10 @@ export function agentscoreOpenApiSnippets({
   denials?: boolean;
   /** Include the 402 PaymentRequired schema in the snippet. Default true. */
   paymentRequired?: boolean;
-  /** Advertise the AIP Agent Identity Token scheme. Default false. */
-  aip?: boolean;
 } = {}): { securitySchemes?: Record<string, unknown>; schemas?: Record<string, unknown> } {
   const out: { securitySchemes?: Record<string, unknown>; schemas?: Record<string, unknown> } = {};
   if (security) {
-    out.securitySchemes = agentscoreSecuritySchemes({ aip });
+    out.securitySchemes = agentscoreSecuritySchemes();
   }
   if (denials || paymentRequired) {
     out.schemas = {
