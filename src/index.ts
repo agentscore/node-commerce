@@ -33,11 +33,9 @@ export {
 export { buildVerificationRequiredBody, denialReasonToBody } from './_response';
 export {
   buildA2AAgentCard,
-  aipA2AExtension,
   ucpA2AExtension,
   A2A_DEFAULT_TRANSPORT,
   A2A_PROTOCOL_VERSION,
-  AIP_A2A_EXTENSION_URI,
   UCP_A2A_EXTENSION_URI,
   type A2AAgentCard,
   type A2AAgentCardCapabilities,
@@ -114,7 +112,6 @@ export {
   type ReferenceIdFn,
   type RunGateFn,
   type SettleOutcome,
-  buildAipTrustedIssuers,
   getIdentityStatus,
   makeMppxComposeHook,
   pricingResult,
@@ -176,59 +173,3 @@ export {
   type MalformedPaymentCredential,
 } from './payment/payment_header';
 export { buildIdentityBootstrap, type IdentityBootstrapBlock } from './challenge/identity';
-// AIP (Agentic Identity Protocol): AIT verification (verifier role) + RFC 9421 signing.
-export {
-  AGENT_IDENTITY_HEADER,
-  verifyAit,
-  type VerifiedAit,
-  type VerifyAitFailure,
-  type VerifyAitOptions,
-  type VerifyAitResult,
-  type VerifyRequestContext,
-} from './aip/verify';
-export {
-  AIP_COVERED_COMPONENTS,
-  AIP_SIGNATURE_TAG,
-  MAX_POP_WINDOW_SECONDS,
-  signMessage,
-  verifyMessageSignature,
-  type SignMessageInput,
-  type VerifyFailureReason,
-  type VerifyMessageSignatureInput,
-  type VerifyMessageSignatureResult,
-} from './aip/http-signature';
-export {
-  AGENTSCORE_CANONICAL_ISSUER,
-  HARD_MAX_CACHE_SECONDS,
-  JWKS_WELL_KNOWN_PATH,
-  JwksCache,
-  canonicalizeIssuer,
-  type JwksCacheOptions,
-  type JwksLookupResult,
-} from './aip/jwks';
-export {
-  isAitShape,
-  validateAitPayload,
-  type AitHeader,
-  type AitPayload,
-  type AitValidationResult,
-  type AmrValue,
-  type IdentityClaim,
-  type IntentClaim,
-  type TrustLevel,
-} from './aip/types';
-export { buildVerifyContextFromRequest, hasAgentIdentityHeader } from './aip/request';
-export {
-  aipErrorCode,
-  aipErrorStatus,
-  buildAipErrorBody,
-  buildAipWeakAuthBody,
-  checkTrustRequirements,
-  evaluateAipParts,
-  evaluateAipRequest,
-  verifyAitRequest,
-  type AipErrorRequirements,
-  type AipGateEvaluation,
-  type AipGateOptions,
-  type AipGateResult,
-} from './aip/gate';

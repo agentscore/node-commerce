@@ -44,7 +44,7 @@ export function withAgentScoreGate<TReq extends Request = Request, TCtx = unknow
        *  what durable merchant state (prepaid balances first) should key on: it survives
        *  the token rotating, expiring or being revoked. Rides the gate's existing
        *  `/v1/assess` call, so it costs no extra round trip and nothing extra against
-       *  quota. `undefined` on wallet or AIT paths, or when the API has no handle salt. */
+       *  quota. `undefined` on wallet paths, or when the API has no handle salt. */
       operatorHandle?: OperatorHandle;
       /** Set to `true` only when the gate fail-open'd due to AgentScore-side infra failure
        *  (429/5xx/network timeout). Compliance was NOT enforced: log/alert in your handler. */
@@ -134,16 +134,3 @@ export function conditionalAgentscoreMiddleware(options: Parameters<typeof creat
     return result.allowed ? undefined : result.response;
   };
 }
-
-
-// ---------------------------------------------------------------------------
-// AIP gate (Agentic Identity Protocol): Next.js App Router. Fetch-native, so these are
-// thin re-exports of web's AIP gate (works with NextRequest, which extends Request).
-// ---------------------------------------------------------------------------
-export {
-  createAipGate,
-  withAipGate,
-  withConditionalAipGate,
-  type AipGateWebOptions,
-  type AipGuardResult,
-} from './web';
