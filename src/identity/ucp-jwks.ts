@@ -94,6 +94,7 @@ async function loadJose(): Promise<typeof import('jose')> {
   } catch (err) {
     throw new Error(
       `UCP signing requires the \`jose\` library, which is an optional peer dependency. ${JOSE_INSTALL_HINT}\nOriginal error: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
     );
   }
 }
@@ -578,10 +579,10 @@ async function buildEnvSigningKey(
     let jwkDict: Record<string, unknown>;
     try {
       jwkDict = JSON.parse(envJwk) as Record<string, unknown>;
-    } catch (err) {
-      throw new Error(
-        `${opts.envJwkVar} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    } catch {
+      // JSON.parse's message quotes an excerpt of its input, which here is private
+      // key material, so neither the message nor the error itself is carried.
+      throw new Error(`${opts.envJwkVar} is not valid JSON.`);
     }
     if (!jwkDict || typeof jwkDict !== 'object' || Array.isArray(jwkDict) || Object.keys(jwkDict).length === 0) {
       throw new Error(`${opts.envJwkVar} must be a non-empty JWK object.`);
@@ -622,6 +623,8 @@ async function buildEnvSigningKey(
           ? String((err as { code?: unknown }).code)
           : null;
       const codeSuffix = code ? ` [${code}]` : '';
+      // The cause is withheld on purpose: it can carry key bytes.
+      // eslint-disable-next-line preserve-caught-error
       throw new Error(
         `${opts.envJwkVar} has malformed key material (${className}${codeSuffix}). ` +
           'Verify the JWK is well-formed and matches the declared kty/crv. ' +
