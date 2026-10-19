@@ -23,6 +23,9 @@ export default defineConfig([
         alphabetize: { caseInsensitive: true, order: 'asc' },
         groups: ['builtin', 'external', 'internal', 'parent', 'sibling', 'index', 'type'],
         'newlines-between': 'never',
+        // import-x calls the package's own name internal when it resolves to a
+        // built dist/ and external when it does not, so pin it to external.
+        pathGroups: [{ group: 'external', pattern: '@agent-score/**' }],
       }],
       'no-console': ['warn', { allow: ['warn', 'error'] }],
       'prefer-const': 'error',

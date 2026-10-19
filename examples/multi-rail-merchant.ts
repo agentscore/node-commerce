@@ -38,9 +38,6 @@
  *
  * Run: bun run examples/multi-rail-merchant.ts
  */
-import { Hono, type Context } from 'hono';
-// @ts-expect-error stripe is an optional peer dep installed by the example user
-import Stripe from 'stripe';
 import {
   Checkout,
   CheckoutGateConfig,
@@ -60,6 +57,9 @@ import {
   mintMultichainRecipients,
   simulateDepositForOutcome,
 } from '@agent-score/commerce/stripe-multichain';
+import { Hono, type Context } from 'hono';
+// @ts-expect-error stripe is an optional peer dep installed by the example user
+import Stripe from 'stripe';
 
 const APP_URL = process.env.APP_URL!;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY!;

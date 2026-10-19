@@ -27,7 +27,6 @@
  *
  * Run: bun run examples/per-product-policy-merchant.ts
  */
-import { Hono, type Context } from 'hono';
 import {
   Checkout,
   CheckoutValidationError,
@@ -43,6 +42,7 @@ import {
 } from '@agent-score/commerce';
 import { type AgentScoreCoreOptions } from '@agent-score/commerce/core';
 import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
+import { Hono, type Context } from 'hono';
 
 const API_KEY = process.env.AGENTSCORE_API_KEY ?? 'ask_test_dummy';
 
