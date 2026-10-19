@@ -185,6 +185,14 @@ describe('loadUCPSigningKeyFromEnv: error paths', () => {
     );
   });
 
+  it('keeps the env value out of the malformed-JSON error', async () => {
+    process.env.UCP_SIGNING_KEY_JWK_PRIVATE = '{"secret":SENSITIVEBYTES}';
+    const err = await loadUCPSigningKeyFromEnv().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).not.toMatch(/SENSITIVE|secret/);
+    expect((err as Error).cause).toBeUndefined();
+  });
+
   it('throws for unsupported kty/crv, naming the actual values', async () => {
     process.env.UCP_SIGNING_KEY_JWK_PRIVATE = JSON.stringify({ kty: 'RSA', n: 'abc', e: 'AQAB' });
     await expect(loadUCPSigningKeyFromEnv()).rejects.toThrow(/unsupported kty\/crv.*RSA/);

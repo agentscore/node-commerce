@@ -28,6 +28,7 @@
  * surfacing on the first `/.well-known/ucp` hit.
  */
 
+import { Hono, type Context } from 'hono';
 import {
   Checkout,
   type AgentScoreGatePolicy,
@@ -41,7 +42,6 @@ import {
   defaultA2aServices,
 } from '@agent-score/commerce/discovery';
 import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
-import { Hono, type Context } from 'hono';
 
 const SIGNING_KID = 'merchant-2026-05';
 

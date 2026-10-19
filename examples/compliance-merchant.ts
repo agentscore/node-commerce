@@ -33,6 +33,7 @@
  *
  * Run: bun run examples/compliance-merchant.ts
  */
+import { Hono, type Context } from 'hono';
 import {
   Checkout,
   type CheckoutContext,
@@ -50,7 +51,6 @@ import {
   verificationAgentInstructions,
 } from '@agent-score/commerce';
 import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
-import { Hono, type Context } from 'hono';
 
 const AGENTSCORE_API_KEY = process.env.AGENTSCORE_API_KEY!;
 const SUPPORT_EMAIL = 'support@example.com';

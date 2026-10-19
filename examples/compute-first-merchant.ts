@@ -41,10 +41,10 @@
  * Run: bun run examples/compute-first-merchant.ts
  */
 
+import { Hono, type Context } from 'hono';
 import { computeFirstCheckout, type WorkOutcome } from '@agent-score/commerce';
 import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
 import { createX402Server } from '@agent-score/commerce/payment';
-import { Hono, type Context } from 'hono';
 
 const APP_URL = process.env.APP_URL ?? 'https://api.example.com';
 const X402_BASE_NETWORK = (process.env.X402_BASE_NETWORK ?? 'eip155:8453') as `${string}:${string}`;

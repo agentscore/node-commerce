@@ -131,7 +131,7 @@ Anonymous POST flows through to the handler unauthenticated and gets a 402 with 
 ## Tooling
 
 - **Bun**: package manager.
-- **ESLint 9**: linting.
+- **ESLint 10**: linting.
 - **tsup**: CJS + ESM build with subpath exports.
 - **Vitest**: tests.
 - **Lefthook**: pre-commit lint, pre-push typecheck.

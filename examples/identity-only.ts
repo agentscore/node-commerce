@@ -18,13 +18,13 @@
  *
  * Run: bun run examples/identity-only.ts
  */
+import { Hono } from 'hono';
 import {
   agentscoreGate,
   captureWallet,
   getAgentScoreData,
 } from '@agent-score/commerce/identity/hono';
 import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
-import { Hono } from 'hono';
 
 const app = new Hono();
 app.use('*', rateLimitHono());

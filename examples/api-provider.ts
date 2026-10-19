@@ -32,6 +32,7 @@
  * Run: bun run examples/api-provider.ts
  */
 
+import { Hono, type Context } from 'hono';
 import {
   Checkout,
   type DiscoveryProbeConfig,
@@ -45,7 +46,6 @@ import {
 } from '@agent-score/commerce/discovery';
 import { rateLimitHono } from '@agent-score/commerce/middleware/hono';
 import { buildDefaultCheckoutRails, networks } from '@agent-score/commerce/payment';
-import { Hono, type Context } from 'hono';
 
 const PRICE_USDC = 0.01; // per-call price in USD
 const REALM = 'api.example.com';
