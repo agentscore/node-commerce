@@ -1,8 +1,17 @@
 # OSV-Scanner allowlist. Each entry must document why the advisory is not
 # exploitable in this codebase. Keep this list minimal and revisit on review.
-#
-# Empty on purpose: every advisory this tree carries currently has a reachable
-# fix. The brace-expansion entry that lived here is gone because upstream
-# backported the DoS fix to the 1.x line (1.1.17, then 1.1.18 for the follow-up
-# bypass), so the "no fixed release on 1.x" that justified it is no longer true
-# and minimatch@3's own `^1.1.7` range takes the fix with no override.
+
+# zod 3.25.76: GHSA-mrhx-c7xc-m3w5 covers every release below 4.6.6 and no 3.x
+# fix exists. This copy is the dev tree's, required at ^3 by the x402 and
+# cdp-sdk packages the tests and examples install; their latest releases still
+# require zod ^3. It is not in the published package: the build bundles only
+# mppx's own zod 4 (dist source maps list mppx/node_modules/zod and nothing
+# else), and that copy is on a fixed 4.x. The entry is scoped to 3.25.76, so a
+# zod 4 regression still fails the scan. Lift when those packages accept zod 4.
+[[PackageOverrides]]
+name = "zod"
+version = "3.25.76"
+ecosystem = "npm"
+effectiveUntil = 2027-01-24
+vulnerability.ignore = true
+reason = "GHSA-mrhx-c7xc-m3w5 has no zod 3.x fix and the x402 and cdp-sdk dev dependencies still require zod ^3. The published bundle carries only mppx's zod 4.6.7."
