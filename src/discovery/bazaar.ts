@@ -7,7 +7,7 @@
  * `@x402/extensions` is an optional peer dependency.
  */
 interface BazaarDiscoveryConfig {
-  bodyType?: 'json' | 'form';
+  bodyType?: 'json' | 'form-data' | 'text';
   input?: Record<string, unknown>;
   output?: Record<string, unknown>;
   [key: string]: unknown;
