@@ -6,6 +6,8 @@ import {
 } from './_core';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 
+export type { RateLimitCoreOptions } from './_core';
+
 export interface RateLimitExpressOptions extends RateLimitCoreOptions {
   /** Bucket key resolver. Default: first hop of `x-forwarded-for`, else req.ip, else `'unknown'`. */
   keyResolver?: (req: Request) => string;

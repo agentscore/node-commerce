@@ -6,6 +6,8 @@ import {
 } from './_core';
 import type { FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
 
+export type { RateLimitCoreOptions } from './_core';
+
 export interface RateLimitFastifyOptions extends RateLimitCoreOptions {
   /** Bucket key resolver. Default: first hop of `x-forwarded-for`, else `req.ip`, else `'unknown'`. */
   keyResolver?: (req: FastifyRequest) => string;

@@ -5,6 +5,8 @@ import {
   type RateLimitCoreOptions,
 } from './_core';
 
+export type { RateLimitCoreOptions } from './_core';
+
 export interface RateLimitWebOptions extends RateLimitCoreOptions {
   /** Bucket key resolver. Default: first hop of `x-forwarded-for`, else `'unknown'`. */
   keyResolver?: (req: Request) => string;
