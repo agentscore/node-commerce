@@ -6,6 +6,8 @@ import {
 } from './_core';
 import type { Context, MiddlewareHandler, Next } from 'hono';
 
+export type { RateLimitCoreOptions } from './_core';
+
 export interface RateLimitHonoOptions extends RateLimitCoreOptions {
   /** Bucket key resolver. Default: first hop of `x-forwarded-for`, else `'unknown'`. */
   keyResolver?: (c: Context) => string;
